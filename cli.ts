@@ -4,7 +4,7 @@ import {
   AVAILABLE_AUDIO_FORMATS,
   AudioFormat,
   extractEPub,
-  generateAudioBook,
+  generateChapterAudioFiles,
   createAudiobook,
   listAvailableVoices
 } from "./lib.ts";
@@ -68,7 +68,7 @@ async function main() {
     console.log("Book extracted successfully");
     const outputDir = new URL(`./output/${book.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}`, import.meta.url).pathname;
 
-    await generateAudioBook(book, outputDir, voice, qtype as QType);
+    await generateChapterAudioFiles(book, outputDir, voice, qtype as QType);
     console.log("Audio generation completed");
 
     await createAudiobook(book, epubPath, outputDir, format as AudioFormat);
