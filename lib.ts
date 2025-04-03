@@ -199,7 +199,38 @@ export async function createAudiobook(
     .toLowerCase()}.${format}`;
 
   // Extract and save cover image
-  const coverPath = await extractCoverImage(epubPath, book, outputDir);
+  let coverPath: string | null = null;
+  try {
+    coverPath = await extractCoverImage(epubPath, book, outputDir);
+    
+    // Check if cover exists and if so, convert it to a compatible format
+    if (coverPath) {
+      const compatibleCoverPath = `${outputDir}/cover_compatible.jpg`;
+      // Convert the image to JPEG format which is more compatible with M4B/M4A
+      const imgCmd = new Deno.Command("ffmpeg", {
+        args: [
+          "-y",
+          "-i", coverPath,
+          "-vf", "scale=800:-1",  // Resize to reasonable dimensions
+          "-q:v", "2",            // High quality JPEG
+          compatibleCoverPath
+        ],
+      });
+      
+      const imgResult = await imgCmd.output();
+      if (imgResult.code === 0) {
+        // If conversion succeeds, use the compatible cover
+        await Deno.remove(coverPath);
+        coverPath = compatibleCoverPath;
+      } else {
+        console.warn("Failed to convert cover image to compatible format. Proceeding without cover.");
+        coverPath = null;
+      }
+    }
+  } catch (error) {
+    console.warn(`Cover image processing failed: ${error}. Proceeding without cover.`);
+    coverPath = null;
+  }
 
   // Create concat file listing all wav files
   const wavFiles = book.chapters
@@ -217,42 +248,33 @@ export async function createAudiobook(
 
   // Prepare FFmpeg arguments
   const ffmpegArgs = [
-    "-f",
-    "concat",
-    "-safe",
-    "0",
-    "-i",
-    concatPath,
-    "-f",
-    "ffmetadata",
-    "-i",
-    metadataPath,
+    "-y",                // Overwrite output files
+    "-f", "concat",
+    "-safe", "0",
+    "-i", concatPath,
+    "-f", "ffmetadata",
+    "-i", metadataPath,
   ];
 
   // Add cover image if available
   if (coverPath) {
     ffmpegArgs.push(
-      "-i",
-      coverPath,
-      "-map",
-      "2",
-      "-disposition:v:0",
-      "attached_pic"
+      "-i", coverPath,
+      "-map", "0:a",     // First map audio from the first input
+      "-map", "2:v",     // Then map video (cover) from the third input
+      "-c:v", "mjpeg",   // Use MJPEG codec for the cover which is widely compatible
+      "-disposition:v:0", "attached_pic"
     );
+  } else {
+    ffmpegArgs.push("-map", "0:a"); // Only map audio if no cover
   }
 
   // Add remaining arguments
   ffmpegArgs.push(
-    "-map",
-    "0:a",
-    "-acodec",
-    "aac",
-    "-b:a",
-    "64k",
-    "-map_metadata",
-    "1",
-    "-movflags",
-    "+faststart"
+    "-acodec", "aac",
+    "-b:a", "64k",
+    "-map_metadata", "1",
+    "-movflags", "+faststart"
   );
 
   // Add format-specific arguments
@@ -262,26 +284,27 @@ export async function createAudiobook(
 
   // Add metadata
   ffmpegArgs.push(
-    "-metadata",
-    `title=${book.title}`,
-    "-metadata",
-    `artist=${book.author}`,
+    "-metadata", `title=${book.title}`,
+    "-metadata", `artist=${book.author}`,
     outputFile
   );
 
   // Convert to audiobook with chapter markers and cover
+  console.log(`Creating ${format} audiobook: ${outputFile}`);
   const cmd = new Deno.Command("ffmpeg", { args: ffmpegArgs });
 
   const { code, stderr } = await cmd.output();
   if (code !== 0) {
+    const errorOutput = new TextDecoder().decode(stderr);
+    console.error(`FFmpeg error output: ${errorOutput}`);
     throw new Error(
-      `Failed to create ${format.toUpperCase()} audiobook: ${new TextDecoder().decode(
-        stderr
-      )}`
+      `Failed to create ${format.toUpperCase()} audiobook: ${errorOutput}`
     );
   }
 
-  //Cleanup temporary files
+  console.log(`Successfully created audiobook: ${outputFile}`);
+
+  // Cleanup temporary files
   await Deno.remove(concatPath);
   await Deno.remove(metadataPath);
   if (coverPath) {
