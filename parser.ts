@@ -1,5 +1,5 @@
 import { readZip } from "https://deno.land/x/jszip@0.11.0/mod.ts";
-import { DOMParser } from "jsr:@b-fuze/deno-dom";
+import { Document, DOMParser } from "jsr:@b-fuze/deno-dom";
 import { pipeline } from "npm:@huggingface/transformers";
 
 export interface Chapter {
@@ -31,14 +31,13 @@ export function cleanHtml(html: string): string {
 }
 
 export async function extractChapterTitle(
-  pipe: any,
   chapterDoc: Document | null,
   guideTitle: string | undefined,
   chapterContent: string,
   index: number
 ): Promise<string> {
   // First try to get title from metadata
-  const newTitle = chapterDoc
+  const fallbackTitle = chapterDoc
     ?.querySelector("head")
     ?.querySelector("title")?.textContent;
   
@@ -74,19 +73,7 @@ export async function extractChapterTitle(
       guideTitle ||
       cleanHtml(chapterTitleFromStructure || headingTitle || chapterDoc?.querySelector("title")?.textContent || "");
 
-  const contentPreview = chapterContent.slice(0, 500);
-  const prompt = `${contentPreview}`;
-
-  const out = await pipe(prompt, {
-    max_length: 50,
-    min_length: 2,
-  });
-
-  const result = Array.isArray(out) ? out[0] : out;
-
-  const generatedTitle = result.summary_text;
-
-  return newTitle || title || generatedTitle || `Chapter ${index + 1}`;
+  return title || fallbackTitle || `Chapter ${index + 1}`;
 }
 
 export async function extractEPub(filePath: string): Promise<EPubBook> {
@@ -158,7 +145,6 @@ export async function extractEPub(filePath: string): Promise<EPubBook> {
 
       const guideTitle = chapterTitles.get(id);
       const title = await extractChapterTitle(
-        pipe,
         chapterDoc,
         guideTitle,
         content!,
