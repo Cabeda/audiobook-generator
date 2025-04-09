@@ -1,5 +1,7 @@
 import { KokoroTTS, TextSplitterStream } from "npm:kokoro-js";
 import { Chapter, EPubBook, extractEPub, extractCoverImage } from "./parser.ts";
+import os from "node:os";
+
 
 export type { Chapter, EPubBook };
 export { extractEPub };
@@ -9,6 +11,12 @@ export type QType = (typeof AVAILABLE_QTYPES)[number];
 
 export const AVAILABLE_AUDIO_FORMATS = ["m4a", "m4b"] as const;
 export type AudioFormat = (typeof AVAILABLE_AUDIO_FORMATS)[number];
+
+// Default to half the available CPU cores, with a minimum of 1
+export const DEFAULT_PARALLEL_CORES = Math.max(
+  1,
+  Math.floor(os.availableParallelism() / 2) || 1
+);
 
 async function streamOutput(
   tts: KokoroTTS,
@@ -102,13 +110,43 @@ async function streamOutput(
 }
 
 /**
+ * Processes a single chapter and generates an audio file.
+ * 
+ * @param tts KokoroTTS instance
+ * @param chapter Chapter data
+ * @param outputDir Output directory
+ * @param chapterIndex Index of the chapter
+ * @param voice Voice to use
+ * @returns Promise that resolves when the chapter is processed
+ */
+async function processChapter(
+  tts: KokoroTTS,
+  chapter: Chapter,
+  outputDir: string,
+  chapterIndex: number,
+  voice: string
+): Promise<number> {
+  const fileName = `${outputDir}/${String(chapterIndex + 1).padStart(
+    3,
+    "0"
+  )}-${chapter.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.wav`;
+
+  await streamOutput(tts, chapter.content, fileName, voice, true);
+  return chapterIndex;
+}
+
+/**
  * Generates audio files for each chapter of the book using the specified TTS model and voice.
+ * Processes chapters in parallel based on the number of cores specified.
  * 
  * @param {EPubBook} book - The book object containing chapters and metadata.
  * @param {string} outputDir - The directory where audio files will be saved.
  * @param {string} voice - The voice to be used for TTS.
  * @param {QType} qtype - The quantization type for the TTS model.
- * @param {boolean} keepChunks - Whether to keep the individual audio chunks (default: false).
+ * @param {function} progressCallback - Optional callback function to report progress.
+ * @param {number} parallelCores - Number of parallel processes to run (defaults to half of available CPU cores).
+ * @param {number} startChapter - Optional starting chapter index (1-based)
+ * @param {number} endChapter - Optional ending chapter index (1-based)
  * @returns {Promise<void>} - A promise that resolves when all audio files are generated.
  */
 export async function generateChapterAudioFiles(
@@ -116,8 +154,27 @@ export async function generateChapterAudioFiles(
   outputDir: string,
   voice: string,
   qtype: QType,
-  keepChunks: boolean = false
+  progressCallback?: (chapterIndex: number) => void,
+  parallelCores: number = DEFAULT_PARALLEL_CORES,
+  startChapter: number = 1,
+  endChapter?: number
 ) {
+  // Convert 1-based chapter indices to 0-based array indices
+  const startIndex = Math.max(0, startChapter - 1);
+  const endIndex = endChapter !== undefined ? Math.min(endChapter - 1, book.chapters.length - 1) : book.chapters.length - 1;
+  
+  // If invalid range, exit early
+  if (startIndex > endIndex || startIndex >= book.chapters.length) {
+    console.warn(`Invalid chapter range: ${startChapter} to ${endChapter}. Book has ${book.chapters.length} chapters.`);
+    return;
+  }
+  
+  // Get the chapters to process
+  const chaptersToProcess = book.chapters.slice(startIndex, endIndex + 1);
+  
+  // Ensure at least 1 core and not more than available chapters
+  parallelCores = Math.max(1, Math.min(parallelCores, chaptersToProcess.length));
+  
   const tts = await KokoroTTS.from_pretrained(
     "onnx-community/Kokoro-82M-ONNX",
     { dtype: qtype }
@@ -130,20 +187,55 @@ export async function generateChapterAudioFiles(
   }
 
   console.log(`Processing ${book.title} by ${book.author}`);
+  console.log(`Processing chapters ${startChapter} to ${endChapter || book.chapters.length}`);
+  console.log(`Using ${parallelCores} parallel processes for chapter generation`);
 
-  const chapterPromises = book.chapters.map(async (chapter, index) => {
-    console.log(`Generating audio for chapter ${index + 1}: ${chapter.title}`);
-
-    const fileName = `${outputDir}/${String(index + 1).padStart(
-      3,
-      "0"
-    )}-${chapter.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.wav`;
-
-    return await streamOutput(tts, chapter.content, fileName, voice, !keepChunks);
-  });
-
-  // Process all chapters in parallel
-  await Promise.all(chapterPromises);
+  // Keep track of processed chapters and active workers
+  let nextChapterIndex = 0;
+  let activeWorkers = 0;
+  let completedChapters = 0;
+  
+  // Process chapters in parallel
+  const promises: Promise<void>[] = [];
+  
+  // Function to start a new worker if there are chapters left to process
+  const startWorker = async (): Promise<void> => {
+    if (nextChapterIndex >= chaptersToProcess.length) return;
+    
+    const localChapterIndex = nextChapterIndex++;
+    const globalChapterIndex = startIndex + localChapterIndex;
+    const chapter = chaptersToProcess[localChapterIndex];
+    activeWorkers++;
+    
+    try {
+      // Process the chapter
+      await processChapter(tts, chapter, outputDir, globalChapterIndex, voice);
+      
+      // Update progress
+      completedChapters++;
+      if (progressCallback) {
+        progressCallback(completedChapters);
+      }
+    } catch (error) {
+      console.error(`Error processing chapter ${globalChapterIndex + 1}: ${error}`);
+      throw error; // Re-throw to be caught by the main promise
+    } finally {
+      activeWorkers--;
+      
+      // Start a new worker if there are more chapters to process
+      if (nextChapterIndex < chaptersToProcess.length) {
+        promises.push(startWorker());
+      }
+    }
+  };
+  
+  // Start initial batch of workers
+  for (let i = 0; i < parallelCores; i++) {
+    promises.push(startWorker());
+  }
+  
+  // Wait for all chapters to be processed
+  await Promise.all(promises);
 }
 
 export async function generateChapterMetadata(
@@ -317,5 +409,5 @@ export async function listAvailableVoices(qtype: QType): Promise<void> {
     "onnx-community/Kokoro-82M-ONNX",
     { dtype: qtype }
   );
-  tts.list_voices();
+  tts.list_voices()
 }
