@@ -133,6 +133,5 @@ dist
 output
 
 #Books
-*.epub
 *.zip
 .vscode

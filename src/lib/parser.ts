@@ -1,6 +1,5 @@
 import { readZip } from "https://deno.land/x/jszip@0.11.0/mod.ts";
 import { Document, DOMParser } from "jsr:@b-fuze/deno-dom";
-import { pipeline } from "npm:@huggingface/transformers";
 
 export interface Chapter {
   id: string;
@@ -78,7 +77,6 @@ export async function extractChapterTitle(
 
 export async function extractEPub(filePath: string): Promise<EPubBook> {
   const zip = await readZip(filePath);
-  const pipe = await pipeline("summarization", "Xenova/t5-small");
 
   // Find and parse container.xml to get content.opf location
   const containerXml = await zip.file("META-INF/container.xml")?.async("text");
