@@ -1,5 +1,5 @@
 import { readZip } from "https://deno.land/x/jszip@0.11.0/mod.ts";
-import { Document, DOMParser } from "jsr:@b-fuze/deno-dom";
+import { Document, DOMParser } from "jsr:@b-fuze/deno-dom@0.1.49";
 
 export interface Chapter {
   id: string;

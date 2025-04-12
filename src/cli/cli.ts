@@ -140,7 +140,7 @@ class ProgressBar {
   }
 }
 
-async function main() {
+export async function main() {
   try {
     const args = new Map();
     for (let i = 0; i < Deno.args.length; i++) {
@@ -260,7 +260,7 @@ async function main() {
     console.error("Error:", errorMessage);
     console.log("\nUsage:");
     console.log(
-      "deno run --allow-read --allow-write cli.ts --file <epub-file> [--voice <voice>] [--qtype <qtype>] [--format <format>] [--cores <num>] [--start-chapter <num>] [--end-chapter <num>] [--list-voices] [--list-qtypes] [--list-formats]"
+      "audiobook-generator --file <epub-file> [--voice <voice>] [--qtype <qtype>] [--format <format>] [--cores <num>] [--start-chapter <num>] [--end-chapter <num>] [--list-voices] [--list-qtypes] [--list-formats]"
     );
   }
 }

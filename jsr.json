@@ -1,0 +1,14 @@
+{
+  "name": "@jose.cabeda/audiobook-generator",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./mod.ts",
+    "./cli": "./cli.ts"
+  },
+  "bin": {
+    "audiobook-generator": "./cli.ts"
+  },
+  "publish": {
+    "include": ["src/**", "cli.ts", "mod.ts", "LICENSE", "README.md"]
+  }
+}
