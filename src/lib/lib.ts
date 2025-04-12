@@ -1,4 +1,4 @@
-import { KokoroTTS, TextSplitterStream } from "npm:kokoro-js";
+import { KokoroTTS, TextSplitterStream } from "npm:kokoro-js@1.2.0";
 import { Chapter, EPubBook, extractEPub, extractCoverImage } from "./parser.ts";
 import os from "node:os";
 
@@ -13,7 +13,7 @@ export const AVAILABLE_AUDIO_FORMATS = ["m4a", "m4b"] as const;
 export type AudioFormat = (typeof AVAILABLE_AUDIO_FORMATS)[number];
 
 // Default to half the available CPU cores, with a minimum of 1
-export const DEFAULT_PARALLEL_CORES = Math.max(
+export const DEFAULT_PARALLEL_CORES: number = Math.max(
   1,
   Math.floor(os.availableParallelism() / 2) || 1
 );

@@ -9,6 +9,8 @@ A Deno script that converts EPUB books into M4B audiobooks using text-to-speech 
 
 ## Installation
 
+### Local Installation
+
 1. Clone this repository:
 
 ```bash
@@ -18,12 +20,30 @@ cd audiobook-generator
 
 2. Run the script with Deno (no additional installation needed)
 
+```bash
+deno install -A --global --name=audiobook-generator cli.ts
+```
+
+### Global Installation via JSR
+
+You can install the CLI tool globally using JSR:
+
+```bash
+deno install -A --name=audiobook-generator jsr:@jose.cabeda/audiobook-generator/cli
+```
+
+This will make the `audiobook-generator` command available globally in your system.
+
 ## Usage
 
 Basic usage:
 
 ```bash
-deno run --allow-read --allow-write epub.ts --file <path-to-epub>
+# If installed locally:
+deno run --allow-read --allow-write cli.ts --file <path-to-epub>
+
+# If installed globally:
+audiobook-generator --file <path-to-epub>
 ```
 
 ### Options
@@ -44,25 +64,25 @@ deno run --allow-read --allow-write epub.ts --file <path-to-epub>
 List available voices:
 
 ```bash
-deno run --allow-read --allow-write cli.ts --list-voices
+audiobook-generator --list-voices
 ```
 
 List quantization types:
 
 ```bash
-deno run --allow-read --allow-write cli.ts --list-qtypes
+audiobook-generator --list-qtypes
 ```
 
 Generate audiobook with specific voice and quantization:
 
 ```bash
-deno run --allow-read --allow-write cli.ts --file book.epub --voice en_joe --qtype q4
+audiobook-generator --file book.epub --voice en_joe --qtype q4
 ```
 
 Process only chapters 5 to 10:
 
 ```bash
-deno run --allow-read --allow-write cli.ts --file book.epub --start-chapter 5 --end-chapter 10
+audiobook-generator --file book.epub --start-chapter 5 --end-chapter 10
 ```
 
 ## Output
@@ -81,11 +101,42 @@ The script will create:
 - Supports multiple voices and quantization types
 - Handles HTML cleanup and text preprocessing
 
+## Publishing to JSR
+
+This package is published to [JSR](https://jsr.io) registry. To publish a new version:
+
+1. Update the version number in `jsr.json`
+2. Tag the commit with the version number:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+3. The GitHub Action will automatically publish the package to JSR.
+
+Alternatively, you can publish manually:
+
+```bash
+# Using Deno
+deno publish
+
+# Using JSR CLI with npm
+npx jsr publish
+```
+
+## Using as a Library
+
+You can import and use the library functionality in your own projects:
+
+```typescript
+import { extractEPub, generateChapterAudioFiles, createAudiobook } from "jsr:@jose.cabeda/audiobook-generator";
+
+// Your code here
+```
 
 ## Roadmap
 
-- Create a separate package for the audiobook generator
-- Publish the cli (using the library)
+- Create a separate package for the audiobook generator ✅
+- Publish the cli (using the library) ✅
 - Add a web interface to test out the library
 - Add a live demo of the voices and add an example with a book
 - Support other ebook formats (e.g., MOBI, AZW3, etc...)
