@@ -45,7 +45,7 @@ export async function fetchAndCache(url: string, onprogress?: (loaded: number, t
         onprogress(loaded, total)
       }
     }
-  const parts = chunks.map(c => (c.buffer as unknown) as ArrayBuffer)
+  const parts = chunks.map(c => c.buffer)
   const blob = new Blob(parts)
     const response = new Response(blob, { headers: res.headers })
     await cacheResponse(url, response)
