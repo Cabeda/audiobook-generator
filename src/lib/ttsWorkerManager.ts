@@ -1,9 +1,9 @@
-/**
+/*
  * TTS Worker Manager
- * Manages Web Worker for TTS generation to prevent UI blocking
+ * Single authoritative implementation.
  */
 
-import type { VoiceId } from './kokoro/kokoroClient.ts'
+import type { VoiceId } from './kokoro/kokoroClient'
 
 type WorkerRequest = {
   id: string
@@ -13,18 +13,18 @@ type WorkerRequest = {
   speed?: number
 }
 
-type WorkerResponse = {
-  id: string
-  type: 'success' | 'error' | 'progress' | 'ready'
-  data?: ArrayBuffer
-  error?: string
-  message?: string
-}
+type WorkerResponse =
+  | { id: string; type: 'ready' }
+  | { id: string; type: 'success'; data: ArrayBuffer }
+  | { id: string; type: 'error'; error?: string }
+  | { id: string; type: 'progress'; message?: string }
+  | { id: string; type: 'chunk-progress'; chunkProgress: { current: number; total: number } }
 
 type PendingRequest = {
   resolve: (blob: Blob) => void
-  reject: (error: Error) => void
+  reject: (err: Error) => void
   onProgress?: (message: string) => void
+  onChunkProgress?: (current: number, total: number) => void
 }
 
 export class TTSWorkerManager {
@@ -41,19 +41,13 @@ export class TTSWorkerManager {
   private initWorker(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        // Create worker using dynamic import
-        this.worker = new Worker(
-          new URL('../tts.worker.ts', import.meta.url),
-          { type: 'module' }
-        )
+        this.worker = new Worker(new URL('../tts.worker.ts', import.meta.url), { type: 'module' })
 
-        if (!this.worker) {
-          reject(new Error('Failed to create worker'))
-          return
-        }
+        if (!this.worker) return reject(new Error('Failed to create worker'))
 
         this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-          const { id, type, data, error, message } = event.data
+          const data = event.data
+          const { id, type } = data
 
           if (type === 'ready') {
             this.ready = true
@@ -65,41 +59,45 @@ export class TTSWorkerManager {
           if (!pending) return
 
           switch (type) {
-            case 'success':
-              if (data) {
-                // Convert ArrayBuffer back to Blob
-                const blob = new Blob([data], { type: 'audio/wav' })
-                pending.resolve(blob)
-                this.pendingRequests.delete(id)
-              }
-              break
-
-            case 'error':
-              pending.reject(new Error(error || 'Unknown worker error'))
+            case 'success': {
+              const resp = data as Extract<WorkerResponse, { type: 'success' }>
+              const blob = new Blob([resp.data], { type: 'audio/wav' })
+              pending.resolve(blob)
               this.pendingRequests.delete(id)
               break
-
-            case 'progress':
-              if (message && pending.onProgress) {
-                pending.onProgress(message)
+            }
+            case 'error': {
+              const resp = data as Extract<WorkerResponse, { type: 'error' }>
+              pending.reject(new Error(resp.error || 'Unknown worker error'))
+              this.pendingRequests.delete(id)
+              break
+            }
+            case 'progress': {
+              const resp = data as Extract<WorkerResponse, { type: 'progress' }>
+              if (resp.message && pending.onProgress) pending.onProgress(resp.message)
+              break
+            }
+            case 'chunk-progress': {
+              const resp = data as Extract<WorkerResponse, { type: 'chunk-progress' }>
+              if (resp.chunkProgress && pending.onChunkProgress) {
+                const { current, total } = resp.chunkProgress
+                pending.onChunkProgress(current, total)
               }
               break
+            }
           }
         }
 
-        this.worker.onerror = (error) => {
-          console.error('Worker error:', error)
-          reject(new Error('Failed to initialize TTS worker'))
+        this.worker.onerror = (err) => {
+          console.error('TTS worker error', err)
         }
 
-        // Timeout if worker doesn't become ready
+        // Safety timeout in case worker doesn't send ready
         setTimeout(() => {
-          if (!this.ready) {
-            reject(new Error('Worker initialization timeout'))
-          }
-        }, 30000) // 30 second timeout
+          if (!this.ready) reject(new Error('Worker initialization timeout'))
+        }, 30_000)
       } catch (err) {
-        reject(err)
+        reject(err as Error)
       }
     })
   }
@@ -109,13 +107,11 @@ export class TTSWorkerManager {
     voice?: VoiceId
     speed?: number
     onProgress?: (message: string) => void
+    onChunkProgress?: (current: number, total: number) => void
   }): Promise<Blob> {
-    // Wait for worker to be ready
     await this.readyPromise
 
-    if (!this.worker) {
-      throw new Error('Worker not initialized')
-    }
+    if (!this.worker) throw new Error('Worker not initialized')
 
     const id = `req_${++this.requestCounter}`
 
@@ -123,7 +119,8 @@ export class TTSWorkerManager {
       this.pendingRequests.set(id, {
         resolve,
         reject,
-        onProgress: options.onProgress
+        onProgress: options.onProgress,
+        onChunkProgress: options.onChunkProgress,
       })
 
       const request: WorkerRequest = {
@@ -131,25 +128,25 @@ export class TTSWorkerManager {
         type: 'generate',
         text: options.text,
         voice: options.voice,
-        speed: options.speed
+        speed: options.speed,
       }
 
+      // Post the request; worker will return an ArrayBuffer which we convert to Blob in onmessage
       this.worker!.postMessage(request)
     })
   }
 
   cancelAll() {
-    // Reject all pending requests
-    this.pendingRequests.forEach((pending) => {
-      pending.reject(new Error('Cancelled by user'))
-    })
+    // Reject pending promises
+    this.pendingRequests.forEach((p) => p.reject(new Error('Cancelled by user')))
     this.pendingRequests.clear()
-    
-    // Terminate and recreate worker to stop any ongoing work
+
+    // Restart the worker to stop in-progress work
     if (this.worker) {
       this.worker.terminate()
       this.worker = null
     }
+
     this.ready = false
     this.readyPromise = this.initWorker()
   }
@@ -164,13 +161,11 @@ export class TTSWorkerManager {
   }
 }
 
-// Singleton instance
+// Singleton accessor
 let workerManager: TTSWorkerManager | null = null
 
 export function getTTSWorker(): TTSWorkerManager {
-  if (!workerManager) {
-    workerManager = new TTSWorkerManager()
-  }
+  if (!workerManager) workerManager = new TTSWorkerManager()
   return workerManager
 }
 

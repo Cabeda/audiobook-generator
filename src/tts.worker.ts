@@ -14,12 +14,18 @@ type WorkerRequest = {
   speed?: number
 }
 
+type ChunkProgress = {
+  current: number
+  total: number
+}
+
 type WorkerResponse = {
   id: string
-  type: 'success' | 'error' | 'progress'
+  type: 'success' | 'error' | 'progress' | 'ready' | 'chunk-progress'
   data?: ArrayBuffer
   error?: string
   message?: string
+  chunkProgress?: ChunkProgress
 }
 
 // Handle messages from main thread
@@ -35,8 +41,18 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         message: 'Loading model...'
       } as WorkerResponse)
 
-      // Generate audio
-      const blob = await generateVoice({ text, voice, speed })
+      // Generate audio with chunk progress tracking
+      const blob = await generateVoice(
+        { text, voice, speed },
+        (current, total) => {
+          // Send chunk progress update
+          self.postMessage({
+            id,
+            type: 'chunk-progress',
+            chunkProgress: { current, total }
+          } as WorkerResponse)
+        }
+      )
       
       // Convert blob to ArrayBuffer for transfer
       const arrayBuffer = await blob.arrayBuffer()

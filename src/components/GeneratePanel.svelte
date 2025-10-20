@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { EPubBook, Chapter } from '../lib/epubParser'
   import { getTTSWorker } from '../lib/ttsWorkerManager'
+  import { listVoices, type VoiceId } from '../lib/kokoro/kokoroClient'
   import { concatenateAudioChapters, downloadAudioFile, type AudioChapter, type ConcatenationProgress, type AudioFormat } from '../lib/audioConcat'
   import { createEventDispatcher } from 'svelte'
 
@@ -16,6 +17,48 @@
   let concatenationProgress = ''
   let selectedFormat: AudioFormat = 'mp3'
   let selectedBitrate = 192
+  let selectedVoice: VoiceId = 'af_heart'
+  
+  // Detailed progress tracking
+  let currentChapter = 0
+  let totalChapters = 0
+  let currentChunk = 0
+  let totalChunks = 0
+  let overallProgress = 0
+  
+  // Get available voices
+  const availableVoices = listVoices()
+  
+  // Voice metadata for better UI labels
+  const voiceLabels: Record<string, string> = {
+    'af_heart': '❤️ Heart (Female American)',
+    'af_alloy': '🎵 Alloy (Female American)',
+    'af_aoede': '🎭 Aoede (Female American)',
+    'af_bella': '💫 Bella (Female American)',
+    'af_jessica': '🌸 Jessica (Female American)',
+    'af_kore': '🌺 Kore (Female American)',
+    'af_nicole': '✨ Nicole (Female American)',
+    'af_nova': '⭐ Nova (Female American)',
+    'af_river': '🌊 River (Female American)',
+    'af_sarah': '🌹 Sarah (Female American)',
+    'af_sky': '☁️ Sky (Female American)',
+    'am_adam': '👨 Adam (Male American)',
+    'am_echo': '📢 Echo (Male American)',
+    'am_eric': '🎤 Eric (Male American)',
+    'am_liam': '🎸 Liam (Male American)',
+    'am_michael': '🎩 Michael (Male American)',
+    'am_onyx': '💎 Onyx (Male American)',
+    'am_puck': '🎭 Puck (Male American)',
+    'am_santa': '🎅 Santa (Male American)',
+    'bf_emma': '🇬🇧 Emma (Female British)',
+    'bf_isabella': '🇬🇧 Isabella (Female British)',
+    'bf_alice': '🇬🇧 Alice (Female British)',
+    'bf_lily': '🇬🇧 Lily (Female British)',
+    'bm_george': '🇬🇧 George (Male British)',
+    'bm_lewis': '🇬🇧 Lewis (Male British)',
+    'bm_daniel': '🇬🇧 Daniel (Male British)',
+    'bm_fable': '🇬🇧 Fable (Male British)'
+  }
 
   function getSelectedChapters(): Chapter[] {
     return book.chapters.filter(ch => selectedMap.get(ch.id))
@@ -27,20 +70,40 @@
     running = true
     canceled = false
     generatedChapters.clear()
+    
+    // Initialize progress tracking
+    totalChapters = chapters.length
+    currentChapter = 0
+    overallProgress = 0
 
     const worker = getTTSWorker()
 
     for (let i = 0; i < chapters.length; i++) {
       if (canceled) break
       const ch = chapters[i]
-      progressText = `Generating ${i+1}/${chapters.length}: ${ch.title}`
+      currentChapter = i + 1
+      currentChunk = 0
+      totalChunks = 0
+      progressText = `Chapter ${currentChapter}/${totalChapters}: ${ch.title}`
+      
+      // Log chapter content length for debugging
+      console.log(`Chapter ${i+1} "${ch.title}": ${ch.content.length} characters`)
       
       try {
         // Use worker for TTS generation (non-blocking)
         const blob = await worker.generateVoice({ 
           text: ch.content,
+          voice: selectedVoice,
           onProgress: (msg) => {
-            progressText = `${i+1}/${chapters.length}: ${msg}`
+            progressText = `Chapter ${currentChapter}/${totalChapters}: ${msg}`
+          },
+          onChunkProgress: (current, total) => {
+            currentChunk = current
+            totalChunks = total
+            // Calculate overall progress: completed chapters + current chapter progress
+            const completedProgress = (i / totalChapters) * 100
+            const currentChapterProgress = (current / total) * (100 / totalChapters)
+            overallProgress = Math.round(completedProgress + currentChapterProgress)
           }
         })
         
@@ -60,6 +123,11 @@
 
     running = false
     progressText = ''
+    currentChapter = 0
+    totalChapters = 0
+    currentChunk = 0
+    totalChunks = 0
+    overallProgress = 0
     if (canceled) dispatch('canceled')
     else dispatch('done')
   }
@@ -132,14 +200,111 @@
 
 <style>
   .panel { border: 1px solid #eee; padding: 12px; border-radius: 8px; margin-top:12px }
-  .format-selector { margin-top: 12px; padding: 8px; background: #f8f8f8; border-radius: 4px; }
-  .format-selector label { display: inline-block; margin-right: 12px; }
-  .format-selector select { padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd; }
+  .format-selector { 
+    margin-top: 12px; 
+    padding: 8px; 
+    background: #f8f8f8; 
+    border-radius: 4px; 
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+  .format-selector label { 
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .format-selector select { 
+    padding: 6px 10px; 
+    border-radius: 4px; 
+    border: 1px solid #ddd;
+    background: white;
+    font-size: 14px;
+    cursor: pointer;
+    min-width: 180px;
+  }
+  .format-selector select:hover:not(:disabled) {
+    border-color: #4CAF50;
+  }
+  .format-selector select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  .progress-container {
+    margin-top: 16px;
+    padding: 12px;
+    background: #f8f8f8;
+    border-radius: 6px;
+  }
+  
+  .progress-bar {
+    height: 32px;
+    background: #e0e0e0;
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+  }
+  
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #45a049);
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+  }
+  
+  .progress-text {
+    color: white;
+    font-weight: bold;
+    font-size: 14px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+  
+  .progress-details {
+    margin-top: 10px;
+  }
+  
+  .progress-info {
+    font-size: 13px;
+    color: #555;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  
+  .progress-status {
+    font-size: 13px;
+    color: #666;
+    font-style: italic;
+  }
+  
+  .progress-status.concat {
+    color: #0066cc;
+    font-weight: 500;
+    font-style: normal;
+  }
 </style>
 
 <div class="panel">
   <h3>Generate Audio</h3>
   <div>Selected chapters: {getSelectedChapters().length}</div>
+  
+  <div class="format-selector">
+    <label>
+      🎤 Voice:
+      <select bind:value={selectedVoice} disabled={running || concatenating}>
+        {#each availableVoices as voice}
+          <option value={voice}>{voiceLabels[voice] || voice}</option>
+        {/each}
+      </select>
+    </label>
+  </div>
   
   <div class="format-selector">
     <label>
@@ -171,14 +336,32 @@
     </button>
     <button on:click={cancel} disabled={!running}>Cancel</button>
   </div>
-  <div style="margin-top:8px">
-    {#if progressText}
-      <span style="color: #666">{progressText}</span>
-    {/if}
-    {#if concatenationProgress}
-      <span style="color: #0066cc; font-weight: 500">{concatenationProgress}</span>
-    {/if}
-  </div>
+  
+  {#if running || concatenating}
+    <div class="progress-container">
+      <div class="progress-bar">
+        <div class="progress-fill" style="width: {overallProgress}%">
+          <span class="progress-text">{overallProgress}%</span>
+        </div>
+      </div>
+      <div class="progress-details">
+        {#if running && totalChapters > 0}
+          <div class="progress-info">
+            📖 Chapter: {currentChapter}/{totalChapters}
+            {#if totalChunks > 0}
+              | 🔊 Chunk: {currentChunk}/{totalChunks}
+            {/if}
+          </div>
+        {/if}
+        {#if progressText}
+          <div class="progress-status">{progressText}</div>
+        {/if}
+        {#if concatenationProgress}
+          <div class="progress-status concat">{concatenationProgress}</div>
+        {/if}
+      </div>
+    </div>
+  {/if}
   {#if generatedChapters.size > 0 && !running && !concatenating}
     <div style="margin-top:12px; padding-top:12px; border-top: 1px solid #eee">
       <button on:click={concatenateAndDownload} disabled={concatenating}>

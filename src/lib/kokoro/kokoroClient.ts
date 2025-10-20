@@ -50,11 +50,47 @@ async function getKokoroInstance(
 }
 
 /**
+ * Split text into chunks at sentence boundaries
+ * Kokoro TTS works best with smaller text chunks (recommended: ~500-1000 chars)
+ */
+export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): string[] {
+  const chunks: string[] = []
+  
+  // Split by sentences (periods, question marks, exclamation points)
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text]
+  
+  let currentChunk = ''
+  for (const sentence of sentences) {
+    const trimmedSentence = sentence.trim()
+    if (!trimmedSentence) continue
+    
+    // If adding this sentence would exceed the limit, save current chunk and start new one
+    if (currentChunk.length + trimmedSentence.length > maxChunkSize && currentChunk.length > 0) {
+      chunks.push(currentChunk.trim())
+      currentChunk = trimmedSentence + ' '
+    } else {
+      currentChunk += trimmedSentence + ' '
+    }
+  }
+  
+  // Add the last chunk if it has content
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim())
+  }
+  
+  return chunks.length > 0 ? chunks : [text]
+}
+
+/**
  * Generate speech from text using Kokoro TTS
+ * For long texts, automatically splits into chunks and concatenates
  * @param params - Generation parameters
  * @returns WAV audio blob
  */
-export async function generateVoice(params: GenerateParams): Promise<Blob> {
+export async function generateVoice(
+  params: GenerateParams,
+  onChunkProgress?: (current: number, total: number) => void
+): Promise<Blob> {
   const {
     text,
     voice = 'af_heart' as VoiceId, // Default voice: Heart (high-quality female American English)
@@ -66,6 +102,53 @@ export async function generateVoice(params: GenerateParams): Promise<Blob> {
     // Get or initialize the TTS instance
     const tts = await getKokoroInstance(model)
 
+    // For very long text, split into chunks to avoid TTS limitations
+    // Most TTS models have token/character limits
+    const MAX_CHUNK_SIZE = 1000 // characters per chunk
+    
+    if (text.length > MAX_CHUNK_SIZE) {
+      console.log(`Long text detected (${text.length} chars), splitting into chunks...`)
+      const chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE)
+      console.log(`Split into ${chunks.length} chunks`)
+      
+      // Generate audio for each chunk
+      const audioBlobs: Blob[] = []
+      for (let i = 0; i < chunks.length; i++) {
+        console.log(`Generating chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`)
+        
+        // Report chunk progress
+        if (onChunkProgress) {
+          onChunkProgress(i + 1, chunks.length)
+        }
+        
+        const audio = await tts.generate(chunks[i], { voice, speed } as unknown as Parameters<typeof tts.generate>[1])
+        audioBlobs.push(audio.toBlob())
+        
+        // Small delay between chunks to prevent overwhelming the system
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+      }
+      
+      // If only one chunk, return it directly
+      if (audioBlobs.length === 1) {
+        return audioBlobs[0]
+      }
+      
+      // For multiple chunks, we need to properly concatenate the audio
+      // Import concatenation utility
+      const { concatenateAudioChapters } = await import('../audioConcat.ts')
+      const audioChapters = audioBlobs.map((blob, i) => ({
+        id: `chunk-${i}`,
+        title: `Chunk ${i + 1}`,
+        blob
+      }))
+      
+      console.log(`Concatenating ${audioBlobs.length} audio chunks...`)
+      return await concatenateAudioChapters(audioChapters, { format: 'wav' })
+    }
+
+    // For short text, generate directly
     // Generate audio using the real Kokoro model
     // This handles:
     // - Text normalization (numbers, currencies, abbreviations)
