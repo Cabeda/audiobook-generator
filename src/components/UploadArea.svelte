@@ -3,6 +3,7 @@
   const dispatch = createEventDispatcher()
   let file: File | null = null
   let parsing = false
+  let fileInput: HTMLInputElement
 
   function onFileChange(e: Event) {
     const input = e.target as HTMLInputElement
@@ -14,6 +15,17 @@
     e.preventDefault()
     const f = e.dataTransfer?.files?.[0] || null
     handleFile(f)
+  }
+
+  function onClick() {
+    fileInput?.click()
+  }
+
+  function onKeyPress(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      fileInput?.click()
+    }
   }
 
   async function handleFile(f: File | null) {
@@ -35,18 +47,53 @@
 </script>
 
 <style>
-  .drop { border: 2px dashed #bbb; padding: 20px; border-radius: 8px; }
+  .drop { 
+    border: 2px dashed #bbb; 
+    padding: 40px 20px; 
+    border-radius: 8px; 
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+  }
+  .drop:hover {
+    border-color: #4CAF50;
+    background-color: #f8f8f8;
+  }
+  .drop:active {
+    background-color: #e8e8e8;
+  }
+  .drop p {
+    margin: 8px 0;
+  }
 </style>
 
-<div class="drop" role="button" tabindex="0" on:drop|preventDefault={onDrop} on:dragover|preventDefault>
+<input 
+  type="file" 
+  accept=".epub" 
+  on:change={onFileChange} 
+  bind:this={fileInput}
+  style="display:none"
+  aria-label="Upload EPUB file"
+/>
+
+<div 
+  class="drop" 
+  role="button" 
+  tabindex="0" 
+  on:click={onClick}
+  on:keypress={onKeyPress}
+  on:drop|preventDefault={onDrop} 
+  on:dragover|preventDefault
+  aria-label="Click to upload or drop EPUB file"
+>
   <p>
     {#if parsing}
       Parsing EPUB...
     {:else}
-      Drop EPUB file here or <label><input type="file" accept=".epub" on:change={onFileChange} style="display:none">select a file</label>
+      📚 Drop EPUB file here or click to select
     {/if}
   </p>
   {#if file}
-    <p>Selected: {file.name}</p>
+    <p style="color: #4CAF50; font-weight: 500;">Selected: {file.name}</p>
   {/if}
 </div>
