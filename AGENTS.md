@@ -39,7 +39,7 @@ audiobook-generator/
 
 ### Frontend Stack
 
-- **Svelte 4**: Component framework
+- **Svelte 5**: Component framework
 - **TypeScript**: Type safety
 - **Vite**: Build tool and dev server
 
