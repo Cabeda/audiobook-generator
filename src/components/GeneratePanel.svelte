@@ -246,11 +246,11 @@
   </div>
 
   <div style="margin-top:8px">
-    <button on:click={generate} disabled={running || concatenating}>Generate Chapters</button>
-    <button on:click={generateAndConcatenate} disabled={running || concatenating}>
+    <button onclick={generate} disabled={running || concatenating}>Generate Chapters</button>
+    <button onclick={generateAndConcatenate} disabled={running || concatenating}>
       Generate & Download Audiobook
     </button>
-    <button on:click={cancel} disabled={!running}>Cancel</button>
+    <button onclick={cancel} disabled={!running}>Cancel</button>
   </div>
 
   {#if running || concatenating}
@@ -280,7 +280,7 @@
   {/if}
   {#if generatedChapters.size > 0 && !running && !concatenating}
     <div style="margin-top:12px; padding-top:12px; border-top: 1px solid #eee">
-      <button on:click={concatenateAndDownload} disabled={concatenating}>
+      <button onclick={concatenateAndDownload} disabled={concatenating}>
         📥 Download Complete Audiobook ({generatedChapters.size} chapters)
       </button>
     </div>

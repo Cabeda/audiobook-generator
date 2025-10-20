@@ -49,7 +49,7 @@
 <input
   type="file"
   accept=".epub"
-  on:change={onFileChange}
+  onchange={onFileChange}
   bind:this={fileInput}
   style="display:none"
   aria-label="Upload EPUB file"
@@ -59,10 +59,13 @@
   class="drop"
   role="button"
   tabindex="0"
-  on:click={onClick}
-  on:keypress={onKeyPress}
-  on:drop|preventDefault={onDrop}
-  on:dragover|preventDefault
+  onclick={onClick}
+  onkeypress={onKeyPress}
+  ondrop={(e) => {
+    e.preventDefault()
+    onDrop(e)
+  }}
+  ondragover={(e) => e.preventDefault()}
   aria-label="Click to upload or drop EPUB file"
 >
   <p>
