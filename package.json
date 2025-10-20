@@ -23,6 +23,7 @@
     "epubjs": "^0.3.88",
     "jszip": "^3.10.0",
     "kokoro-js": "^1.2.1",
+    "lamejs": "^1.2.1",
     "onnxruntime-web": "^1.21.0"
   }
 }
