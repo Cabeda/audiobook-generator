@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EPubBook, Chapter } from '../lib/epubParser'
-  import { generateVoice } from '../lib/kokoro/kokoroClient'
+  import { getTTSWorker } from '../lib/ttsWorkerManager'
   import { concatenateAudioChapters, downloadAudioFile, type AudioChapter, type ConcatenationProgress, type AudioFormat } from '../lib/audioConcat'
   import { createEventDispatcher } from 'svelte'
 
@@ -28,12 +28,22 @@
     canceled = false
     generatedChapters.clear()
 
+    const worker = getTTSWorker()
+
     for (let i = 0; i < chapters.length; i++) {
       if (canceled) break
       const ch = chapters[i]
       progressText = `Generating ${i+1}/${chapters.length}: ${ch.title}`
+      
       try {
-        const blob = await generateVoice({ text: ch.content })
+        // Use worker for TTS generation (non-blocking)
+        const blob = await worker.generateVoice({ 
+          text: ch.content,
+          onProgress: (msg) => {
+            progressText = `${i+1}/${chapters.length}: ${msg}`
+          }
+        })
+        
         generatedChapters.set(ch.id, blob)
         dispatch('generated', { id: ch.id, blob })
       } catch (err) {

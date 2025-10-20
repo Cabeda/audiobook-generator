@@ -70,6 +70,9 @@ export async function concatenateAudioChapters(
       message: `Decoding chapter ${i + 1}/${chapters.length}: ${chapters[i].title}`
     })
 
+    // Yield to UI thread to prevent blocking
+    await new Promise(resolve => setTimeout(resolve, 0))
+
     const arrayBuffer = await chapters[i].blob.arrayBuffer()
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
     audioBuffers.push(audioBuffer)
@@ -98,6 +101,9 @@ export async function concatenateAudioChapters(
   for (let i = 0; i < audioBuffers.length; i++) {
     const buffer = audioBuffers[i]
     
+    // Yield before processing each chapter to keep UI responsive
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
+    
     for (let channel = 0; channel < numberOfChannels; channel++) {
       const outputData = outputBuffer.getChannelData(channel)
       const inputData = buffer.getChannelData(channel)
@@ -119,11 +125,11 @@ export async function concatenateAudioChapters(
   
   switch (format) {
     case 'mp3':
-      outputBlob = audioBufferToMp3(outputBuffer, bitrate, chapters, options)
+      outputBlob = await audioBufferToMp3(outputBuffer, bitrate, chapters, options)
       break
     case 'm4b':
       // M4B uses MP3 encoding with .m4b extension and chapter metadata
-      outputBlob = audioBufferToMp3(outputBuffer, bitrate, chapters, options)
+      outputBlob = await audioBufferToMp3(outputBuffer, bitrate, chapters, options)
       break
     case 'wav':
     default:
@@ -147,12 +153,12 @@ export async function concatenateAudioChapters(
 /**
  * Convert AudioBuffer to MP3 blob
  */
-function audioBufferToMp3(
+async function audioBufferToMp3(
   audioBuffer: AudioBuffer,
   bitrate: number,
   _chapters: AudioChapter[],
   options: ConcatenationOptions
-): Blob {
+): Promise<Blob> {
   const numberOfChannels = audioBuffer.numberOfChannels
   const sampleRate = Math.floor(audioBuffer.sampleRate)
   const mp3encoder = new lamejs.Mp3Encoder(numberOfChannels, sampleRate, bitrate)
@@ -183,6 +189,11 @@ function audioBufferToMp3(
     const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk)
     if (mp3buf.length > 0) {
       mp3Data.push(mp3buf)
+    }
+    
+    // Yield to UI thread every 10 blocks (~0.26 seconds of audio) to prevent blocking
+    if (i % (sampleBlockSize * 10) === 0) {
+      await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
     }
   }
 
