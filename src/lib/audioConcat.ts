@@ -153,7 +153,7 @@ export async function concatenateAudioChapters(
 /**
  * Convert AudioBuffer to MP3 blob
  */
-async function audioBufferToMp3(
+export async function audioBufferToMp3(
   audioBuffer: AudioBuffer,
   bitrate: number,
   _chapters: AudioChapter[],
@@ -314,6 +314,27 @@ function formatTimestamp(seconds: number): string {
   const ms = Math.floor((seconds % 1) * 1000)
 
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
+}
+
+/**
+ * Convert WAV blob to MP3 blob
+ * @param wavBlob - WAV audio blob
+ * @param bitrate - MP3 bitrate (default: 192 kbps)
+ * @returns MP3 blob
+ */
+export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Promise<Blob> {
+  // Decode WAV blob to AudioBuffer
+  const arrayBuffer = await wavBlob.arrayBuffer()
+  const audioContext = new AudioContext()
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+  
+  // Convert to MP3
+  const mp3Blob = await audioBufferToMp3(audioBuffer, bitrate, [], { format: 'mp3', bitrate })
+  
+  // Close audio context to free resources
+  await audioContext.close()
+  
+  return mp3Blob
 }
 
 /**

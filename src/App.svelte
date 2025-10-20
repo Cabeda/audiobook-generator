@@ -55,6 +55,20 @@
     a.click()
     a.remove()
   }
+
+  async function downloadBlobAsMp3(id: string) {
+    const rec = generated.get(id)
+    if (!rec) return
+    
+    try {
+      const { convertWavToMp3, downloadAudioFile } = await import('./lib/audioConcat')
+      const mp3Blob = await convertWavToMp3(rec.blob, 192)
+      downloadAudioFile(mp3Blob, `${id}.mp3`)
+    } catch (err) {
+      console.error('Failed to convert to MP3:', err)
+      alert('Failed to convert to MP3. See console for details.')
+    }
+  }
 </script>
 
 <main>
@@ -72,7 +86,8 @@
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <audio controls src={rec.url}></audio>
             <div style="min-width:120px">{id}</div>
-            <button on:click={() => downloadBlob(id)}>Download</button>
+            <button on:click={() => downloadBlob(id)}>Download WAV</button>
+            <button on:click={() => downloadBlobAsMp3(id)}>Download MP3</button>
           </div>
         {/each}
       </div>
