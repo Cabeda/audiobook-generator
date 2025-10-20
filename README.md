@@ -5,7 +5,6 @@ This is a minimal scaffold for the frontend-only EPUB -> KokoroJS audiobook gene
 Quick start
 
 ```bash
-cd web
 npm install
 npm run dev
 ```
