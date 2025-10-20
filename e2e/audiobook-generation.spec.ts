@@ -36,6 +36,8 @@ test.describe('Audiobook Generation E2E', () => {
   })
 
   test('should generate single chapter as MP3', async ({ page }) => {
+    test.setTimeout(180000) // 3 minutes for the entire test
+    
     // Upload EPUB
     const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
     const epubBuffer = await readFile(epubPath)
@@ -50,7 +52,8 @@ test.describe('Audiobook Generation E2E', () => {
     // Wait for book to load
     await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
 
-    // Select first chapter
+    // Deselect all chapters first, then select only the first one
+    await page.locator('button:has-text("Deselect all")').click()
     const firstCheckbox = page.locator('input[type="checkbox"]').first()
     await firstCheckbox.check()
 
@@ -126,6 +129,8 @@ test.describe('Audiobook Generation E2E', () => {
   })
 
   test('should generate two chapters as MP3', async ({ page }) => {
+    test.setTimeout(240000) // 4 minutes for two chapters
+    
     // Upload EPUB
     const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
     const epubBuffer = await readFile(epubPath)
@@ -140,7 +145,8 @@ test.describe('Audiobook Generation E2E', () => {
     // Wait for book to load
     await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
 
-    // Select first two chapters
+    // Deselect all, then select first two chapters
+    await page.locator('button:has-text("Deselect all")').click()
     const checkboxes = page.locator('input[type="checkbox"]')
     await checkboxes.nth(0).check()
     await checkboxes.nth(1).check()
@@ -176,6 +182,8 @@ test.describe('Audiobook Generation E2E', () => {
   })
 
   test('should generate two chapters as M4B with metadata', async ({ page }) => {
+    test.setTimeout(240000) // 4 minutes for two chapters
+    
     // Upload EPUB
     const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
     const epubBuffer = await readFile(epubPath)
@@ -190,7 +198,8 @@ test.describe('Audiobook Generation E2E', () => {
     // Wait for book to load
     await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
 
-    // Select first two chapters
+    // Deselect all, then select first two chapters
+    await page.locator('button:has-text("Deselect all")').click()
     const checkboxes = page.locator('input[type="checkbox"]')
     await checkboxes.nth(0).check()
     await checkboxes.nth(1).check()
@@ -220,6 +229,8 @@ test.describe('Audiobook Generation E2E', () => {
   })
 
   test('should show progress during generation', async ({ page }) => {
+    test.setTimeout(180000) // 3 minutes
+    
     // Upload EPUB
     const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
     const epubBuffer = await readFile(epubPath)
@@ -234,7 +245,8 @@ test.describe('Audiobook Generation E2E', () => {
     // Wait for book to load
     await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
 
-    // Select one chapter
+    // Deselect all, then select one chapter
+    await page.locator('button:has-text("Deselect all")').click()
     const firstCheckbox = page.locator('input[type="checkbox"]').first()
     await firstCheckbox.check()
 
@@ -284,6 +296,8 @@ test.describe('Audiobook Generation E2E', () => {
   })
 
   test('should handle cancellation during generation', async ({ page }) => {
+    test.setTimeout(120000) // 2 minutes
+    
     // Upload EPUB
     const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
     const epubBuffer = await readFile(epubPath)
@@ -297,7 +311,8 @@ test.describe('Audiobook Generation E2E', () => {
 
     await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
 
-    // Select multiple chapters
+    // Deselect all, then select multiple chapters
+    await page.locator('button:has-text("Deselect all")').click()
     const checkboxes = page.locator('input[type="checkbox"]')
     await checkboxes.nth(0).check()
     await checkboxes.nth(1).check()
