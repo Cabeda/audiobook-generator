@@ -35,6 +35,7 @@ export type GenerateParams = {
   voice?: VoiceId
   speed?: number
   model?: string
+  dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
 }
 
 // Singleton instance for model caching
@@ -122,11 +123,12 @@ export async function generateVoice(
     voice = 'af_heart' as VoiceId, // Default voice: Heart (high-quality female American English)
     speed = 1.0,
     model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
+    dtype = 'q8',
   } = params
 
   try {
     // Get or initialize the TTS instance
-    const tts = await getKokoroInstance(model)
+    const tts = await getKokoroInstance(model, dtype)
 
     // For very long text, split into chunks to avoid TTS limitations
     // Most TTS models have token/character limits
@@ -213,10 +215,11 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
     voice = 'af_heart' as VoiceId,
     speed = 1.0,
     model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
+    dtype = 'q8',
   } = params
 
   try {
-    const tts = await getKokoroInstance(model)
+    const tts = await getKokoroInstance(model, dtype)
 
     // Stream generates audio sentence-by-sentence
     for await (const chunk of tts.stream(text, { voice, speed } as unknown as Parameters<

@@ -24,7 +24,19 @@
   let selectedFormat: AudioFormat = 'mp3'
   let selectedBitrate = 192
   let selectedVoice: VoiceId = 'af_heart'
+  let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   let showAdvanced = false
+  const QUANT_KEY = 'audiobook_quantization'
+  import { onMount } from 'svelte'
+
+  onMount(() => {
+    try {
+      const saved = localStorage.getItem(QUANT_KEY)
+      if (saved) selectedQuantization = saved as typeof selectedQuantization
+    } catch (e) {
+      // ignore (e.g., SSR or privacy mode)
+    }
+  })
 
   // Detailed progress tracking
   let currentChapter = 0
@@ -115,6 +127,7 @@
             const currentChapterProgress = (current / total) * (100 / totalChapters)
             overallProgress = Math.round(completedProgress + currentChapterProgress)
           },
+          dtype: selectedQuantization,
         })
 
         if (canceled) break
@@ -230,7 +243,7 @@
   </div>
 
   <!-- Advanced Options Toggle -->
-  <button class="advanced-toggle" onclick={() => (showAdvanced = !showAdvanced)}>
+  <button class="advanced-toggle" on:click={() => (showAdvanced = !showAdvanced)}>
     <span class="toggle-icon">{showAdvanced ? '▼' : '▶'}</span>
     Advanced Options
   </button>
@@ -238,6 +251,27 @@
   {#if showAdvanced}
     <div class="advanced-options">
       <div class="option-group">
+        <label>
+          <span class="label-text">🧮 Quantization</span>
+          <select
+            bind:value={selectedQuantization}
+            disabled={running || concatenating}
+            on:change={() => {
+              try {
+                localStorage.setItem(QUANT_KEY, selectedQuantization)
+              } catch (e) {
+                /* ignore */
+              }
+            }}
+          >
+            <option value="q8">q8 (default — faster)</option>
+            <option value="q4">q4 (smaller)</option>
+            <option value="q4f16">q4f16 (balanced)</option>
+            <option value="fp16">fp16 (higher precision)</option>
+            <option value="fp32">fp32 (full precision)</option>
+          </select>
+        </label>
+
         <label>
           <span class="label-text">📦 Format</span>
           <select bind:value={selectedFormat} disabled={running || concatenating}>
@@ -266,13 +300,13 @@
   <div class="actions">
     <button
       class="primary"
-      onclick={generateAndConcatenate}
+      on:click={generateAndConcatenate}
       disabled={running || concatenating || getSelectedChapters().length === 0}
     >
       {running || concatenating ? '⏳ Processing...' : '🎧 Generate & Download'}
     </button>
     {#if running}
-      <button class="secondary" onclick={cancel}> ✕ Cancel </button>
+      <button class="secondary" on:click={cancel}> ✕ Cancel </button>
     {/if}
   </div>
 
@@ -303,7 +337,7 @@
   {/if}
   {#if generatedChapters.size > 0 && !running && !concatenating}
     <div class="download-section">
-      <button class="secondary" onclick={concatenateAndDownload} disabled={concatenating}>
+      <button class="secondary" on:click={concatenateAndDownload} disabled={concatenating}>
         📥 Download Complete Audiobook ({generatedChapters.size} chapter{generatedChapters.size !==
         1
           ? 's'

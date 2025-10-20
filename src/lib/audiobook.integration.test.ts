@@ -1,4 +1,58 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest'
+
+// Mock @ffmpeg/ffmpeg and @ffmpeg/util so ffmpeg.wasm doesn't throw in Node test env
+vi.mock('@ffmpeg/ffmpeg', () => {
+  class MockFFmpeg {
+    fs: Record<string, Uint8Array> | undefined
+    constructor() {
+      this.fs = {}
+    }
+    load(_opts?: Record<string, unknown>) {
+      // no-op
+    }
+    // Supported APIs used by audioConcat wrappers
+    writeFile(name: string, data: Uint8Array) {
+      this.fs = this.fs || {}
+      this.fs[name] = data
+    }
+    exec(args: string[]) {
+      // emulate that an output file was created by writing a small blob
+      const out = args[args.length - 1]
+      this.fs = this.fs || {}
+      this.fs[out] = new Uint8Array([1, 2, 3])
+    }
+    run(...args: string[]) {
+      // support alternate API
+      const flatArgs = Array.isArray(args[0]) ? (args[0] as string[]) : (args as string[])
+      this.exec(flatArgs)
+    }
+    readFile(name: string) {
+      return (this.fs && this.fs[name]) || new Uint8Array()
+    }
+    deleteFile(name: string) {
+      if (this.fs) delete this.fs[name]
+    }
+    FS(op: 'writeFile' | 'readFile' | 'unlink' | 'remove', name: string, data?: Uint8Array) {
+      this.fs = this.fs || {}
+      if (op === 'writeFile') {
+        this.fs[name] = data as Uint8Array
+        return
+      }
+      if (op === 'readFile') {
+        return this.fs[name]
+      }
+      if (op === 'unlink' || op === 'remove') {
+        delete this.fs[name]
+        return
+      }
+    }
+  }
+
+  return { FFmpeg: MockFFmpeg }
+})
+
+vi.mock('@ffmpeg/util', () => ({ toBlobURL: () => 'blob:mock' }))
+
 import { generateVoice } from './kokoro/kokoroClient.ts'
 import { concatenateAudioChapters, type AudioChapter } from './audioConcat.ts'
 

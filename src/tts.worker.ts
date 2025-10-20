@@ -12,6 +12,7 @@ type WorkerRequest = {
   text: string
   voice?: VoiceId
   speed?: number
+  dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
 }
 
 type ChunkProgress = {
@@ -42,7 +43,19 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       } as WorkerResponse)
 
       // Generate audio with chunk progress tracking
-      const blob = await generateVoice({ text, voice, speed }, (current, total) => {
+      // Forward dtype if provided so the model can be loaded with the desired quantization
+      const req = event.data as WorkerRequest
+      const params: {
+        text: string
+        voice?: VoiceId
+        speed?: number
+        model?: string
+        dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+      } = { text, voice, speed }
+
+      if (req.dtype) params.dtype = req.dtype
+
+      const blob = await generateVoice(params, (current, total) => {
         // Send chunk progress update
         self.postMessage({
           id,

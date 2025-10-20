@@ -86,8 +86,8 @@
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <audio controls src={rec.url}></audio>
             <div style="min-width:120px">{id}</div>
-            <button onclick={() => downloadBlob(id)}>Download WAV</button>
-            <button onclick={() => downloadBlobAsMp3(id)}>Download MP3</button>
+            <button on:click={() => downloadBlob(id)}>Download WAV</button>
+            <button on:click={() => downloadBlobAsMp3(id)}>Download MP3</button>
           </div>
         {/each}
       </div>

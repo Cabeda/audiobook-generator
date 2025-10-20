@@ -75,9 +75,9 @@
   {/if}
 
   <div class="controls">
-    <button onclick={selectAll}>Select all</button>
-    <button onclick={deselectAll}>Deselect all</button>
-    <button onclick={exportSelected}>Export selected</button>
+    <button on:click={selectAll}>Select all</button>
+    <button on:click={deselectAll}>Deselect all</button>
+    <button on:click={exportSelected}>Export selected</button>
     <div style="margin-left:auto">
       Selected: {Array.from(selected.values()).filter(Boolean).length} / {book.chapters.length}
     </div>
@@ -91,7 +91,7 @@
           <input
             type="checkbox"
             checked={selected.get(ch.id)}
-            onchange={() => toggleChapter(ch.id)}
+            on:change={() => toggleChapter(ch.id)}
           />
         </div>
         <div style="flex:1">
@@ -101,7 +101,7 @@
           </div>
         </div>
         <div style="width:90px; text-align:right">
-          <button onclick={() => copyChapterContent(ch)}>Copy</button>
+          <button on:click={() => copyChapterContent(ch)}>Copy</button>
         </div>
       </div>
     {/each}

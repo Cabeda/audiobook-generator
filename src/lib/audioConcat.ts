@@ -32,6 +32,98 @@ async function getFFmpeg(): Promise<FFmpeg> {
   return ffmpegInstance
 }
 
+// Compatibility wrappers for different @ffmpeg/ffmpeg builds/APIs
+type FFmpegFS = {
+  FS?: (
+    op: 'writeFile' | 'readFile' | 'unlink' | 'remove',
+    filename: string,
+    data?: Uint8Array
+  ) => Uint8Array | void
+}
+
+async function ffWriteFile(ffmpeg: FFmpeg, filename: string, data: Uint8Array) {
+  const asWithWrite = ffmpeg as unknown as {
+    writeFile?: (name: string, d: Uint8Array) => Promise<void> | void
+  } & FFmpegFS
+
+  if (typeof asWithWrite.writeFile === 'function') {
+    // some builds return a promise
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - allow calling possible promise-returning API
+    return await asWithWrite.writeFile(filename, data)
+  }
+
+  if (typeof asWithWrite.FS === 'function') {
+    return asWithWrite.FS('writeFile', filename, data)
+  }
+
+  throw new Error('FFmpeg write API not available')
+}
+
+async function ffRun(ffmpeg: FFmpeg, args: string[]) {
+  const asWithRun = ffmpeg as unknown as {
+    exec?: (a: string[]) => Promise<any>
+    run?: (...a: string[]) => Promise<any>
+  }
+
+  if (typeof asWithRun.exec === 'function') {
+    return await asWithRun.exec(args)
+  }
+
+  if (typeof asWithRun.run === 'function') {
+    try {
+      return await asWithRun.run(...args)
+    } catch (_) {
+      // fallback: some builds accept an array as single arg
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      return await asWithRun.run(args)
+    }
+  }
+
+  throw new Error('FFmpeg run/exec API not available')
+}
+
+function ffReadFile(ffmpeg: FFmpeg, filename: string): Uint8Array {
+  const asWithRead = ffmpeg as unknown as { readFile?: (name: string) => Uint8Array } & FFmpegFS
+
+  if (typeof asWithRead.readFile === 'function') {
+    return asWithRead.readFile(filename)
+  }
+
+  if (typeof asWithRead.FS === 'function') {
+    return asWithRead.FS('readFile', filename) as Uint8Array
+  }
+
+  throw new Error('FFmpeg read API not available')
+}
+
+async function ffDeleteFile(ffmpeg: FFmpeg, filename: string) {
+  const asWithDelete = ffmpeg as unknown as FFmpegFS & {
+    deleteFile?: (name: string) => Promise<void> | void
+  }
+
+  if (typeof asWithDelete.deleteFile === 'function') {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    return await asWithDelete.deleteFile(filename)
+  }
+
+  if (typeof asWithDelete.FS === 'function') {
+    try {
+      return asWithDelete.FS('unlink', filename)
+    } catch {
+      try {
+        return asWithDelete.FS('remove', filename)
+      } catch {
+        // best-effort cleanup; ignore errors
+      }
+    }
+  }
+
+  // nothing to do
+}
+
 export type AudioFormat = 'wav' | 'mp3' | 'm4b'
 
 export type AudioChapter = {
@@ -193,53 +285,63 @@ export async function audioBufferToMp3(
   // Then convert WAV to MP3 or M4B using FFmpeg
   const ffmpeg = await getFFmpeg()
 
-  // Write input WAV file
-  const wavData = new Uint8Array(await wavBlob.arrayBuffer())
-  await ffmpeg.writeFile('input.wav', wavData)
+  try {
+    // Write input WAV file
+    const wavData = new Uint8Array(await wavBlob.arrayBuffer())
+    await ffWriteFile(ffmpeg, 'input.wav', wavData)
 
-  // Determine output format and file
-  const isM4B = options.format === 'm4b'
-  const outputFile = isM4B ? 'output.m4b' : 'output.mp3'
-  const codec = isM4B ? 'aac' : 'libmp3lame'
+    // Determine output format and file
+    const isM4B = options.format === 'm4b'
+    const outputFile = isM4B ? 'output.m4b' : 'output.mp3'
+    const codec = isM4B ? 'aac' : 'libmp3lame'
 
-  // Build FFmpeg command
-  const args = ['-i', 'input.wav', '-c:a', codec, '-b:a', `${bitrate}k`]
+    // Build FFmpeg command
+    const args = ['-i', 'input.wav', '-c:a', codec, '-b:a', `${bitrate}k`]
 
-  // Add metadata if available
-  if (options.bookTitle) {
-    args.push('-metadata', `title=${options.bookTitle}`)
+    // Add metadata if available
+    if (options.bookTitle) {
+      args.push('-metadata', `title=${options.bookTitle}`)
+    }
+    if (options.bookAuthor) {
+      args.push('-metadata', `artist=${options.bookAuthor}`)
+    }
+
+    // Add chapter metadata for M4B
+    if (isM4B && chapters.length > 0) {
+      // Create metadata file for chapters
+      const metadata = createFFmpegMetadata(chapters, audioBuffer.duration)
+      await ffWriteFile(ffmpeg, 'metadata.txt', new TextEncoder().encode(metadata))
+      // Note: second input (index 1) contains metadata
+      args.push('-i', 'metadata.txt', '-map_metadata', '1')
+    }
+
+    args.push(outputFile)
+
+    // Execute FFmpeg
+    await ffRun(ffmpeg, args)
+
+    // Read output file
+    const data = ffReadFile(ffmpeg, outputFile)
+    const outputBlob = new Blob([new Uint8Array(data)], {
+      type: isM4B ? 'audio/m4b' : 'audio/mpeg',
+    })
+
+    return outputBlob
+  } catch (err) {
+    // Include more context in thrown error for caller UI
+    throw new Error(`Failed to convert audio buffer to ${options.format || 'mp3'}: ${String(err)}`)
+  } finally {
+    // Best-effort cleanup
+    try {
+      await ffDeleteFile(ffmpeg, 'input.wav')
+      await ffDeleteFile(ffmpeg, isM4B ? 'output.m4b' : 'output.mp3')
+      if (options.format === 'm4b' && chapters.length > 0) {
+        await ffDeleteFile(ffmpeg, 'metadata.txt')
+      }
+    } catch {
+      // swallow cleanup errors
+    }
   }
-  if (options.bookAuthor) {
-    args.push('-metadata', `artist=${options.bookAuthor}`)
-  }
-
-  // Add chapter metadata for M4B
-  if (isM4B && chapters.length > 0) {
-    // Create metadata file for chapters
-    const metadata = createFFmpegMetadata(chapters, audioBuffer.duration)
-    await ffmpeg.writeFile('metadata.txt', new TextEncoder().encode(metadata))
-    args.push('-i', 'metadata.txt', '-map_metadata', '1')
-  }
-
-  args.push(outputFile)
-
-  // Execute FFmpeg
-  await ffmpeg.exec(args)
-
-  // Read output file
-  const data = (await ffmpeg.readFile(outputFile)) as Uint8Array
-  const outputBlob = new Blob([new Uint8Array(data)], {
-    type: isM4B ? 'audio/m4b' : 'audio/mpeg',
-  })
-
-  // Clean up
-  await ffmpeg.deleteFile('input.wav')
-  await ffmpeg.deleteFile(outputFile)
-  if (isM4B && chapters.length > 0) {
-    await ffmpeg.deleteFile('metadata.txt')
-  }
-
-  return outputBlob
 }
 
 /**
@@ -384,23 +486,31 @@ function formatTimestamp(seconds: number): string {
  */
 export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Promise<Blob> {
   const ffmpeg = await getFFmpeg()
+  const outFile = 'output.mp3'
 
-  // Write input WAV file
-  const wavData = new Uint8Array(await wavBlob.arrayBuffer())
-  await ffmpeg.writeFile('input.wav', wavData)
+  try {
+    // Write input WAV file
+    const wavData = new Uint8Array(await wavBlob.arrayBuffer())
+    await ffWriteFile(ffmpeg, 'input.wav', wavData)
 
-  // Convert to MP3
-  await ffmpeg.exec(['-i', 'input.wav', '-c:a', 'libmp3lame', '-b:a', `${bitrate}k`, 'output.mp3'])
+    // Convert to MP3
+    await ffRun(ffmpeg, ['-i', 'input.wav', '-c:a', 'libmp3lame', '-b:a', `${bitrate}k`, outFile])
 
-  // Read output file
-  const data = (await ffmpeg.readFile('output.mp3')) as Uint8Array
-  const mp3Blob = new Blob([new Uint8Array(data)], { type: 'audio/mpeg' })
+    // Read output file
+    const data = ffReadFile(ffmpeg, outFile)
+    const mp3Blob = new Blob([new Uint8Array(data)], { type: 'audio/mpeg' })
 
-  // Clean up
-  await ffmpeg.deleteFile('input.wav')
-  await ffmpeg.deleteFile('output.mp3')
-
-  return mp3Blob
+    return mp3Blob
+  } catch (err) {
+    throw new Error(`Failed to convert WAV to MP3: ${String(err)}`)
+  } finally {
+    try {
+      await ffDeleteFile(ffmpeg, 'input.wav')
+      await ffDeleteFile(ffmpeg, outFile)
+    } catch {
+      // ignore
+    }
+  }
 }
 
 /**

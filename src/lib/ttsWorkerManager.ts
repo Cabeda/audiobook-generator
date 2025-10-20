@@ -11,6 +11,7 @@ type WorkerRequest = {
   text: string
   voice?: VoiceId
   speed?: number
+  dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
 }
 
 type WorkerResponse =
@@ -108,6 +109,7 @@ export class TTSWorkerManager {
     speed?: number
     onProgress?: (message: string) => void
     onChunkProgress?: (current: number, total: number) => void
+    dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   }): Promise<Blob> {
     await this.readyPromise
 
@@ -129,6 +131,7 @@ export class TTSWorkerManager {
         text: options.text,
         voice: options.voice,
         speed: options.speed,
+        dtype: options.dtype,
       }
 
       // Post the request; worker will return an ArrayBuffer which we convert to Blob in onmessage
