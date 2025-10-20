@@ -16,7 +16,11 @@ test.describe('Audiobook Generation E2E', () => {
 
   test('should upload EPUB and display book info', async ({ page }) => {
     // Load the example EPUB file
-    const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
+    const epubPath = join(
+      process.cwd(),
+      'example',
+      'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+    )
     const epubBuffer = await readFile(epubPath)
 
     // Upload file
@@ -24,12 +28,14 @@ test.describe('Audiobook Generation E2E', () => {
     await fileInput.setInputFiles({
       name: 'Robinson_Crusoe.epub',
       mimeType: 'application/epub+zip',
-      buffer: epubBuffer
+      buffer: epubBuffer,
     })
 
     // Wait for parsing to complete
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
-    
+    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+      timeout: 10000,
+    })
+
     // Verify book metadata
     await expect(page.getByText('Author: Daniel Defoe')).toBeVisible()
     await expect(page.locator('text=/\\d+ chapters/i')).toBeVisible()
@@ -37,20 +43,26 @@ test.describe('Audiobook Generation E2E', () => {
 
   test('should generate single chapter as MP3', async ({ page }) => {
     test.setTimeout(180000) // 3 minutes for the entire test
-    
+
     // Upload EPUB
-    const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
+    const epubPath = join(
+      process.cwd(),
+      'example',
+      'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+    )
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles({
       name: 'Robinson_Crusoe.epub',
       mimeType: 'application/epub+zip',
-      buffer: epubBuffer
+      buffer: epubBuffer,
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
+    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+      timeout: 10000,
+    })
 
     // Deselect all chapters first, then select only the first one
     await page.locator('button:has-text("Deselect all")').click()
@@ -89,18 +101,24 @@ test.describe('Audiobook Generation E2E', () => {
   test('should generate single chapter as M4B', async ({ page }) => {
     test.setTimeout(180000) // 3 minutes for M4B generation
     // Upload EPUB
-    const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
+    const epubPath = join(
+      process.cwd(),
+      'example',
+      'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+    )
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles({
       name: 'Robinson_Crusoe.epub',
       mimeType: 'application/epub+zip',
-      buffer: epubBuffer
+      buffer: epubBuffer,
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
+    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+      timeout: 10000,
+    })
 
     // Select first chapter
     const firstCheckbox = page.locator('input[type="checkbox"]').first()
@@ -130,20 +148,26 @@ test.describe('Audiobook Generation E2E', () => {
 
   test('should generate two chapters as MP3', async ({ page }) => {
     test.setTimeout(240000) // 4 minutes for two chapters
-    
+
     // Upload EPUB
-    const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
+    const epubPath = join(
+      process.cwd(),
+      'example',
+      'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+    )
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles({
       name: 'Robinson_Crusoe.epub',
       mimeType: 'application/epub+zip',
-      buffer: epubBuffer
+      buffer: epubBuffer,
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
+    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+      timeout: 10000,
+    })
 
     // Deselect all, then select first two chapters
     await page.locator('button:has-text("Deselect all")').click()
@@ -172,7 +196,7 @@ test.describe('Audiobook Generation E2E', () => {
     // Verify download
     const download = await downloadPromise
     expect(download.suggestedFilename()).toMatch(/\.mp3$/)
-    
+
     // Verify file is larger than single chapter
     const path = await download.path()
     if (path) {
@@ -183,20 +207,26 @@ test.describe('Audiobook Generation E2E', () => {
 
   test('should generate two chapters as M4B with metadata', async ({ page }) => {
     test.setTimeout(240000) // 4 minutes for two chapters
-    
+
     // Upload EPUB
-    const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
+    const epubPath = join(
+      process.cwd(),
+      'example',
+      'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+    )
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles({
       name: 'Robinson_Crusoe.epub',
       mimeType: 'application/epub+zip',
-      buffer: epubBuffer
+      buffer: epubBuffer,
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
+    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+      timeout: 10000,
+    })
 
     // Deselect all, then select first two chapters
     await page.locator('button:has-text("Deselect all")').click()
@@ -230,20 +260,26 @@ test.describe('Audiobook Generation E2E', () => {
 
   test('should show progress during generation', async ({ page }) => {
     test.setTimeout(180000) // 3 minutes
-    
+
     // Upload EPUB
-    const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
+    const epubPath = join(
+      process.cwd(),
+      'example',
+      'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+    )
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles({
       name: 'Robinson_Crusoe.epub',
       mimeType: 'application/epub+zip',
-      buffer: epubBuffer
+      buffer: epubBuffer,
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
+    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+      timeout: 10000,
+    })
 
     // Deselect all, then select one chapter
     await page.locator('button:has-text("Deselect all")').click()
@@ -255,29 +291,35 @@ test.describe('Audiobook Generation E2E', () => {
 
     // Verify progress messages appear
     await expect(page.locator('text=/Generating 1\\/1/i')).toBeVisible({ timeout: 60000 })
-    
+
     // Wait for completion
     await page.waitForSelector('text=/Generating 1\\/1/i', { state: 'hidden', timeout: 120000 })
   })
 
   test('should allow format and bitrate selection', async ({ page }) => {
     // Upload EPUB
-    const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
+    const epubPath = join(
+      process.cwd(),
+      'example',
+      'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+    )
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles({
       name: 'Robinson_Crusoe.epub',
       mimeType: 'application/epub+zip',
-      buffer: epubBuffer
+      buffer: epubBuffer,
     })
 
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
+    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+      timeout: 10000,
+    })
 
     // Verify format dropdown exists and has correct options
     const formatSelect = page.locator('select').first()
     await expect(formatSelect).toBeVisible()
-    
+
     const formatOptions = await formatSelect.locator('option').allTextContents()
     expect(formatOptions).toContain('MP3 (Recommended)')
     expect(formatOptions).toContain('M4B (Audiobook)')
@@ -289,27 +331,33 @@ test.describe('Audiobook Generation E2E', () => {
     // Verify bitrate dropdown appears
     const bitrateSelect = page.locator('select').nth(1)
     await expect(bitrateSelect).toBeVisible()
-    
+
     const bitrateOptions = await bitrateSelect.locator('option').allTextContents()
     expect(bitrateOptions.length).toBeGreaterThan(0)
-    expect(bitrateOptions.some(opt => opt.includes('192'))).toBeTruthy()
+    expect(bitrateOptions.some((opt) => opt.includes('192'))).toBeTruthy()
   })
 
   test('should handle cancellation during generation', async ({ page }) => {
     test.setTimeout(120000) // 2 minutes
-    
+
     // Upload EPUB
-    const epubPath = join(process.cwd(), 'example', 'The_Life_and_Adventures_of_Robinson_Crusoe.epub')
+    const epubPath = join(
+      process.cwd(),
+      'example',
+      'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+    )
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles({
       name: 'Robinson_Crusoe.epub',
       mimeType: 'application/epub+zip',
-      buffer: epubBuffer
+      buffer: epubBuffer,
     })
 
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', { timeout: 10000 })
+    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+      timeout: 10000,
+    })
 
     // Deselect all, then select multiple chapters
     await page.locator('button:has-text("Deselect all")').click()
@@ -329,6 +377,8 @@ test.describe('Audiobook Generation E2E', () => {
 
     // Verify generation stopped (button may still be disabled briefly)
     await page.waitForTimeout(2000)
-    await expect(page.locator('button:has-text("Generate Chapters")')).toBeEnabled({ timeout: 10000 })
+    await expect(page.locator('button:has-text("Generate Chapters")')).toBeEnabled({
+      timeout: 10000,
+    })
   })
 })

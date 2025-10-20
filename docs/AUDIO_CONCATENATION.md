@@ -11,7 +11,7 @@ The audio concatenation feature allows users to combine multiple chapter audio f
 ✅ **Chapter Preservation** - Maintains chapter order from EPUB spine  
 ✅ **Automatic Download** - Downloads complete audiobook automatically  
 ✅ **Smart Filename** - Uses book title for output filename  
-✅ **WAV Format** - High-quality uncompressed audio output  
+✅ **WAV Format** - High-quality uncompressed audio output
 
 ## Usage
 
@@ -33,23 +33,20 @@ const audioChapters: AudioChapter[] = [
   {
     id: 'ch1',
     title: 'Chapter 1: Introduction',
-    blob: chapter1AudioBlob
+    blob: chapter1AudioBlob,
   },
   {
-    id: 'ch2', 
+    id: 'ch2',
     title: 'Chapter 2: The Journey Begins',
-    blob: chapter2AudioBlob
-  }
+    blob: chapter2AudioBlob,
+  },
 ]
 
 // Concatenate with progress tracking
-const combinedBlob = await concatenateAudioChapters(
-  audioChapters,
-  (progress) => {
-    console.log(progress.message)
-    // Progress states: loading, decoding, concatenating, encoding, complete
-  }
-)
+const combinedBlob = await concatenateAudioChapters(audioChapters, (progress) => {
+  console.log(progress.message)
+  // Progress states: loading, decoding, concatenating, encoding, complete
+})
 
 // Download the audiobook
 downloadAudioFile(combinedBlob, 'my-audiobook.wav')
@@ -69,12 +66,14 @@ async function concatenateAudioChapters(
 ```
 
 **Parameters:**
+
 - `chapters` - Array of audio chapters with metadata
 - `onProgress` - Optional callback for progress updates
 
 **Returns:** Combined audio blob in WAV format
 
 **Progress States:**
+
 - `loading` - Loading audio chapters
 - `decoding` - Decoding audio data to AudioBuffers
 - `concatenating` - Combining audio buffers
@@ -90,6 +89,7 @@ function downloadAudioFile(blob: Blob, filename: string): void
 ```
 
 **Parameters:**
+
 - `blob` - Audio blob to download
 - `filename` - Desired filename (e.g., 'audiobook.wav')
 
@@ -98,10 +98,7 @@ function downloadAudioFile(blob: Blob, filename: string): void
 Creates chapter marker metadata (for future M4B/MP3 support).
 
 ```typescript
-function createChapterMarkers(
-  chapters: AudioChapter[],
-  audioBuffers: AudioBuffer[]
-): string
+function createChapterMarkers(chapters: AudioChapter[], audioBuffers: AudioBuffer[]): string
 ```
 
 **Returns:** Chapter markers in standard format with timestamps
@@ -153,12 +150,14 @@ Output: Single combined WAV blob
 ### Browser Compatibility
 
 Requires:
+
 - Web Audio API (AudioContext)
 - Blob API
 - File API
 - Modern ES6+ support
 
 Tested on:
+
 - Chrome 90+
 - Firefox 88+
 - Safari 14+
@@ -226,6 +225,7 @@ npm test -- audioConcat.test.ts
 ```
 
 **Test Coverage:**
+
 - ✅ Single chapter handling
 - ✅ Multiple chapter concatenation
 - ✅ Progress callback invocation
@@ -243,6 +243,7 @@ npm test -- audioConcat.test.ts
 **Problem**: Browser runs out of memory during concatenation
 
 **Solutions:**
+
 1. Reduce number of chapters processed at once
 2. Use lower quality TTS settings
 3. Close other browser tabs
@@ -253,6 +254,7 @@ npm test -- audioConcat.test.ts
 **Problem**: File doesn't download after concatenation
 
 **Solutions:**
+
 1. Check browser download settings
 2. Ensure pop-ups are not blocked
 3. Try manually clicking download button again
@@ -263,6 +265,7 @@ npm test -- audioConcat.test.ts
 **Problem**: Combined audio sounds degraded
 
 **Solutions:**
+
 1. Ensure all source chapters have same sample rate
 2. Check individual chapter quality before concatenating
 3. Verify source audio is not already compressed

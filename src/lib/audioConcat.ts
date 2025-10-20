@@ -1,7 +1,36 @@
 /**
  * Audio concatenation utilities for combining chapter audio into a complete audiobook
  */
-import lamejs from 'lamejs'
+import { FFmpeg } from '@ffmpeg/ffmpeg'
+import { toBlobURL } from '@ffmpeg/util'
+
+// Singleton FFmpeg instance
+let ffmpegInstance: FFmpeg | null = null
+let ffmpegLoaded = false
+
+/**
+ * Get or create FFmpeg instance
+ */
+async function getFFmpeg(): Promise<FFmpeg> {
+  if (ffmpegInstance && ffmpegLoaded) {
+    return ffmpegInstance
+  }
+
+  if (!ffmpegInstance) {
+    ffmpegInstance = new FFmpeg()
+  }
+
+  if (!ffmpegLoaded) {
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm'
+    await ffmpegInstance.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    })
+    ffmpegLoaded = true
+  }
+
+  return ffmpegInstance
+}
 
 export type AudioFormat = 'wav' | 'mp3' | 'm4b'
 
@@ -49,7 +78,10 @@ export async function concatenateAudioChapters(
   }
 
   // Create audio context for processing
-  const AudioContextClass = globalThis.AudioContext || (globalThis as typeof globalThis & { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+  const AudioContextClass =
+    globalThis.AudioContext ||
+    (globalThis as typeof globalThis & { webkitAudioContext: typeof AudioContext })
+      .webkitAudioContext
   const audioContext = new AudioContextClass()
   const sampleRate = audioContext.sampleRate
 
@@ -57,7 +89,7 @@ export async function concatenateAudioChapters(
     current: 0,
     total: chapters.length,
     status: 'loading',
-    message: 'Loading audio chapters...'
+    message: 'Loading audio chapters...',
   })
 
   // Decode all audio blobs to AudioBuffers
@@ -67,11 +99,11 @@ export async function concatenateAudioChapters(
       current: i + 1,
       total: chapters.length,
       status: 'decoding',
-      message: `Decoding chapter ${i + 1}/${chapters.length}: ${chapters[i].title}`
+      message: `Decoding chapter ${i + 1}/${chapters.length}: ${chapters[i].title}`,
     })
 
     // Yield to UI thread to prevent blocking
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     const arrayBuffer = await chapters[i].blob.arrayBuffer()
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
@@ -82,7 +114,7 @@ export async function concatenateAudioChapters(
     current: 0,
     total: 1,
     status: 'concatenating',
-    message: 'Concatenating audio chapters...'
+    message: 'Concatenating audio chapters...',
   })
 
   // Calculate total length
@@ -90,26 +122,22 @@ export async function concatenateAudioChapters(
   const numberOfChannels = audioBuffers[0].numberOfChannels
 
   // Create output buffer
-  const outputBuffer = audioContext.createBuffer(
-    numberOfChannels,
-    totalLength,
-    sampleRate
-  )
+  const outputBuffer = audioContext.createBuffer(numberOfChannels, totalLength, sampleRate)
 
   // Copy all audio data into output buffer
   let offset = 0
   for (let i = 0; i < audioBuffers.length; i++) {
     const buffer = audioBuffers[i]
-    
+
     // Yield before processing each chapter to keep UI responsive
-    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
-    
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+
     for (let channel = 0; channel < numberOfChannels; channel++) {
       const outputData = outputBuffer.getChannelData(channel)
       const inputData = buffer.getChannelData(channel)
       outputData.set(inputData, offset)
     }
-    
+
     offset += buffer.length
   }
 
@@ -117,12 +145,12 @@ export async function concatenateAudioChapters(
     current: 0,
     total: 1,
     status: 'encoding',
-    message: `Encoding to ${format.toUpperCase()}...`
+    message: `Encoding to ${format.toUpperCase()}...`,
   })
 
   // Convert to requested format
   let outputBlob: Blob
-  
+
   switch (format) {
     case 'mp3':
       outputBlob = await audioBufferToMp3(outputBuffer, bitrate, chapters, options)
@@ -141,7 +169,7 @@ export async function concatenateAudioChapters(
     current: 1,
     total: 1,
     status: 'complete',
-    message: 'Audiobook created successfully!'
+    message: 'Audiobook created successfully!',
   })
 
   // Close audio context to free resources
@@ -151,62 +179,91 @@ export async function concatenateAudioChapters(
 }
 
 /**
- * Convert AudioBuffer to MP3 blob
+ * Convert AudioBuffer to MP3 or M4B blob using FFmpeg
  */
 export async function audioBufferToMp3(
   audioBuffer: AudioBuffer,
   bitrate: number,
-  _chapters: AudioChapter[],
+  chapters: AudioChapter[],
   options: ConcatenationOptions
 ): Promise<Blob> {
-  const numberOfChannels = audioBuffer.numberOfChannels
-  const sampleRate = Math.floor(audioBuffer.sampleRate)
-  const mp3encoder = new lamejs.Mp3Encoder(numberOfChannels, sampleRate, bitrate)
-  
-  const mp3Data: Int8Array[] = []
-  const sampleBlockSize = 1152 // Standard MP3 frame size
+  // First convert AudioBuffer to WAV
+  const wavBlob = audioBufferToWav(audioBuffer)
 
-  // Convert float samples to 16-bit PCM
-  const left = new Int16Array(audioBuffer.length)
-  const right = numberOfChannels > 1 ? new Int16Array(audioBuffer.length) : null
-  
-  const leftData = audioBuffer.getChannelData(0)
-  for (let i = 0; i < audioBuffer.length; i++) {
-    left[i] = leftData[i] * 0x7fff
-  }
-  
-  if (right && numberOfChannels > 1) {
-    const rightData = audioBuffer.getChannelData(1)
-    for (let i = 0; i < audioBuffer.length; i++) {
-      right[i] = rightData[i] * 0x7fff
-    }
-  }
+  // Then convert WAV to MP3 or M4B using FFmpeg
+  const ffmpeg = await getFFmpeg()
 
-  // Encode in blocks
-  for (let i = 0; i < audioBuffer.length; i += sampleBlockSize) {
-    const leftChunk = left.subarray(i, i + sampleBlockSize)
-    const rightChunk = right ? right.subarray(i, i + sampleBlockSize) : leftChunk
-    const mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk)
-    if (mp3buf.length > 0) {
-      mp3Data.push(mp3buf)
-    }
-    
-    // Yield to UI thread every 10 blocks (~0.26 seconds of audio) to prevent blocking
-    if (i % (sampleBlockSize * 10) === 0) {
-      await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
-    }
+  // Write input WAV file
+  const wavData = new Uint8Array(await wavBlob.arrayBuffer())
+  await ffmpeg.writeFile('input.wav', wavData)
+
+  // Determine output format and file
+  const isM4B = options.format === 'm4b'
+  const outputFile = isM4B ? 'output.m4b' : 'output.mp3'
+  const codec = isM4B ? 'aac' : 'libmp3lame'
+
+  // Build FFmpeg command
+  const args = ['-i', 'input.wav', '-c:a', codec, '-b:a', `${bitrate}k`]
+
+  // Add metadata if available
+  if (options.bookTitle) {
+    args.push('-metadata', `title=${options.bookTitle}`)
+  }
+  if (options.bookAuthor) {
+    args.push('-metadata', `artist=${options.bookAuthor}`)
   }
 
-  // Flush remaining data
-  const mp3buf = mp3encoder.flush()
-  if (mp3buf.length > 0) {
-    mp3Data.push(mp3buf)
+  // Add chapter metadata for M4B
+  if (isM4B && chapters.length > 0) {
+    // Create metadata file for chapters
+    const metadata = createFFmpegMetadata(chapters, audioBuffer.duration)
+    await ffmpeg.writeFile('metadata.txt', new TextEncoder().encode(metadata))
+    args.push('-i', 'metadata.txt', '-map_metadata', '1')
   }
 
-  // Create blob with ID3 tags for M4B format
-  const mimeType = options.format === 'm4b' ? 'audio/m4b' : 'audio/mpeg'
-  const buffers = mp3Data.map(data => new Uint8Array(data.buffer as ArrayBuffer, data.byteOffset, data.byteLength))
-  return new Blob(buffers, { type: mimeType })
+  args.push(outputFile)
+
+  // Execute FFmpeg
+  await ffmpeg.exec(args)
+
+  // Read output file
+  const data = (await ffmpeg.readFile(outputFile)) as Uint8Array
+  const outputBlob = new Blob([new Uint8Array(data)], {
+    type: isM4B ? 'audio/m4b' : 'audio/mpeg',
+  })
+
+  // Clean up
+  await ffmpeg.deleteFile('input.wav')
+  await ffmpeg.deleteFile(outputFile)
+  if (isM4B && chapters.length > 0) {
+    await ffmpeg.deleteFile('metadata.txt')
+  }
+
+  return outputBlob
+}
+
+/**
+ * Create FFmpeg metadata file for chapters
+ */
+function createFFmpegMetadata(chapters: AudioChapter[], totalDuration: number): string {
+  let metadata = ';FFMETADATA1\n'
+  let currentTime = 0
+
+  for (let i = 0; i < chapters.length; i++) {
+    const duration = chapters[i].duration || totalDuration / chapters.length
+    const startMs = Math.floor(currentTime * 1000)
+    const endMs = Math.floor((currentTime + duration) * 1000)
+
+    metadata += '\n[CHAPTER]\n'
+    metadata += 'TIMEBASE=1/1000\n'
+    metadata += `START=${startMs}\n`
+    metadata += `END=${endMs}\n`
+    metadata += `title=${chapters[i].title}\n`
+
+    currentTime += duration
+  }
+
+  return metadata
 }
 
 /**
@@ -287,17 +344,20 @@ function floatTo16BitPCM(view: DataView, offset: number, input: Float32Array): v
 /**
  * Create chapter markers metadata (for future M4B/MP3 support)
  */
-export function createChapterMarkers(chapters: AudioChapter[], audioBuffers: AudioBuffer[]): string {
+export function createChapterMarkers(
+  chapters: AudioChapter[],
+  audioBuffers: AudioBuffer[]
+): string {
   let currentTime = 0
   const markers: string[] = []
 
   for (let i = 0; i < chapters.length; i++) {
     const duration = audioBuffers[i].duration
     const startTime = formatTimestamp(currentTime)
-    
+
     markers.push(`CHAPTER${String(i + 1).padStart(2, '0')}=${startTime}`)
     markers.push(`CHAPTER${String(i + 1).padStart(2, '0')}NAME=${chapters[i].title}`)
-    
+
     currentTime += duration
   }
 
@@ -317,23 +377,29 @@ function formatTimestamp(seconds: number): string {
 }
 
 /**
- * Convert WAV blob to MP3 blob
+ * Convert WAV blob to MP3 blob using FFmpeg
  * @param wavBlob - WAV audio blob
  * @param bitrate - MP3 bitrate (default: 192 kbps)
  * @returns MP3 blob
  */
 export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Promise<Blob> {
-  // Decode WAV blob to AudioBuffer
-  const arrayBuffer = await wavBlob.arrayBuffer()
-  const audioContext = new AudioContext()
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-  
+  const ffmpeg = await getFFmpeg()
+
+  // Write input WAV file
+  const wavData = new Uint8Array(await wavBlob.arrayBuffer())
+  await ffmpeg.writeFile('input.wav', wavData)
+
   // Convert to MP3
-  const mp3Blob = await audioBufferToMp3(audioBuffer, bitrate, [], { format: 'mp3', bitrate })
-  
-  // Close audio context to free resources
-  await audioContext.close()
-  
+  await ffmpeg.exec(['-i', 'input.wav', '-c:a', 'libmp3lame', '-b:a', `${bitrate}k`, 'output.mp3'])
+
+  // Read output file
+  const data = (await ffmpeg.readFile('output.mp3')) as Uint8Array
+  const mp3Blob = new Blob([new Uint8Array(data)], { type: 'audio/mpeg' })
+
+  // Clean up
+  await ffmpeg.deleteFile('input.wav')
+  await ffmpeg.deleteFile('output.mp3')
+
   return mp3Blob
 }
 

@@ -53,7 +53,14 @@ function extractChapterTitle(
   ].filter((v): v is string => !!v)
 
   const headingTitle = headings.length > 0 ? headings[0] : null
-  const title = guideTitle || cleanHtml(chapterTitleFromStructure || headingTitle || chapterDoc?.querySelector('title')?.textContent || '')
+  const title =
+    guideTitle ||
+    cleanHtml(
+      chapterTitleFromStructure ||
+        headingTitle ||
+        chapterDoc?.querySelector('title')?.textContent ||
+        ''
+    )
   return title || fallbackTitle || `Chapter ${index + 1}`
 }
 
@@ -70,17 +77,22 @@ export async function parseEpubFile(file: File): Promise<EPubBook> {
   const contentDoc = parser.parseFromString(contentOpf, 'application/xml')
 
   // Query for title - try both non-namespaced and dc: namespaced versions
-  const title = contentDoc.querySelector('title')?.textContent || 
-                contentDoc.getElementsByTagNameNS('http://purl.org/dc/elements/1.1/', 'title')[0]?.textContent ||
-                'Unknown'
-  
-  const author = contentDoc.querySelector('creator')?.textContent || 
-                 contentDoc.getElementsByTagNameNS('http://purl.org/dc/elements/1.1/', 'creator')[0]?.textContent ||
-                 'Unknown'
+  const title =
+    contentDoc.querySelector('title')?.textContent ||
+    contentDoc.getElementsByTagNameNS('http://purl.org/dc/elements/1.1/', 'title')[0]
+      ?.textContent ||
+    'Unknown'
 
-  const coverImageId = contentDoc.querySelector("meta[name='cover']")?.getAttribute('content') || 'cover-image'
+  const author =
+    contentDoc.querySelector('creator')?.textContent ||
+    contentDoc.getElementsByTagNameNS('http://purl.org/dc/elements/1.1/', 'creator')[0]
+      ?.textContent ||
+    'Unknown'
+
+  const coverImageId =
+    contentDoc.querySelector("meta[name='cover']")?.getAttribute('content') || 'cover-image'
   const items = Array.from(contentDoc.querySelectorAll('item') || []) as Element[]
-  const coverItem = items.find(i => i.getAttribute('id') === coverImageId)
+  const coverItem = items.find((i) => i.getAttribute('id') === coverImageId)
   const coverHref = coverItem?.getAttribute('href') || ''
 
   const spine = Array.from(contentDoc.querySelectorAll('itemref') || []) as Element[]
@@ -92,7 +104,10 @@ export async function parseEpubFile(file: File): Promise<EPubBook> {
 
   const guideRefs = Array.from(contentDoc.querySelectorAll('guide reference') || []) as Element[]
   const chapterTitles = new Map(
-    guideRefs.map(ref => [ref.getAttribute('href')?.split('.')[0] || '', ref.getAttribute('title') || ''])
+    guideRefs.map((ref) => [
+      ref.getAttribute('href')?.split('.')[0] || '',
+      ref.getAttribute('title') || '',
+    ])
   )
 
   const chapters: Chapter[] = []
@@ -109,7 +124,7 @@ export async function parseEpubFile(file: File): Promise<EPubBook> {
       const guideTitle = chapterTitles.get(id)
       const title = extractChapterTitle(chapterDoc, guideTitle, content, index)
       if (content) {
-        chapters.push({ id: `chapter-${index+1}`, title, content })
+        chapters.push({ id: `chapter-${index + 1}`, title, content })
       }
     }
   }

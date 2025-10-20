@@ -1,3 +1,20 @@
-body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin: 0; padding: 0; }
-#app { padding: 20px; }
-button { padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; background: #f7f7f7; }
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial;
+  margin: 0;
+  padding: 0;
+}
+#app {
+  padding: 20px;
+}
+button {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #f7f7f7;
+}

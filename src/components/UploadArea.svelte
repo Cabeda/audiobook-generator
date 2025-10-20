@@ -46,43 +46,22 @@
   }
 </script>
 
-<style>
-  .drop { 
-    border: 2px dashed #bbb; 
-    padding: 40px 20px; 
-    border-radius: 8px; 
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-align: center;
-  }
-  .drop:hover {
-    border-color: #4CAF50;
-    background-color: #f8f8f8;
-  }
-  .drop:active {
-    background-color: #e8e8e8;
-  }
-  .drop p {
-    margin: 8px 0;
-  }
-</style>
-
-<input 
-  type="file" 
-  accept=".epub" 
-  on:change={onFileChange} 
+<input
+  type="file"
+  accept=".epub"
+  on:change={onFileChange}
   bind:this={fileInput}
   style="display:none"
   aria-label="Upload EPUB file"
 />
 
-<div 
-  class="drop" 
-  role="button" 
-  tabindex="0" 
+<div
+  class="drop"
+  role="button"
+  tabindex="0"
   on:click={onClick}
   on:keypress={onKeyPress}
-  on:drop|preventDefault={onDrop} 
+  on:drop|preventDefault={onDrop}
   on:dragover|preventDefault
   aria-label="Click to upload or drop EPUB file"
 >
@@ -97,3 +76,24 @@
     <p style="color: #4CAF50; font-weight: 500;">Selected: {file.name}</p>
   {/if}
 </div>
+
+<style>
+  .drop {
+    border: 2px dashed #bbb;
+    padding: 40px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+  }
+  .drop:hover {
+    border-color: #4caf50;
+    background-color: #f8f8f8;
+  }
+  .drop:active {
+    background-color: #e8e8e8;
+  }
+  .drop p {
+    margin: 8px 0;
+  }
+</style>

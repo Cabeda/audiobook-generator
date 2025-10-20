@@ -63,8 +63,24 @@ export function float32ArrayToWavBlob(samples: Float32Array, sampleRate: number 
 // Combine multiple WAV blobs into a single WAV Blob using OfflineAudioContext
 export async function combineAudioBlobs(blobs: Blob[], sampleRate: number = 22050): Promise<Blob> {
   // Decode all blobs to AudioBuffer
-  type AudioCtxCtor = new (numChannels: number, length: number, sampleRate: number) => OfflineAudioContext
-  const audioCtxCtor = ((globalThis as unknown) as { OfflineAudioContext?: AudioCtxCtor; webkitOfflineAudioContext?: AudioCtxCtor }).OfflineAudioContext || ((globalThis as unknown) as { OfflineAudioContext?: AudioCtxCtor; webkitOfflineAudioContext?: AudioCtxCtor }).webkitOfflineAudioContext
+  type AudioCtxCtor = new (
+    numChannels: number,
+    length: number,
+    sampleRate: number
+  ) => OfflineAudioContext
+  const audioCtxCtor =
+    (
+      globalThis as unknown as {
+        OfflineAudioContext?: AudioCtxCtor
+        webkitOfflineAudioContext?: AudioCtxCtor
+      }
+    ).OfflineAudioContext ||
+    (
+      globalThis as unknown as {
+        OfflineAudioContext?: AudioCtxCtor
+        webkitOfflineAudioContext?: AudioCtxCtor
+      }
+    ).webkitOfflineAudioContext
   if (!audioCtxCtor) throw new Error('OfflineAudioContext is not available in this environment')
   const audioCtx = new audioCtxCtor(1, 1, sampleRate)
   const decoded: AudioBuffer[] = []
@@ -75,7 +91,19 @@ export async function combineAudioBlobs(blobs: Blob[], sampleRate: number = 2205
   }
 
   const totalLength = decoded.reduce((s, b) => s + b.length, 0)
-  const outCtxCtor = ((globalThis as unknown) as { OfflineAudioContext?: AudioCtxCtor; webkitOfflineAudioContext?: AudioCtxCtor }).OfflineAudioContext || ((globalThis as unknown) as { OfflineAudioContext?: AudioCtxCtor; webkitOfflineAudioContext?: AudioCtxCtor }).webkitOfflineAudioContext
+  const outCtxCtor =
+    (
+      globalThis as unknown as {
+        OfflineAudioContext?: AudioCtxCtor
+        webkitOfflineAudioContext?: AudioCtxCtor
+      }
+    ).OfflineAudioContext ||
+    (
+      globalThis as unknown as {
+        OfflineAudioContext?: AudioCtxCtor
+        webkitOfflineAudioContext?: AudioCtxCtor
+      }
+    ).webkitOfflineAudioContext
   if (!outCtxCtor) throw new Error('OfflineAudioContext is not available in this environment')
   const outCtx = new outCtxCtor(1, totalLength, sampleRate)
   const outBuffer = outCtx.createBuffer(1, totalLength, sampleRate)

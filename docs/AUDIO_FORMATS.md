@@ -7,6 +7,7 @@ The audiobook generator now supports multiple output formats: MP3, M4B (audioboo
 ## Supported Formats
 
 ### MP3 (Recommended)
+
 - **File Extension**: `.mp3`
 - **Compression**: Lossy
 - **File Size**: Small (10-20MB per hour at 192kbps)
@@ -15,6 +16,7 @@ The audiobook generator now supports multiple output formats: MP3, M4B (audioboo
 - **Compatibility**: Universal (all devices and players)
 
 ### M4B (Audiobook Format)
+
 - **File Extension**: `.m4b`
 - **Compression**: Lossy (MP3-based)
 - **File Size**: Small (similar to MP3)
@@ -24,6 +26,7 @@ The audiobook generator now supports multiple output formats: MP3, M4B (audioboo
 - **Features**: Audiobook metadata, chapter markers (future)
 
 ### WAV (Uncompressed)
+
 - **File Extension**: `.wav`
 - **Compression**: None
 - **File Size**: Large (~600MB per hour)
@@ -55,48 +58,39 @@ The audiobook generator now supports multiple output formats: MP3, M4B (audioboo
 import { concatenateAudioChapters, type AudioFormat } from './lib/audioConcat'
 
 // Generate MP3 at 192 kbps (recommended)
-const mp3Blob = await concatenateAudioChapters(
-  chapters,
-  {
-    format: 'mp3',
-    bitrate: 192,
-    bookTitle: 'My Audiobook',
-    bookAuthor: 'Author Name'
-  }
-)
+const mp3Blob = await concatenateAudioChapters(chapters, {
+  format: 'mp3',
+  bitrate: 192,
+  bookTitle: 'My Audiobook',
+  bookAuthor: 'Author Name',
+})
 
 // Generate M4B audiobook at 256 kbps
-const m4bBlob = await concatenateAudioChapters(
-  chapters,
-  {
-    format: 'm4b',
-    bitrate: 256,
-    bookTitle: 'My Audiobook',
-    bookAuthor: 'Author Name'
-  }
-)
+const m4bBlob = await concatenateAudioChapters(chapters, {
+  format: 'm4b',
+  bitrate: 256,
+  bookTitle: 'My Audiobook',
+  bookAuthor: 'Author Name',
+})
 
 // Generate uncompressed WAV
-const wavBlob = await concatenateAudioChapters(
-  chapters,
-  {
-    format: 'wav'
-  }
-)
+const wavBlob = await concatenateAudioChapters(chapters, {
+  format: 'wav',
+})
 ```
 
 ## Quality vs File Size Comparison
 
 For a 1-hour audiobook:
 
-| Format | Bitrate | File Size | Quality | Use Case |
-|--------|---------|-----------|---------|----------|
-| MP3 | 128 kbps | ~60 MB | Good | Mobile, streaming |
-| MP3 | 192 kbps | ~90 MB | Very Good | **Recommended** |
-| MP3 | 256 kbps | ~120 MB | Excellent | High quality |
-| MP3 | 320 kbps | ~150 MB | Maximum | Audiophiles |
-| M4B | 192 kbps | ~90 MB | Very Good | Audiobook apps |
-| WAV | N/A | ~600 MB | Lossless | Archival |
+| Format | Bitrate  | File Size | Quality   | Use Case          |
+| ------ | -------- | --------- | --------- | ----------------- |
+| MP3    | 128 kbps | ~60 MB    | Good      | Mobile, streaming |
+| MP3    | 192 kbps | ~90 MB    | Very Good | **Recommended**   |
+| MP3    | 256 kbps | ~120 MB   | Excellent | High quality      |
+| MP3    | 320 kbps | ~150 MB   | Maximum   | Audiophiles       |
+| M4B    | 192 kbps | ~90 MB    | Very Good | Audiobook apps    |
+| WAV    | N/A      | ~600 MB   | Lossless  | Archival          |
 
 ## Technical Implementation
 
@@ -138,18 +132,21 @@ Uncompressed PCM audio:
 ## Format Selection Guidelines
 
 ### Choose MP3 if:
+
 - ✅ You want small file sizes
 - ✅ You need universal compatibility
 - ✅ You're listening on mobile devices
 - ✅ You're sharing the audiobook
 
 ### Choose M4B if:
+
 - ✅ You use Apple Books or audiobook apps
 - ✅ You want audiobook-specific features
 - ✅ You need chapter navigation (future)
 - ✅ You're organizing an audiobook library
 
 ### Choose WAV if:
+
 - ✅ You need maximum quality
 - ✅ You're archiving the audiobook
 - ✅ You plan to process the audio further
@@ -165,15 +162,16 @@ Uncompressed PCM audio:
 - **320 kbps**: Maximum quality, largest files (overkill for speech)
 
 ### General Rule:
+
 Speech content doesn't benefit much from bitrates above 192 kbps. The sweet spot is **192 kbps** for audiobooks.
 
 ## Browser Compatibility
 
 | Format | Chrome | Firefox | Safari | Edge |
-|--------|--------|---------|--------|------|
-| MP3 | ✅ | ✅ | ✅ | ✅ |
-| M4B | ✅ | ✅ | ✅ | ✅ |
-| WAV | ✅ | ✅ | ✅ | ✅ |
+| ------ | ------ | ------- | ------ | ---- |
+| MP3    | ✅     | ✅      | ✅     | ✅   |
+| M4B    | ✅     | ✅      | ✅     | ✅   |
+| WAV    | ✅     | ✅      | ✅     | ✅   |
 
 All formats work in modern browsers (2020+).
 
@@ -183,10 +181,10 @@ All formats work in modern browsers (2020+).
 
 ```typescript
 type ConcatenationOptions = {
-  format?: 'wav' | 'mp3' | 'm4b'  // Default: 'wav'
-  bitrate?: number                 // Default: 192 (MP3/M4B only)
-  bookTitle?: string               // Optional metadata
-  bookAuthor?: string              // Optional metadata
+  format?: 'wav' | 'mp3' | 'm4b' // Default: 'wav'
+  bitrate?: number // Default: 192 (MP3/M4B only)
+  bookTitle?: string // Optional metadata
+  bookAuthor?: string // Optional metadata
 }
 ```
 
@@ -212,6 +210,7 @@ type AudioFormat = 'wav' | 'mp3' | 'm4b'
 **Problem**: Audio quality is poor or distorted
 
 **Solutions**:
+
 1. Increase bitrate (try 256 or 320 kbps)
 2. Check source audio quality
 3. Verify no clipping in source audio
@@ -221,6 +220,7 @@ type AudioFormat = 'wav' | 'mp3' | 'm4b'
 **Problem**: Generated file is too big
 
 **Solutions**:
+
 1. Use MP3 instead of WAV
 2. Lower bitrate (try 128 or 192 kbps)
 3. Check if you selected multiple chapters
@@ -230,6 +230,7 @@ type AudioFormat = 'wav' | 'mp3' | 'm4b'
 **Problem**: M4B file doesn't open in audiobook app
 
 **Solutions**:
+
 1. Try MP3 format instead
 2. Verify app supports M4B format
 3. Check file wasn't corrupted during download
@@ -243,7 +244,7 @@ const audiobook = await concatenateAudioChapters(chapters, {
   format: 'mp3',
   bitrate: 256,
   bookTitle: 'Robinson Crusoe',
-  bookAuthor: 'Daniel Defoe'
+  bookAuthor: 'Daniel Defoe',
 })
 ```
 
@@ -254,7 +255,7 @@ const audiobook = await concatenateAudioChapters(chapters, {
   format: 'm4b',
   bitrate: 128,
   bookTitle: 'My Audiobook',
-  bookAuthor: 'Author'
+  bookAuthor: 'Author',
 })
 ```
 
@@ -262,7 +263,7 @@ const audiobook = await concatenateAudioChapters(chapters, {
 
 ```typescript
 const audiobook = await concatenateAudioChapters(chapters, {
-  format: 'wav'
+  format: 'wav',
 })
 ```
 

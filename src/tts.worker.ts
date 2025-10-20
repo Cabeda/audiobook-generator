@@ -38,38 +38,37 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       self.postMessage({
         id,
         type: 'progress',
-        message: 'Loading model...'
+        message: 'Loading model...',
       } as WorkerResponse)
 
       // Generate audio with chunk progress tracking
-      const blob = await generateVoice(
-        { text, voice, speed },
-        (current, total) => {
-          // Send chunk progress update
-          self.postMessage({
-            id,
-            type: 'chunk-progress',
-            chunkProgress: { current, total }
-          } as WorkerResponse)
-        }
-      )
-      
+      const blob = await generateVoice({ text, voice, speed }, (current, total) => {
+        // Send chunk progress update
+        self.postMessage({
+          id,
+          type: 'chunk-progress',
+          chunkProgress: { current, total },
+        } as WorkerResponse)
+      })
+
       // Convert blob to ArrayBuffer for transfer
       const arrayBuffer = await blob.arrayBuffer()
-      
+
       // Send success response with transferable ArrayBuffer
-      self.postMessage({
-        id,
-        type: 'success',
-        data: arrayBuffer
-      } as WorkerResponse, { transfer: [arrayBuffer] })
-      
+      self.postMessage(
+        {
+          id,
+          type: 'success',
+          data: arrayBuffer,
+        } as WorkerResponse,
+        { transfer: [arrayBuffer] }
+      )
     } catch (error) {
       // Send error response
       self.postMessage({
         id,
         type: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
       } as WorkerResponse)
     }
   }

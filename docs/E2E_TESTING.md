@@ -38,11 +38,13 @@ npx playwright test -g "should generate single chapter as MP3"
 ## Test Coverage
 
 ### 1. Application Loading
+
 - ✅ Loads the application
 - ✅ Displays correct title
 - ✅ Shows main UI components
 
 ### 2. EPUB Upload
+
 - ✅ Uploads EPUB file
 - ✅ Parses book metadata
 - ✅ Displays book title and author
@@ -51,12 +53,14 @@ npx playwright test -g "should generate single chapter as MP3"
 ### 3. Single Chapter Generation
 
 **MP3 Format:**
+
 - ✅ Generates single chapter as MP3
 - ✅ Selects 192 kbps bitrate
 - ✅ Downloads file with .mp3 extension
 - ✅ Verifies file size is reasonable
 
 **M4B Format:**
+
 - ✅ Generates single chapter as M4B
 - ✅ Selects 256 kbps bitrate
 - ✅ Downloads file with .m4b extension
@@ -65,6 +69,7 @@ npx playwright test -g "should generate single chapter as MP3"
 ### 4. Multiple Chapter Generation
 
 **Two Chapters as MP3:**
+
 - ✅ Selects multiple chapters
 - ✅ Shows progress for each chapter
 - ✅ Concatenates chapters correctly
@@ -72,22 +77,26 @@ npx playwright test -g "should generate single chapter as MP3"
 - ✅ File size larger than single chapter
 
 **Two Chapters as M4B:**
+
 - ✅ Generates two chapters
 - ✅ Uses high bitrate (320 kbps)
 - ✅ Includes book title in filename
 - ✅ Embeds metadata (title, author)
 
 ### 5. UI Features
+
 - ✅ Format dropdown (MP3, M4B, WAV)
 - ✅ Bitrate selection (128, 192, 256, 320 kbps)
 - ✅ Progress messages during generation
 - ✅ Cancellation support
 
 ### 6. Chapter Order
+
 - ✅ Preserves chapter order from EPUB
 - ✅ Concatenates in correct sequence
 
 ### 7. Quality Settings
+
 - ✅ Different bitrates produce different file sizes
 - ✅ Higher bitrate = larger file
 - ✅ Format selection affects output
@@ -135,6 +144,7 @@ export default defineConfig({
 ## Test Data
 
 Uses the example EPUB file:
+
 ```
 example/The_Life_and_Adventures_of_Robinson_Crusoe.epub
 ```
@@ -148,13 +158,13 @@ example/The_Life_and_Adventures_of_Robinson_Crusoe.epub
 
 Different operations have different timeouts:
 
-| Operation | Timeout | Reason |
-|-----------|---------|--------|
-| EPUB parsing | 10s | Fast operation |
-| Single chapter generation | 120s | TTS model loading + generation |
-| Two chapter generation | 180s | Multiple TTS calls |
-| M4B generation | 180s | MP3 encoding + metadata |
-| Download wait | 120-180s | File preparation |
+| Operation                 | Timeout  | Reason                         |
+| ------------------------- | -------- | ------------------------------ |
+| EPUB parsing              | 10s      | Fast operation                 |
+| Single chapter generation | 120s     | TTS model loading + generation |
+| Two chapter generation    | 180s     | Multiple TTS calls             |
+| M4B generation            | 180s     | MP3 encoding + metadata        |
+| Download wait             | 120-180s | File preparation               |
 
 ## Debugging
 
@@ -178,6 +188,7 @@ npx playwright test -g "should generate single chapter" --debug
 ### Screenshots
 
 Failed tests automatically capture:
+
 - Screenshot of failure
 - Error context
 - Browser console logs
@@ -217,6 +228,7 @@ npx playwright show-trace test-results/.../trace.zip
 **Problem**: Dev server can't start on port 5173
 
 **Solution**:
+
 ```bash
 # Kill process on port 5173
 lsof -ti:5173 | xargs kill -9
@@ -230,6 +242,7 @@ PORT=5174 npm run test:e2e
 **Problem**: Chromium browser not found
 
 **Solution**:
+
 ```bash
 npx playwright install chromium
 ```
@@ -239,6 +252,7 @@ npx playwright install chromium
 **Problem**: Tests timeout waiting for generation
 
 **Solution**:
+
 1. Check if dev server is running
 2. Verify Kokoro model loads correctly
 3. Increase timeout in test
@@ -249,6 +263,7 @@ npx playwright install chromium
 **Problem**: Download event not fired
 
 **Solution**:
+
 1. Verify format selection is correct
 2. Check browser download settings
 3. Ensure pop-ups are not blocked
@@ -258,13 +273,13 @@ npx playwright install chromium
 
 ### Test Duration
 
-| Test | Duration | Notes |
-|------|----------|-------|
-| Upload EPUB | ~2s | Fast |
-| Single chapter MP3 | ~30-60s | Model loading |
-| Single chapter M4B | ~30-60s | MP3 encoding |
-| Two chapters MP3 | ~60-120s | Multiple generations |
-| Two chapters M4B | ~60-120s | + Metadata |
+| Test               | Duration | Notes                |
+| ------------------ | -------- | -------------------- |
+| Upload EPUB        | ~2s      | Fast                 |
+| Single chapter MP3 | ~30-60s  | Model loading        |
+| Single chapter M4B | ~30-60s  | MP3 encoding         |
+| Two chapters MP3   | ~60-120s | Multiple generations |
+| Two chapters M4B   | ~60-120s | + Metadata           |
 
 ### Optimization Tips
 

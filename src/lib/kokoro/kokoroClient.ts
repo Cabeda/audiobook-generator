@@ -2,12 +2,33 @@ import { KokoroTTS } from 'kokoro-js'
 
 // Valid Kokoro voice IDs based on the official kokoro-js library
 export type VoiceId =
-  | 'af_heart' | 'af_alloy' | 'af_aoede' | 'af_bella' | 'af_jessica'
-  | 'af_kore' | 'af_nicole' | 'af_nova' | 'af_river' | 'af_sarah'
-  | 'af_sky' | 'am_adam' | 'am_echo' | 'am_eric' | 'am_liam'
-  | 'am_michael' | 'am_onyx' | 'am_puck' | 'am_santa' | 'bf_emma'
-  | 'bf_isabella' | 'bm_george' | 'bm_lewis' | 'bf_alice' | 'bf_lily'
-  | 'bm_daniel' | 'bm_fable'
+  | 'af_heart'
+  | 'af_alloy'
+  | 'af_aoede'
+  | 'af_bella'
+  | 'af_jessica'
+  | 'af_kore'
+  | 'af_nicole'
+  | 'af_nova'
+  | 'af_river'
+  | 'af_sarah'
+  | 'af_sky'
+  | 'am_adam'
+  | 'am_echo'
+  | 'am_eric'
+  | 'am_liam'
+  | 'am_michael'
+  | 'am_onyx'
+  | 'am_puck'
+  | 'am_santa'
+  | 'bf_emma'
+  | 'bf_isabella'
+  | 'bm_george'
+  | 'bm_lewis'
+  | 'bf_alice'
+  | 'bf_lily'
+  | 'bm_daniel'
+  | 'bm_fable'
 
 export type GenerateParams = {
   text: string
@@ -35,14 +56,19 @@ async function getKokoroInstance(
     ttsInstance = await KokoroTTS.from_pretrained(modelId, {
       dtype,
       device,
-      progress_callback: (progress: { status: string; file?: string; loaded?: number; total?: number }) => {
+      progress_callback: (progress: {
+        status: string
+        file?: string
+        loaded?: number
+        total?: number
+      }) => {
         if (progress.loaded && progress.total) {
           const percent = ((progress.loaded / progress.total) * 100).toFixed(1)
           console.log(`Loading ${progress.file}: ${percent}%`)
         } else {
           console.log(`Model loading: ${progress.status}`)
         }
-      }
+      },
     })
     console.log('Kokoro TTS model loaded successfully')
   }
@@ -55,15 +81,15 @@ async function getKokoroInstance(
  */
 export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): string[] {
   const chunks: string[] = []
-  
+
   // Split by sentences (periods, question marks, exclamation points)
   const sentences = text.match(/[^.!?]+[.!?]+/g) || [text]
-  
+
   let currentChunk = ''
   for (const sentence of sentences) {
     const trimmedSentence = sentence.trim()
     if (!trimmedSentence) continue
-    
+
     // If adding this sentence would exceed the limit, save current chunk and start new one
     if (currentChunk.length + trimmedSentence.length > maxChunkSize && currentChunk.length > 0) {
       chunks.push(currentChunk.trim())
@@ -72,12 +98,12 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
       currentChunk += trimmedSentence + ' '
     }
   }
-  
+
   // Add the last chunk if it has content
   if (currentChunk.trim()) {
     chunks.push(currentChunk.trim())
   }
-  
+
   return chunks.length > 0 ? chunks : [text]
 }
 
@@ -95,7 +121,7 @@ export async function generateVoice(
     text,
     voice = 'af_heart' as VoiceId, // Default voice: Heart (high-quality female American English)
     speed = 1.0,
-    model = 'onnx-community/Kokoro-82M-v1.0-ONNX'
+    model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
   } = params
 
   try {
@@ -105,45 +131,47 @@ export async function generateVoice(
     // For very long text, split into chunks to avoid TTS limitations
     // Most TTS models have token/character limits
     const MAX_CHUNK_SIZE = 1000 // characters per chunk
-    
+
     if (text.length > MAX_CHUNK_SIZE) {
       console.log(`Long text detected (${text.length} chars), splitting into chunks...`)
       const chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE)
       console.log(`Split into ${chunks.length} chunks`)
-      
+
       // Generate audio for each chunk
       const audioBlobs: Blob[] = []
       for (let i = 0; i < chunks.length; i++) {
         console.log(`Generating chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`)
-        
+
         // Report chunk progress
         if (onChunkProgress) {
           onChunkProgress(i + 1, chunks.length)
         }
-        
-        const audio = await tts.generate(chunks[i], { voice, speed } as unknown as Parameters<typeof tts.generate>[1])
+
+        const audio = await tts.generate(chunks[i], { voice, speed } as unknown as Parameters<
+          typeof tts.generate
+        >[1])
         audioBlobs.push(audio.toBlob())
-        
+
         // Small delay between chunks to prevent overwhelming the system
         if (i < chunks.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 10))
+          await new Promise((resolve) => setTimeout(resolve, 10))
         }
       }
-      
+
       // If only one chunk, return it directly
       if (audioBlobs.length === 1) {
         return audioBlobs[0]
       }
-      
+
       // For multiple chunks, we need to properly concatenate the audio
       // Import concatenation utility
       const { concatenateAudioChapters } = await import('../audioConcat.ts')
       const audioChapters = audioBlobs.map((blob, i) => ({
         id: `chunk-${i}`,
         title: `Chunk ${i + 1}`,
-        blob
+        blob,
       }))
-      
+
       console.log(`Concatenating ${audioBlobs.length} audio chunks...`)
       return await concatenateAudioChapters(audioChapters, { format: 'wav' })
     }
@@ -156,13 +184,17 @@ export async function generateVoice(
     // - IPA phoneme tokenization
     // - StyleTTS2 inference with ISTFTNet decoder
     // - 24kHz audio generation
-    const audio = await tts.generate(text, { voice, speed } as unknown as Parameters<typeof tts.generate>[1])
+    const audio = await tts.generate(text, { voice, speed } as unknown as Parameters<
+      typeof tts.generate
+    >[1])
 
     // Convert RawAudio to Blob
     return audio.toBlob()
   } catch (error) {
     console.error('Kokoro TTS generation failed:', error)
-    throw new Error(`Failed to generate speech: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(
+      `Failed to generate speech: ${error instanceof Error ? error.message : String(error)}`
+    )
   }
 }
 
@@ -180,23 +212,27 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
     text,
     voice = 'af_heart' as VoiceId,
     speed = 1.0,
-    model = 'onnx-community/Kokoro-82M-v1.0-ONNX'
+    model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
   } = params
 
   try {
     const tts = await getKokoroInstance(model)
 
     // Stream generates audio sentence-by-sentence
-    for await (const chunk of tts.stream(text, { voice, speed } as unknown as Parameters<typeof tts.stream>[1])) {
+    for await (const chunk of tts.stream(text, { voice, speed } as unknown as Parameters<
+      typeof tts.stream
+    >[1])) {
       yield {
         text: chunk.text,
         phonemes: chunk.phonemes,
-        audio: chunk.audio.toBlob()
+        audio: chunk.audio.toBlob(),
       }
     }
   } catch (error) {
     console.error('Kokoro TTS streaming failed:', error)
-    throw new Error(`Failed to stream speech: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(
+      `Failed to stream speech: ${error instanceof Error ? error.message : String(error)}`
+    )
   }
 }
 
@@ -207,12 +243,33 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
 export function listVoices(): VoiceId[] {
   // Return the known voices from kokoro-js
   const voices: VoiceId[] = [
-    'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica',
-    'af_kore', 'af_nicole', 'af_nova', 'af_river', 'af_sarah',
-    'af_sky', 'am_adam', 'am_echo', 'am_eric', 'am_liam',
-    'am_michael', 'am_onyx', 'am_puck', 'am_santa', 'bf_emma',
-    'bf_isabella', 'bm_george', 'bm_lewis', 'bf_alice', 'bf_lily',
-    'bm_daniel', 'bm_fable'
+    'af_heart',
+    'af_alloy',
+    'af_aoede',
+    'af_bella',
+    'af_jessica',
+    'af_kore',
+    'af_nicole',
+    'af_nova',
+    'af_river',
+    'af_sarah',
+    'af_sky',
+    'am_adam',
+    'am_echo',
+    'am_eric',
+    'am_liam',
+    'am_michael',
+    'am_onyx',
+    'am_puck',
+    'am_santa',
+    'bf_emma',
+    'bf_isabella',
+    'bm_george',
+    'bm_lewis',
+    'bf_alice',
+    'bf_lily',
+    'bm_daniel',
+    'bm_fable',
   ]
   return voices
 }

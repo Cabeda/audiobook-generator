@@ -8,5 +8,5 @@ for (let i = 32; i < 127; i++) {
 
 export const tokenize = (text: string): number[] => {
   const fallback = 0
-  return [...text].map(c => vocab[c] ?? fallback)
+  return [...text].map((c) => vocab[c] ?? fallback)
 }

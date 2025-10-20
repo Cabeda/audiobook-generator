@@ -3,6 +3,7 @@
 ## Goal
 
 Rewrite the existing Deno CLI audiobook generator into a browser-only web application that:
+
 - Accepts an EPUB file uploaded by the user.
 - Parses the EPUB in the browser and extracts metadata and chapters.
 - Uses KokoroJS (client-side) to generate audio per chapter, chunking when necessary.
@@ -21,11 +22,11 @@ This project will take inspiration and implementation ideas from https://github.
 
 - Frontend: SvelteKit (or plain Svelte with Vite) single-page app.
 - Client libraries:
-	- kokoro-js (Kokoro runtime)
-	- onnxruntime-web (WebAssembly ONNX runtime)
-	- epub.js or jszip + DOMParser for EPUB parsing
-	- ffmpeg.wasm for in-browser audio packaging (optional)
-	- localForage / IndexedDB for caching model/voice artifacts
+  - kokoro-js (Kokoro runtime)
+  - onnxruntime-web (WebAssembly ONNX runtime)
+  - epub.js or jszip + DOMParser for EPUB parsing
+  - ffmpeg.wasm for in-browser audio packaging (optional)
+  - localForage / IndexedDB for caching model/voice artifacts
 
 No backend. All processing, model loading, voice generation and packaging will happen inside the browser.
 

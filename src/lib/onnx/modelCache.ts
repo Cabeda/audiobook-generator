@@ -22,8 +22,14 @@ export async function cacheResponse(url: string, res: Response): Promise<void> {
   }
 }
 
-export async function fetchAndCache(url: string, onprogress?: (loaded: number, total?: number) => void): Promise<Response> {
-  const existing = await caches.open(CACHE_NAME).then(c => c.match(url)).catch(() => null)
+export async function fetchAndCache(
+  url: string,
+  onprogress?: (loaded: number, total?: number) => void
+): Promise<Response> {
+  const existing = await caches
+    .open(CACHE_NAME)
+    .then((c) => c.match(url))
+    .catch(() => null)
   if (existing) return existing
 
   const res = await fetch(url)
@@ -45,8 +51,8 @@ export async function fetchAndCache(url: string, onprogress?: (loaded: number, t
         onprogress(loaded, total)
       }
     }
-  const parts = chunks.map(c => c.buffer)
-  const blob = new Blob(parts)
+    const parts = chunks.map((c) => c)
+    const blob = new Blob(parts as BlobPart[])
     const response = new Response(blob, { headers: res.headers })
     await cacheResponse(url, response)
     return response

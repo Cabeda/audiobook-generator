@@ -54,8 +54,8 @@ import { generateVoice } from './lib/kokoro/kokoroClient'
 // Generate speech from text
 const audioBlob = await generateVoice({
   text: 'Hello world! This is Kokoro TTS.',
-  voice: 'af_heart',  // Optional: default is 'af_heart'
-  speed: 1.0          // Optional: default is 1.0
+  voice: 'af_heart', // Optional: default is 'af_heart'
+  speed: 1.0, // Optional: default is 1.0
 })
 
 // Use the blob (e.g., create audio element)
@@ -72,11 +72,11 @@ import { generateVoiceStream } from './lib/kokoro/kokoroClient'
 for await (const chunk of generateVoiceStream({
   text: longText,
   voice: 'af_bella',
-  speed: 1.2
+  speed: 1.2,
 })) {
   console.log('Generated:', chunk.text)
   console.log('Phonemes:', chunk.phonemes)
-  
+
   // Play or save chunk.audio (Blob)
   const audio = new Audio(URL.createObjectURL(chunk.audio))
   audio.play()
@@ -170,7 +170,7 @@ Kokoro automatically handles:
 
 - **First load**: ~5-10 seconds (downloads model files)
 - **Subsequent loads**: Instant (cached in IndexedDB)
-- **Model size**: 
+- **Model size**:
   - q8 (recommended): ~82MB
   - q4: ~41MB
   - fp32: ~328MB
@@ -192,7 +192,7 @@ Kokoro automatically handles:
 ```typescript
 const audioBlob = await generateVoice({
   text: 'Custom model example',
-  model: 'onnx-community/Kokoro-82M-v1.0-ONNX'  // Default
+  model: 'onnx-community/Kokoro-82M-v1.0-ONNX', // Default
 })
 ```
 
@@ -203,12 +203,13 @@ Edit `kokoroClient.ts` to change default precision:
 ```typescript
 async function getKokoroInstance(
   modelId: string = 'onnx-community/Kokoro-82M-v1.0-ONNX',
-  dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8',  // Change here
-  device: 'wasm' | 'webgpu' = 'wasm'  // Or use 'webgpu' if available
+  dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8', // Change here
+  device: 'wasm' | 'webgpu' = 'wasm' // Or use 'webgpu' if available
 )
 ```
 
 Precision tradeoffs:
+
 - `fp32`: Highest quality, largest size (328MB), slowest
 - `fp16`: High quality, medium size (164MB), medium speed
 - `q8`: Good quality, small size (82MB), fast ⭐ **Recommended**
@@ -224,10 +225,10 @@ import { generateVoice } from '../lib/kokoro/kokoroClient'
 
 // Generate audio for each chapter
 for (const chapter of selectedChapters) {
-  const audioBlob = await generateVoice({ 
+  const audioBlob = await generateVoice({
     text: chapter.content,
     voice: selectedVoice,
-    speed: selectedSpeed
+    speed: selectedSpeed,
   })
   // Save or play audioBlob
 }
@@ -242,6 +243,7 @@ npm test
 ```
 
 Tests cover:
+
 - Voice listing
 - Basic generation
 - Custom voices
@@ -265,7 +267,7 @@ Tests cover:
 ### Generation is slow
 
 - **Issue**: Using fp32 or WASM on slow device
-- **Solution**: 
+- **Solution**:
   1. Try WebGPU if available
   2. Use q8 or q4 quantization
   3. Enable hardware acceleration in browser

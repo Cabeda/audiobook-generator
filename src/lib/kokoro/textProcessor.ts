@@ -23,8 +23,8 @@ export function segmentText(sanitizedText: string): string[] {
   const regex = /(\[[0-9]+(?:\.[0-9]+)?s\])/g
   return sanitizedText
     .split(regex)
-    .map(s => s.trim())
-    .filter(s => s !== '')
+    .map((s) => s.trim())
+    .filter((s) => s !== '')
 }
 
 function createPhonemeSubChunks(phonemes: string, tokensPerChunk: number): string[] {
@@ -32,7 +32,10 @@ function createPhonemeSubChunks(phonemes: string, tokensPerChunk: number): strin
   const chunks: string[] = []
   let current = ''
   for (const ch of phonemes) {
-    if (current.length >= tokensPerChunk) { chunks.push(current); current = '' }
+    if (current.length >= tokensPerChunk) {
+      chunks.push(current)
+      current = ''
+    }
     current += ch
   }
   if (current.length > 0) chunks.push(current)
@@ -44,13 +47,17 @@ function phonemize(text: string): Promise<string> {
   return Promise.resolve(text.toUpperCase())
 }
 
-export async function preprocessText(text: string, _lang: string = 'en', tokensPerChunk: number = 200): Promise<TextChunk[]> {
+export async function preprocessText(
+  text: string,
+  _lang: string = 'en',
+  tokensPerChunk: number = 200
+): Promise<TextChunk[]> {
   const chunks: TextChunk[] = []
   const sanitized = sanitizeText(text)
   const segments = segmentText(sanitized)
   for (const segment of segments) {
     if (/^\[[0-9]+(?:\.[0-9]+)?s\]$/.test(segment)) {
-      const duration = parseFloat(segment.replace(/[\[s\]]/g, ''))
+      const duration = parseFloat(segment.replace(/[[\]s]/g, ''))
       chunks.push({ type: 'silence', durationSeconds: duration })
       continue
     }

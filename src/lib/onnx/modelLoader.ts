@@ -9,7 +9,10 @@ import { fetchAndCache } from './modelCache.ts'
  * getOnnxRuntime). For large models this will download a potentially
  * large binary and cache it using the Cache API.
  */
-export async function loadOnnxModel(modelUrl: string, onprogress?: (loaded: number, total?: number) => void) {
+export async function loadOnnxModel(
+  modelUrl: string,
+  onprogress?: (loaded: number, total?: number) => void
+) {
   const ort = await getOnnxRuntime()
 
   // fetch & cache via our modelCache utility
@@ -21,7 +24,7 @@ export async function loadOnnxModel(modelUrl: string, onprogress?: (loaded: numb
   try {
     // If wasmPaths needs to be set, user can set ort.env.wasm.wasmPaths before calling this function.
     const session = await ort.InferenceSession.create(new Uint8Array(arrayBuffer), {
-      executionProviders: ['wasm']
+      executionProviders: ['wasm'],
     })
     return { ort, session }
   } catch (e) {

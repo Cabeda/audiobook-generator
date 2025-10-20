@@ -59,7 +59,7 @@
   async function downloadBlobAsMp3(id: string) {
     const rec = generated.get(id)
     if (!rec) return
-    
+
     try {
       const { convertWavToMp3, downloadAudioFile } = await import('./lib/audioConcat')
       const mp3Blob = await convertWavToMp3(rec.blob, 192)

@@ -38,12 +38,14 @@
   }
 
   function exportSelected() {
-    const selectedChapters: Chapter[] = book.chapters.filter(ch => selected.get(ch.id))
+    const selectedChapters: Chapter[] = book.chapters.filter((ch) => selected.get(ch.id))
     if (selectedChapters.length === 0) {
       alert('No chapters selected')
       return
     }
-    const contents = selectedChapters.map((c, i) => `=== ${c.title} ===\n\n${c.content}\n\n`).join('\n')
+    const contents = selectedChapters
+      .map((c, i) => `=== ${c.title} ===\n\n${c.content}\n\n`)
+      .join('\n')
     const blob = new Blob([contents], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -58,16 +60,12 @@
   }
 
   function copyChapterContent(ch: Chapter) {
-    navigator.clipboard?.writeText(ch.content).then(() => alert('Copied to clipboard')).catch(() => alert('Clipboard not available'))
+    navigator.clipboard
+      ?.writeText(ch.content)
+      .then(() => alert('Copied to clipboard'))
+      .catch(() => alert('Clipboard not available'))
   }
 </script>
-
-<style>
-  .cover { max-width: 200px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
-  .chapter { padding: 8px; border-bottom: 1px solid #eee; display:flex; gap:12px; align-items:flex-start }
-  .chapter-title { font-weight:600 }
-  .controls { margin: 12px 0; display:flex; gap:8px; align-items:center }
-</style>
 
 <div>
   <h2>{book.title}</h2>
@@ -80,7 +78,9 @@
     <button on:click={selectAll}>Select all</button>
     <button on:click={deselectAll}>Deselect all</button>
     <button on:click={exportSelected}>Export selected</button>
-    <div style="margin-left:auto">Selected: {Array.from(selected.values()).filter(Boolean).length} / {book.chapters.length}</div>
+    <div style="margin-left:auto">
+      Selected: {Array.from(selected.values()).filter(Boolean).length} / {book.chapters.length}
+    </div>
   </div>
 
   <h3>Chapters</h3>
@@ -88,11 +88,17 @@
     {#each book.chapters as ch}
       <div class="chapter">
         <div style="width:28px">
-          <input type="checkbox" checked={selected.get(ch.id)} on:change={() => toggleChapter(ch.id)} />
+          <input
+            type="checkbox"
+            checked={selected.get(ch.id)}
+            on:change={() => toggleChapter(ch.id)}
+          />
         </div>
         <div style="flex:1">
           <div class="chapter-title">{ch.title}</div>
-          <div style="font-size:0.9em;color:#444">{ch.content.slice(0,300)}{ch.content.length>300? '…' : ''}</div>
+          <div style="font-size:0.9em;color:#444">
+            {ch.content.slice(0, 300)}{ch.content.length > 300 ? '…' : ''}
+          </div>
         </div>
         <div style="width:90px; text-align:right">
           <button on:click={() => copyChapterContent(ch)}>Copy</button>
@@ -101,3 +107,27 @@
     {/each}
   </div>
 </div>
+
+<style>
+  .cover {
+    max-width: 200px;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  }
+  .chapter {
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .chapter-title {
+    font-weight: 600;
+  }
+  .controls {
+    margin: 12px 0;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+</style>

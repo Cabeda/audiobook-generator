@@ -7,6 +7,7 @@ A modern, browser-based audiobook generator that converts EPUB books into high-q
 ## ✨ Features
 
 ### 🎯 Core Functionality
+
 - 📚 **EPUB Support** - Upload any EPUB file and parse chapters automatically
 - 🎤 **High-Quality TTS** - 27 voices (American & British English) using Kokoro-82M
 - 🎵 **Multiple Formats** - Export as MP3, M4B (audiobook), or WAV
@@ -17,6 +18,7 @@ A modern, browser-based audiobook generator that converts EPUB books into high-q
 - 🌐 **100% Browser-Based** - No server required, works offline after first load
 
 ### 🎨 User Experience
+
 - ⚡ **Fast Generation** - ~0.5-1.0s per sentence
 - 📊 **Real-Time Progress** - Track generation and encoding status
 - 🎯 **Chapter Preview** - See content before generating
@@ -25,6 +27,7 @@ A modern, browser-based audiobook generator that converts EPUB books into high-q
 - 🚫 **Cancellation** - Stop generation at any time
 
 ### 🧪 Quality Assurance
+
 - ✅ **27 Tests** - Comprehensive unit and E2E test coverage
 - 🎭 **Playwright E2E** - Real browser testing with actual TTS
 - 🔄 **CI/CD** - Automated testing on every commit
@@ -33,6 +36,7 @@ A modern, browser-based audiobook generator that converts EPUB books into high-q
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Node.js 20.x or higher
 - npm or yarn
 
@@ -65,15 +69,16 @@ Open http://localhost:5173 to use the app.
 
 ### Format Comparison
 
-| Format | File Size (1hr) | Quality | Best For |
-|--------|----------------|---------|----------|
+| Format  | File Size (1hr)  | Quality   | Best For                                     |
+| ------- | ---------------- | --------- | -------------------------------------------- |
 | **MP3** | ~90 MB @ 192kbps | Very Good | ⭐ **Recommended** - Universal compatibility |
-| **M4B** | ~90 MB @ 192kbps | Very Good | Audiobook apps, chapter markers |
-| **WAV** | ~600 MB | Lossless | Archival, further processing |
+| **M4B** | ~90 MB @ 192kbps | Very Good | Audiobook apps, chapter markers              |
+| **WAV** | ~600 MB          | Lossless  | Archival, further processing                 |
 
 ### Voice Selection
 
 **Top Voices:**
+
 - `af_heart` ⭐ - Female American (Grade A)
 - `af_bella` 🔥 - Female American (Grade A-)
 - `bf_emma` ⭐ - Female British (Grade A)
@@ -137,6 +142,7 @@ npm test
 ```
 
 **Coverage:**
+
 - ✅ EPUB parsing (8 tests)
 - ✅ Kokoro TTS client (9 tests)
 - ✅ Audio concatenation (10 tests)
@@ -148,6 +154,7 @@ npm run test:e2e
 ```
 
 **Coverage:**
+
 - ✅ Application loading and EPUB upload
 - ✅ Single chapter generation (MP3, M4B)
 - ✅ Multiple chapter generation
@@ -189,14 +196,17 @@ Audiobook File
 ## 🎯 Performance
 
 ### Model Loading
+
 - **First load**: 5-10 seconds (downloads ~82MB model)
 - **Subsequent loads**: Instant (cached in IndexedDB)
 
 ### Generation Speed
+
 - **WASM**: 0.5-1.0s per sentence
 - **WebGPU**: 0.2-0.5s per sentence (if available)
 
 ### Memory Usage
+
 - **Model**: ~200-400MB RAM
 - **Per chapter**: ~10-20MB
 

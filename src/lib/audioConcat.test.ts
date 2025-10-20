@@ -1,27 +1,32 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest'
-import { concatenateAudioChapters, downloadAudioFile, createChapterMarkers, type AudioChapter } from './audioConcat.ts'
+import {
+  concatenateAudioChapters,
+  downloadAudioFile,
+  createChapterMarkers,
+  type AudioChapter,
+} from './audioConcat.ts'
 
 // Mock AudioContext for testing
 class MockAudioContext {
   sampleRate = 44100
-  
+
   createBuffer(numberOfChannels: number, length: number, sampleRate: number) {
     const buffer = {
       numberOfChannels,
       length,
       sampleRate,
       duration: length / sampleRate,
-      getChannelData: (_channel: number) => new Float32Array(length)
+      getChannelData: (_channel: number) => new Float32Array(length),
     }
     return buffer as AudioBuffer
   }
-  
+
   decodeAudioData(arrayBuffer: ArrayBuffer) {
     // Create a simple mock buffer
     const length = Math.floor(arrayBuffer.byteLength / 4) // Assume 16-bit stereo
     return Promise.resolve(this.createBuffer(2, length, this.sampleRate))
   }
-  
+
   async close() {
     // Mock close
   }
@@ -30,11 +35,12 @@ class MockAudioContext {
 describe('audioConcat', () => {
   beforeAll(() => {
     // Mock AudioContext globally
-    (globalThis as unknown as { AudioContext: typeof MockAudioContext }).AudioContext = MockAudioContext
-    
+    ;(globalThis as unknown as { AudioContext: typeof MockAudioContext }).AudioContext =
+      MockAudioContext
+
     // Add arrayBuffer method to Blob prototype if not present
     if (!Blob.prototype.arrayBuffer) {
-      Blob.prototype.arrayBuffer = function() {
+      Blob.prototype.arrayBuffer = function () {
         return new Promise((resolve) => {
           const reader = new FileReader()
           reader.onloadend = () => {
@@ -52,8 +58,8 @@ describe('audioConcat', () => {
         {
           id: 'ch1',
           title: 'Chapter 1',
-          blob: new Blob(['mock audio data'], { type: 'audio/wav' })
-        }
+          blob: new Blob(['mock audio data'], { type: 'audio/wav' }),
+        },
       ]
 
       const result = await concatenateAudioChapters(chapters)
@@ -69,17 +75,17 @@ describe('audioConcat', () => {
         {
           id: 'ch1',
           title: 'Chapter 1',
-          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' })
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
         },
         {
           id: 'ch2',
           title: 'Chapter 2',
-          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' })
-        }
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+        },
       ]
 
       const result = await concatenateAudioChapters(chapters)
-      
+
       expect(result).toBeInstanceOf(Blob)
       expect(result.type).toBe('audio/wav')
       expect(result.size).toBeGreaterThan(0)
@@ -90,17 +96,17 @@ describe('audioConcat', () => {
         {
           id: 'ch1',
           title: 'Chapter 1',
-          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' })
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
         },
         {
           id: 'ch2',
           title: 'Chapter 2',
-          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' })
-        }
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+        },
       ]
 
       const progressUpdates: string[] = []
-      
+
       await concatenateAudioChapters(chapters, {}, (progress) => {
         progressUpdates.push(progress.status)
       })
@@ -118,12 +124,12 @@ describe('audioConcat', () => {
         {
           id: 'ch1',
           title: 'Chapter 1',
-          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' })
-        }
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+        },
       ]
 
       const result = await concatenateAudioChapters(chapters, { format: 'mp3', bitrate: 192 })
-      
+
       expect(result).toBeInstanceOf(Blob)
       expect(result.type).toBe('audio/mpeg')
     })
@@ -134,12 +140,12 @@ describe('audioConcat', () => {
         {
           id: 'ch1',
           title: 'Chapter 1',
-          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' })
-        }
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+        },
       ]
 
       const result = await concatenateAudioChapters(chapters, { format: 'm4b', bitrate: 256 })
-      
+
       expect(result).toBeInstanceOf(Blob)
       expect(result.type).toBe('audio/m4b')
     })
@@ -149,12 +155,12 @@ describe('audioConcat', () => {
         {
           id: 'ch1',
           title: 'Chapter 1',
-          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' })
-        }
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+        },
       ]
 
       const result = await concatenateAudioChapters(chapters, { format: 'wav' })
-      
+
       expect(result).toBeInstanceOf(Blob)
       expect(result.type).toBe('audio/wav')
     })
@@ -165,16 +171,16 @@ describe('audioConcat', () => {
       const mockContext = new MockAudioContext()
       const chapters: AudioChapter[] = [
         { id: 'ch1', title: 'Introduction', blob: new Blob() },
-        { id: 'ch2', title: 'Main Content', blob: new Blob() }
+        { id: 'ch2', title: 'Main Content', blob: new Blob() },
       ]
-      
+
       const audioBuffers = [
         mockContext.createBuffer(2, 44100, 44100), // 1 second
-        mockContext.createBuffer(2, 88200, 44100)  // 2 seconds
+        mockContext.createBuffer(2, 88200, 44100), // 2 seconds
       ]
 
       const markers = createChapterMarkers(chapters, audioBuffers)
-      
+
       expect(markers).toContain('CHAPTER01=00:00:00.000')
       expect(markers).toContain('CHAPTER01NAME=Introduction')
       expect(markers).toContain('CHAPTER02=00:00:01.000')
@@ -186,17 +192,17 @@ describe('audioConcat', () => {
       const chapters: AudioChapter[] = [
         { id: 'ch1', title: 'Chapter 1', blob: new Blob() },
         { id: 'ch2', title: 'Chapter 2', blob: new Blob() },
-        { id: 'ch3', title: 'Chapter 3', blob: new Blob() }
+        { id: 'ch3', title: 'Chapter 3', blob: new Blob() },
       ]
-      
+
       const audioBuffers = [
-        mockContext.createBuffer(2, 44100, 44100),   // 1 second
-        mockContext.createBuffer(2, 132300, 44100),  // 3 seconds
-        mockContext.createBuffer(2, 88200, 44100)    // 2 seconds
+        mockContext.createBuffer(2, 44100, 44100), // 1 second
+        mockContext.createBuffer(2, 132300, 44100), // 3 seconds
+        mockContext.createBuffer(2, 88200, 44100), // 2 seconds
       ]
 
       const markers = createChapterMarkers(chapters, audioBuffers)
-      
+
       expect(markers).toContain('CHAPTER01=00:00:00.000')
       expect(markers).toContain('CHAPTER02=00:00:01.000')
       expect(markers).toContain('CHAPTER03=00:00:04.000')
@@ -207,29 +213,29 @@ describe('audioConcat', () => {
     it('should create download link and trigger download', () => {
       const blob = new Blob(['test data'], { type: 'audio/wav' })
       const filename = 'test-audiobook.wav'
-      
+
       // Mock DOM methods
       const mockClick = vi.fn()
       const mockAppendChild = vi.fn()
       const mockRemoveChild = vi.fn()
       const mockCreateObjectURL = vi.fn(() => 'blob:mock-url')
       const mockRevokeObjectURL = vi.fn()
-      
+
       globalThis.URL.createObjectURL = mockCreateObjectURL
       globalThis.URL.revokeObjectURL = mockRevokeObjectURL
-      
+
       const mockElement = {
         href: '',
         download: '',
-        click: mockClick
+        click: mockClick,
       }
-      
+
       vi.spyOn(document, 'createElement').mockReturnValue(mockElement as unknown as HTMLElement)
       vi.spyOn(document.body, 'appendChild').mockImplementation(mockAppendChild)
       vi.spyOn(document.body, 'removeChild').mockImplementation(mockRemoveChild)
-      
+
       downloadAudioFile(blob, filename)
-      
+
       expect(mockCreateObjectURL).toHaveBeenCalledWith(blob)
       expect(mockElement.download).toBe(filename)
       expect(mockClick).toHaveBeenCalled()
