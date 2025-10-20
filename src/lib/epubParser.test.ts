@@ -8,7 +8,7 @@ describe('EPUB Parser', () => {
 
   beforeAll(() => {
     // Load the Robinson Crusoe EPUB from the example folder
-    const epubPath = resolve(__dirname, '../../../example/The_Life_and_Adventures_of_Robinson_Crusoe.epub')
+    const epubPath = resolve(__dirname, '../../example/The_Life_and_Adventures_of_Robinson_Crusoe.epub')
     const buffer = readFileSync(epubPath)
     const blob = new Blob([buffer], { type: 'application/epub+zip' })
     robinsonCrusoeFile = new File([blob], 'The_Life_and_Adventures_of_Robinson_Crusoe.epub', {
