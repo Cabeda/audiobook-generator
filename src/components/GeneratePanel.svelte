@@ -24,6 +24,7 @@
   let selectedFormat: AudioFormat = 'mp3'
   let selectedBitrate = 192
   let selectedVoice: VoiceId = 'af_heart'
+  let showAdvanced = false
 
   // Detailed progress tracking
   let currentChapter = 0
@@ -208,12 +209,18 @@
 </script>
 
 <div class="panel">
-  <h3>Generate Audio</h3>
-  <div>Selected chapters: {getSelectedChapters().length}</div>
+  <h3>Generate Audiobook</h3>
 
-  <div class="format-selector">
+  <div class="summary">
+    <span class="chapter-count"
+      >📚 {getSelectedChapters().length} chapter{getSelectedChapters().length !== 1 ? 's' : ''} selected</span
+    >
+  </div>
+
+  <!-- Essential Options -->
+  <div class="option-group">
     <label>
-      🎤 Voice:
+      <span class="label-text">🎤 Voice</span>
       <select bind:value={selectedVoice} disabled={running || concatenating}>
         {#each availableVoices as voice}
           <option value={voice}>{voiceLabels[voice] || voice}</option>
@@ -222,35 +229,51 @@
     </label>
   </div>
 
-  <div class="format-selector">
-    <label>
-      Output Format:
-      <select bind:value={selectedFormat} disabled={running || concatenating}>
-        <option value="mp3">MP3 (Recommended)</option>
-        <option value="m4b">M4B (Audiobook)</option>
-        <option value="wav">WAV (Uncompressed)</option>
-      </select>
-    </label>
+  <!-- Advanced Options Toggle -->
+  <button class="advanced-toggle" onclick={() => (showAdvanced = !showAdvanced)}>
+    <span class="toggle-icon">{showAdvanced ? '▼' : '▶'}</span>
+    Advanced Options
+  </button>
 
-    {#if selectedFormat === 'mp3' || selectedFormat === 'm4b'}
-      <label>
-        Bitrate:
-        <select bind:value={selectedBitrate} disabled={running || concatenating}>
-          <option value={128}>128 kbps (Smaller file)</option>
-          <option value={192}>192 kbps (Balanced)</option>
-          <option value={256}>256 kbps (High quality)</option>
-          <option value={320}>320 kbps (Maximum)</option>
-        </select>
-      </label>
-    {/if}
-  </div>
+  {#if showAdvanced}
+    <div class="advanced-options">
+      <div class="option-group">
+        <label>
+          <span class="label-text">📦 Format</span>
+          <select bind:value={selectedFormat} disabled={running || concatenating}>
+            <option value="mp3">MP3 (Recommended)</option>
+            <option value="m4b">M4B (Audiobook)</option>
+            <option value="wav">WAV (Uncompressed)</option>
+          </select>
+        </label>
 
-  <div style="margin-top:8px">
-    <button onclick={generate} disabled={running || concatenating}>Generate Chapters</button>
-    <button onclick={generateAndConcatenate} disabled={running || concatenating}>
-      Generate & Download Audiobook
+        {#if selectedFormat === 'mp3' || selectedFormat === 'm4b'}
+          <label>
+            <span class="label-text">🎚️ Quality</span>
+            <select bind:value={selectedBitrate} disabled={running || concatenating}>
+              <option value={128}>128 kbps (Smaller)</option>
+              <option value={192}>192 kbps (Balanced)</option>
+              <option value={256}>256 kbps (High)</option>
+              <option value={320}>320 kbps (Maximum)</option>
+            </select>
+          </label>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Action Buttons -->
+  <div class="actions">
+    <button
+      class="primary"
+      onclick={generateAndConcatenate}
+      disabled={running || concatenating || getSelectedChapters().length === 0}
+    >
+      {running || concatenating ? '⏳ Processing...' : '🎧 Generate & Download'}
     </button>
-    <button onclick={cancel} disabled={!running}>Cancel</button>
+    {#if running}
+      <button class="secondary" onclick={cancel}> ✕ Cancel </button>
+    {/if}
   </div>
 
   {#if running || concatenating}
@@ -279,9 +302,12 @@
     </div>
   {/if}
   {#if generatedChapters.size > 0 && !running && !concatenating}
-    <div style="margin-top:12px; padding-top:12px; border-top: 1px solid #eee">
-      <button onclick={concatenateAndDownload} disabled={concatenating}>
-        📥 Download Complete Audiobook ({generatedChapters.size} chapters)
+    <div class="download-section">
+      <button class="secondary" onclick={concatenateAndDownload} disabled={concatenating}>
+        📥 Download Complete Audiobook ({generatedChapters.size} chapter{generatedChapters.size !==
+        1
+          ? 's'
+          : ''})
       </button>
     </div>
   {/if}
@@ -289,43 +315,186 @@
 
 <style>
   .panel {
-    border: 1px solid #eee;
+    border: 1px solid #e0e0e0;
+    padding: 20px;
+    border-radius: 12px;
+    margin-top: 16px;
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+
+  .panel h3 {
+    margin: 0 0 16px 0;
+    color: #333;
+    font-size: 20px;
+  }
+
+  .summary {
+    margin-bottom: 16px;
     padding: 12px;
+    background: #f5f5f5;
     border-radius: 8px;
-    margin-top: 12px;
   }
-  .format-selector {
-    margin-top: 12px;
-    padding: 8px;
-    background: #f8f8f8;
-    border-radius: 4px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    align-items: center;
-  }
-  .format-selector label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+
+  .chapter-count {
     font-size: 14px;
     font-weight: 500;
+    color: #555;
   }
-  .format-selector select {
-    padding: 6px 10px;
-    border-radius: 4px;
+
+  .option-group {
+    margin-bottom: 16px;
+  }
+
+  .option-group label {
+    display: block;
+    margin-bottom: 12px;
+  }
+
+  .label-text {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 6px;
+  }
+
+  select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px;
     border: 1px solid #ddd;
     background: white;
     font-size: 14px;
     cursor: pointer;
-    min-width: 180px;
+    transition: border-color 0.2s;
   }
-  .format-selector select:hover:not(:disabled) {
+
+  select:hover:not(:disabled) {
     border-color: #4caf50;
   }
-  .format-selector select:disabled {
+
+  select:focus {
+    outline: none;
+    border-color: #4caf50;
+    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+  }
+
+  select:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+    background: #f5f5f5;
+  }
+
+  .advanced-toggle {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 12px;
+    background: #f8f8f8;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+  }
+
+  .advanced-toggle:hover {
+    background: #f0f0f0;
+    border-color: #d0d0d0;
+  }
+
+  .toggle-icon {
+    font-size: 10px;
+    transition: transform 0.2s;
+  }
+
+  .advanced-options {
+    padding: 16px;
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    animation: slideDown 0.2s ease-out;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  button {
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+  }
+
+  button.primary {
+    flex: 1;
+    background: linear-gradient(135deg, #4caf50, #45a049);
+    color: white;
+    box-shadow: 0 2px 6px rgba(76, 175, 80, 0.3);
+  }
+
+  button.primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+  }
+
+  button.primary:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  button.primary:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  button.secondary {
+    background: white;
+    color: #666;
+    border: 1px solid #ddd;
+  }
+
+  button.secondary:hover:not(:disabled) {
+    background: #f5f5f5;
+    border-color: #ccc;
+  }
+
+  button.secondary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .download-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e0e0e0;
+  }
+
+  .download-section button {
+    width: 100%;
   }
 
   .progress-container {
