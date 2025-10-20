@@ -44,11 +44,17 @@
           }
         })
         
+        if (canceled) break
+        
         generatedChapters.set(ch.id, blob)
         dispatch('generated', { id: ch.id, blob })
       } catch (err) {
+        if (canceled) break
         console.error('Synth error', err)
-        alert('Synthesis failed for chapter: ' + ch.title)
+        const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+        if (!errorMsg.includes('Cancelled')) {
+          alert('Synthesis failed for chapter: ' + ch.title)
+        }
       }
     }
 
@@ -118,6 +124,9 @@
 
   function cancel() {
     canceled = true
+    const worker = getTTSWorker()
+    worker.cancelAll()
+    progressText = 'Cancelling...'
   }
 </script>
 

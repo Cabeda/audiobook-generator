@@ -138,6 +138,22 @@ export class TTSWorkerManager {
     })
   }
 
+  cancelAll() {
+    // Reject all pending requests
+    this.pendingRequests.forEach((pending) => {
+      pending.reject(new Error('Cancelled by user'))
+    })
+    this.pendingRequests.clear()
+    
+    // Terminate and recreate worker to stop any ongoing work
+    if (this.worker) {
+      this.worker.terminate()
+      this.worker = null
+    }
+    this.ready = false
+    this.readyPromise = this.initWorker()
+  }
+
   terminate() {
     if (this.worker) {
       this.worker.terminate()
