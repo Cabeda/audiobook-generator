@@ -2,7 +2,6 @@
  * Audio concatenation utilities for combining chapter audio into a complete audiobook
  */
 import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { toBlobURL } from '@ffmpeg/util'
 
 // Singleton FFmpeg instance
 let ffmpegInstance: FFmpeg | null = null
@@ -21,10 +20,12 @@ async function getFFmpeg(): Promise<FFmpeg> {
   }
 
   if (!ffmpegLoaded) {
-    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm'
+    // Load FFmpeg core from CDN with proper CORS and worker support
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
     await ffmpegInstance.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      coreURL: `${baseURL}/ffmpeg-core.js`,
+      wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+      workerURL: `${baseURL}/ffmpeg-core.worker.js`,
     })
     ffmpegLoaded = true
   }
@@ -62,8 +63,8 @@ async function ffWriteFile(ffmpeg: FFmpeg, filename: string, data: Uint8Array) {
 
 async function ffRun(ffmpeg: FFmpeg, args: string[]) {
   const asWithRun = ffmpeg as unknown as {
-    exec?: (a: string[]) => Promise<any>
-    run?: (...a: string[]) => Promise<any>
+    exec?: (a: string[]) => Promise<unknown>
+    run?: (...a: string[]) => Promise<unknown>
   }
 
   if (typeof asWithRun.exec === 'function') {
@@ -73,10 +74,11 @@ async function ffRun(ffmpeg: FFmpeg, args: string[]) {
   if (typeof asWithRun.run === 'function') {
     try {
       return await asWithRun.run(...args)
-    } catch (_) {
+    } catch {
       // fallback: some builds accept an array as single arg
+      // The call signature may not match compile-time types; ignore here with explanation.
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
+      // @ts-ignore: calling run with an array is required for some FFmpeg builds
       return await asWithRun.run(args)
     }
   }
@@ -104,8 +106,9 @@ async function ffDeleteFile(ffmpeg: FFmpeg, filename: string) {
   }
 
   if (typeof asWithDelete.deleteFile === 'function') {
+    // Some FFmpeg builds expose deleteFile with a different signature; ignore types here.
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
+    // @ts-ignore: call deleteFile when available
     return await asWithDelete.deleteFile(filename)
   }
 
@@ -285,30 +288,25 @@ export async function audioBufferToMp3(
   // Then convert WAV to MP3 or M4B using FFmpeg
   const ffmpeg = await getFFmpeg()
 
+  // Determine output format and file (declare here so finally can reference)
+  const isM4B = options.format === 'm4b'
+  const outputFile = isM4B ? 'output.m4b' : 'output.mp3'
+  const codec = isM4B ? 'aac' : 'libmp3lame'
+
   try {
     // Write input WAV file
     const wavData = new Uint8Array(await wavBlob.arrayBuffer())
     await ffWriteFile(ffmpeg, 'input.wav', wavData)
 
-    // Determine output format and file
-    const isM4B = options.format === 'm4b'
-    const outputFile = isM4B ? 'output.m4b' : 'output.mp3'
-    const codec = isM4B ? 'aac' : 'libmp3lame'
-
     // Build FFmpeg command
-    const args = ['-i', 'input.wav', '-c:a', codec, '-b:a', `${bitrate}k`]
+    const args: string[] = ['-i', 'input.wav', '-c:a', codec, '-b:a', `${bitrate}k`]
 
     // Add metadata if available
-    if (options.bookTitle) {
-      args.push('-metadata', `title=${options.bookTitle}`)
-    }
-    if (options.bookAuthor) {
-      args.push('-metadata', `artist=${options.bookAuthor}`)
-    }
+    if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
+    if (options.bookAuthor) args.push('-metadata', `artist=${options.bookAuthor}`)
 
     // Add chapter metadata for M4B
     if (isM4B && chapters.length > 0) {
-      // Create metadata file for chapters
       const metadata = createFFmpegMetadata(chapters, audioBuffer.duration)
       await ffWriteFile(ffmpeg, 'metadata.txt', new TextEncoder().encode(metadata))
       // Note: second input (index 1) contains metadata
@@ -322,22 +320,15 @@ export async function audioBufferToMp3(
 
     // Read output file
     const data = ffReadFile(ffmpeg, outputFile)
-    const outputBlob = new Blob([new Uint8Array(data)], {
-      type: isM4B ? 'audio/m4b' : 'audio/mpeg',
-    })
-
-    return outputBlob
+    return new Blob([new Uint8Array(data)], { type: isM4B ? 'audio/m4b' : 'audio/mpeg' })
   } catch (err) {
-    // Include more context in thrown error for caller UI
     throw new Error(`Failed to convert audio buffer to ${options.format || 'mp3'}: ${String(err)}`)
   } finally {
     // Best-effort cleanup
     try {
       await ffDeleteFile(ffmpeg, 'input.wav')
-      await ffDeleteFile(ffmpeg, isM4B ? 'output.m4b' : 'output.mp3')
-      if (options.format === 'm4b' && chapters.length > 0) {
-        await ffDeleteFile(ffmpeg, 'metadata.txt')
-      }
+      await ffDeleteFile(ffmpeg, outputFile)
+      if (isM4B && chapters.length > 0) await ffDeleteFile(ffmpeg, 'metadata.txt')
     } catch {
       // swallow cleanup errors
     }
