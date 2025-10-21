@@ -2,6 +2,7 @@
  * Audio concatenation utilities for combining chapter audio into a complete audiobook
  */
 import { FFmpeg } from '@ffmpeg/ffmpeg'
+import { toBlobURL } from '@ffmpeg/util'
 
 // Singleton FFmpeg instance
 let ffmpegInstance: FFmpeg | null = null
@@ -20,12 +21,12 @@ async function getFFmpeg(): Promise<FFmpeg> {
   }
 
   if (!ffmpegLoaded) {
-    // Load FFmpeg core from CDN with proper CORS and worker support
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
+    // Use toBlobURL to fetch and convert CDN files to blob URLs for FFmpeg
+    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm'
     await ffmpegInstance.load({
-      coreURL: `${baseURL}/ffmpeg-core.js`,
-      wasmURL: `${baseURL}/ffmpeg-core.wasm`,
-      workerURL: `${baseURL}/ffmpeg-core.worker.js`,
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
     })
     ffmpegLoaded = true
   }
