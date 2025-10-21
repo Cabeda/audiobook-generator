@@ -84,15 +84,58 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
   const chunks: string[] = []
 
   // Split by sentences (periods, question marks, exclamation points)
-  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text]
+  const sentences: string[] = text.match(/[^.!?]+[.!?]+/g) || []
+
+  // If no sentence-ending punctuation found, split by other delimiters
+  if (sentences.length === 0) {
+    // Try splitting by commas, semicolons, or newlines
+    const parts = text.split(/[,;\n]+/).filter((p) => p.trim())
+    if (parts.length > 1) {
+      sentences.push(...parts.map((p) => p.trim()))
+    } else {
+      // Last resort: split by words if text is too long
+      if (text.length > maxChunkSize) {
+        const words = text.split(/\s+/)
+        let wordChunk = ''
+        for (const word of words) {
+          if (wordChunk.length + word.length + 1 > maxChunkSize && wordChunk.length > 0) {
+            sentences.push(wordChunk.trim())
+            wordChunk = word + ' '
+          } else {
+            wordChunk += word + ' '
+          }
+        }
+        if (wordChunk.trim()) {
+          sentences.push(wordChunk.trim())
+        }
+      } else {
+        sentences.push(text)
+      }
+    }
+  }
 
   let currentChunk = ''
   for (const sentence of sentences) {
     const trimmedSentence = sentence.trim()
     if (!trimmedSentence) continue
 
+    // If a single sentence is longer than maxChunkSize, it becomes its own chunk
+    if (trimmedSentence.length > maxChunkSize) {
+      // Save current chunk if it has content
+      if (currentChunk.trim()) {
+        chunks.push(currentChunk.trim())
+        currentChunk = ''
+      }
+      // Add the long sentence as its own chunk
+      chunks.push(trimmedSentence)
+      continue
+    }
+
     // If adding this sentence would exceed the limit, save current chunk and start new one
-    if (currentChunk.length + trimmedSentence.length > maxChunkSize && currentChunk.length > 0) {
+    if (
+      currentChunk.length + trimmedSentence.length + 1 > maxChunkSize &&
+      currentChunk.length > 0
+    ) {
       chunks.push(currentChunk.trim())
       currentChunk = trimmedSentence + ' '
     } else {

@@ -2,7 +2,6 @@
  * Audio concatenation utilities for combining chapter audio into a complete audiobook
  */
 import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { toBlobURL } from '@ffmpeg/util'
 
 // Singleton FFmpeg instance
 let ffmpegInstance: FFmpeg | null = null
@@ -18,17 +17,33 @@ async function getFFmpeg(): Promise<FFmpeg> {
 
   if (!ffmpegInstance) {
     ffmpegInstance = new FFmpeg()
+
+    // Enable logging for debugging
+    ffmpegInstance.on('log', ({ message }) => {
+      console.log('[FFmpeg]', message)
+    })
   }
 
   if (!ffmpegLoaded) {
-    // Use toBlobURL to fetch and convert CDN files to blob URLs for FFmpeg
-    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm'
-    await ffmpegInstance.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-      workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
-    })
-    ffmpegLoaded = true
+    try {
+      // Use ESM build from jsdelivr with direct URLs (no toBlobURL needed)
+      const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm'
+      console.log('[FFmpeg] Loading FFmpeg core from:', baseURL)
+
+      await ffmpegInstance.load({
+        coreURL: `${baseURL}/ffmpeg-core.js`,
+        wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+      })
+
+      console.log('[FFmpeg] Successfully loaded')
+      ffmpegLoaded = true
+    } catch (err) {
+      console.error('[FFmpeg] Failed to load:', err)
+      // Reset instance so it can be retried
+      ffmpegInstance = null
+      ffmpegLoaded = false
+      throw new Error(`Failed to load FFmpeg: ${String(err)}`)
+    }
   }
 
   return ffmpegInstance
@@ -68,23 +83,37 @@ async function ffRun(ffmpeg: FFmpeg, args: string[]) {
     run?: (...a: string[]) => Promise<unknown>
   }
 
-  if (typeof asWithRun.exec === 'function') {
-    return await asWithRun.exec(args)
-  }
-
-  if (typeof asWithRun.run === 'function') {
-    try {
-      return await asWithRun.run(...args)
-    } catch {
-      // fallback: some builds accept an array as single arg
-      // The call signature may not match compile-time types; ignore here with explanation.
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore: calling run with an array is required for some FFmpeg builds
-      return await asWithRun.run(args)
+  try {
+    if (typeof asWithRun.exec === 'function') {
+      console.log('[FFmpeg] Executing with exec():', args.join(' '))
+      const result = await asWithRun.exec(args)
+      console.log('[FFmpeg] Execution completed successfully')
+      return result
     }
-  }
 
-  throw new Error('FFmpeg run/exec API not available')
+    if (typeof asWithRun.run === 'function') {
+      console.log('[FFmpeg] Executing with run():', args.join(' '))
+      try {
+        const result = await asWithRun.run(...args)
+        console.log('[FFmpeg] Execution completed successfully')
+        return result
+      } catch {
+        // fallback: some builds accept an array as single arg
+        // The call signature may not match compile-time types; ignore here with explanation.
+        console.log('[FFmpeg] Retrying with array argument')
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore: calling run with an array is required for some FFmpeg builds
+        const result = await asWithRun.run(args)
+        console.log('[FFmpeg] Execution completed successfully')
+        return result
+      }
+    }
+
+    throw new Error('FFmpeg run/exec API not available')
+  } catch (err) {
+    console.error('[FFmpeg] Execution failed:', err)
+    throw err
+  }
 }
 
 function ffReadFile(ffmpeg: FFmpeg, filename: string): Uint8Array {
@@ -297,10 +326,11 @@ export async function audioBufferToMp3(
   try {
     // Write input WAV file
     const wavData = new Uint8Array(await wavBlob.arrayBuffer())
+    console.log(`[audioConcat] Writing input WAV: ${wavData.length} bytes`)
     await ffWriteFile(ffmpeg, 'input.wav', wavData)
 
-    // Build FFmpeg command
-    const args: string[] = ['-i', 'input.wav', '-c:a', codec, '-b:a', `${bitrate}k`]
+    // Build FFmpeg command with -y flag to overwrite output
+    const args: string[] = ['-i', 'input.wav', '-c:a', codec, '-b:a', `${bitrate}k`, '-y']
 
     // Add metadata if available
     if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
@@ -316,11 +346,21 @@ export async function audioBufferToMp3(
 
     args.push(outputFile)
 
+    console.log(`[audioConcat] Running FFmpeg with args:`, args)
+
     // Execute FFmpeg
     await ffRun(ffmpeg, args)
 
+    console.log(`[audioConcat] Reading output file: ${outputFile}`)
+
     // Read output file
     const data = ffReadFile(ffmpeg, outputFile)
+    console.log(`[audioConcat] Output file size: ${data.length} bytes`)
+
+    if (data.length === 0) {
+      throw new Error('FFmpeg produced an empty output file')
+    }
+
     return new Blob([new Uint8Array(data)], { type: isM4B ? 'audio/m4b' : 'audio/mpeg' })
   } catch (err) {
     throw new Error(`Failed to convert audio buffer to ${options.format || 'mp3'}: ${String(err)}`)
@@ -483,13 +523,29 @@ export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Pro
   try {
     // Write input WAV file
     const wavData = new Uint8Array(await wavBlob.arrayBuffer())
+    console.log(`[convertWavToMp3] Writing input WAV: ${wavData.length} bytes`)
     await ffWriteFile(ffmpeg, 'input.wav', wavData)
 
-    // Convert to MP3
-    await ffRun(ffmpeg, ['-i', 'input.wav', '-c:a', 'libmp3lame', '-b:a', `${bitrate}k`, outFile])
+    // Convert to MP3 with -y flag to overwrite
+    await ffRun(ffmpeg, [
+      '-i',
+      'input.wav',
+      '-c:a',
+      'libmp3lame',
+      '-b:a',
+      `${bitrate}k`,
+      '-y',
+      outFile,
+    ])
 
     // Read output file
     const data = ffReadFile(ffmpeg, outFile)
+    console.log(`[convertWavToMp3] Output file size: ${data.length} bytes`)
+
+    if (data.length === 0) {
+      throw new Error('FFmpeg produced an empty MP3 file')
+    }
+
     const mp3Blob = new Blob([new Uint8Array(data)], { type: 'audio/mpeg' })
 
     return mp3Blob
