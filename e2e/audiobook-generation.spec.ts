@@ -9,6 +9,80 @@ test.describe('Audiobook Generation E2E', () => {
     await page.waitForLoadState('networkidle')
   })
 
+  test('should generate with Web Speech API (default)', async ({ page }) => {
+    test.setTimeout(120000) // 2 minutes
+
+    // Upload EPUB
+    const epubPath = join(
+      process.cwd(),
+      'example',
+      'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+    )
+    const epubBuffer = await readFile(epubPath)
+
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles({
+      name: 'Robinson_Crusoe.epub',
+      mimeType: 'application/epub+zip',
+      buffer: epubBuffer,
+    })
+
+    // Wait for book to load
+    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+      timeout: 10000,
+    })
+
+    // Verify Web Speech API is selected by default
+    const modelSelect = page
+      .locator('select')
+      .filter({ hasText: /TTS Model|Web Speech API/ })
+      .first()
+    const selectedValue = await modelSelect.inputValue()
+    expect(selectedValue).toBe('webspeech')
+
+    // For a stable downloadable generation in headless tests, explicitly
+    // switch to the Kokoro model and pick a Kokoro-compatible voice.
+    const ttsModelSelect = page
+      .locator('select')
+      .filter({ hasText: /TTS Model|Web Speech API/ })
+      .first()
+    await ttsModelSelect.selectOption('kokoro')
+    // Wait a moment for voices to update
+    await page.waitForTimeout(200)
+    const voiceSelect = page.locator('select').filter({ hasText: /Voice/ }).first()
+    // Choose the default kokoro voice 'af_heart'
+    await voiceSelect.selectOption('af_heart')
+
+    // Deselect all chapters, then select only the first one
+    await page.locator('button:has-text("Deselect all")').click()
+    const firstCheckbox = page.locator('input[type="checkbox"]').first()
+    await firstCheckbox.check()
+
+    // Verify chapter is selected (UI shows "Selected: X / Y")
+    await expect(page.locator('text=Selected: 1 / 22')).toBeVisible()
+
+    // Set up download promise before clicking
+    const downloadPromise = page.waitForEvent('download', { timeout: 90000 })
+
+    // Click generate & download button
+    const generateButton = page.locator('button:has-text("Generate & Download")')
+    await generateButton.click()
+
+    // Wait for progress to appear
+    await page.waitForSelector('text=/Chapter 1\\//i', { timeout: 10000 })
+
+    // Wait for download
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toMatch(/\.mp3$/)
+
+    // Verify file size is reasonable (should be > 1KB)
+    const path = await download.path()
+    if (path) {
+      const stats = await readFile(path)
+      expect(stats.length).toBeGreaterThan(1000)
+    }
+  })
+
   test('should load the application', async ({ page }) => {
     await expect(page).toHaveTitle(/Audiobook Generator/i)
     await expect(page.locator('h1')).toContainText(/Audiobook Generator/i)

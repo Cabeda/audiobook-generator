@@ -1,18 +1,22 @@
 /**
  * Web Worker for TTS generation to prevent UI blocking
- * This worker handles the heavy ONNX model inference off the main thread
+ * This worker handles TTS generation off the main thread
  */
 
-import { generateVoice, type VoiceId } from './lib/kokoro/kokoroClient.ts'
+import { getTTSEngine, type TTSModelType } from './lib/tts/ttsModels.ts'
 
 // Message types
 type WorkerRequest = {
   id: string
   type: 'generate'
   text: string
-  voice?: VoiceId
+  modelType?: TTSModelType
+  voice?: string
   speed?: number
+  pitch?: number
+  // Kokoro-specific
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+  model?: string
 }
 
 type ChunkProgress = {
@@ -31,7 +35,7 @@ type WorkerResponse = {
 
 // Handle messages from main thread
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
-  const { id, type, text, voice, speed } = event.data
+  const { id, type, text, modelType = 'webspeech', voice, speed, pitch, model, dtype } = event.data
 
   if (type === 'generate') {
     try {
@@ -39,30 +43,31 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       self.postMessage({
         id,
         type: 'progress',
-        message: 'Loading model...',
+        message: modelType === 'kokoro' ? 'Loading model...' : 'Initializing speech...',
       } as WorkerResponse)
 
+      // Get the appropriate TTS engine
+      const engine = await getTTSEngine(modelType)
+
       // Generate audio with chunk progress tracking
-      // Forward dtype if provided so the model can be loaded with the desired quantization
-      const req = event.data as WorkerRequest
-      const params: {
-        text: string
-        voice?: VoiceId
-        speed?: number
-        model?: string
-        dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-      } = { text, voice, speed }
-
-      if (req.dtype) params.dtype = req.dtype
-
-      const blob = await generateVoice(params, (current, total) => {
-        // Send chunk progress update
-        self.postMessage({
-          id,
-          type: 'chunk-progress',
-          chunkProgress: { current, total },
-        } as WorkerResponse)
-      })
+      const blob = await engine.generateVoice(
+        {
+          text,
+          voice,
+          speed,
+          pitch,
+          model,
+          dtype,
+        },
+        (current, total) => {
+          // Send chunk progress update
+          self.postMessage({
+            id,
+            type: 'chunk-progress',
+            chunkProgress: { current, total },
+          } as WorkerResponse)
+        }
+      )
 
       // Convert blob to ArrayBuffer for transfer
       const arrayBuffer = await blob.arrayBuffer()

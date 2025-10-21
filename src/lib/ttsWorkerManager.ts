@@ -3,15 +3,19 @@
  * Single authoritative implementation.
  */
 
-import type { VoiceId } from './kokoro/kokoroClient'
+import type { TTSModelType } from './tts/ttsModels'
 
 type WorkerRequest = {
   id: string
   type: 'generate'
   text: string
-  voice?: VoiceId
+  modelType?: TTSModelType
+  voice?: string
   speed?: number
+  pitch?: number
+  // Kokoro-specific
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+  model?: string
 }
 
 type WorkerResponse =
@@ -105,11 +109,15 @@ export class TTSWorkerManager {
 
   async generateVoice(options: {
     text: string
-    voice?: VoiceId
+    modelType?: TTSModelType
+    voice?: string
     speed?: number
+    pitch?: number
     onProgress?: (message: string) => void
     onChunkProgress?: (current: number, total: number) => void
+    // Kokoro-specific
     dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+    model?: string
   }): Promise<Blob> {
     await this.readyPromise
 
@@ -124,14 +132,49 @@ export class TTSWorkerManager {
         onProgress: options.onProgress,
         onChunkProgress: options.onChunkProgress,
       })
+      // If using the Web Speech API, run generation on the main thread because
+      // SpeechSynthesis is not available inside Web Workers.
+      const modelType = options.modelType || 'webspeech'
+      if (modelType === 'webspeech') {
+        ;(async () => {
+          try {
+            const mod = await import('./webspeech/webSpeechClient')
+            const blob = await mod.generateVoice(
+              {
+                text: options.text,
+                voice: options.voice,
+                speed: options.speed,
+                pitch: options.pitch,
+              },
+              options.onChunkProgress
+            )
+            // Resolve and cleanup
+            const pending = this.pendingRequests.get(id)
+            if (pending) {
+              pending.resolve(blob)
+              this.pendingRequests.delete(id)
+            }
+          } catch (err) {
+            const pending = this.pendingRequests.get(id)
+            if (pending) {
+              pending.reject(err as Error)
+              this.pendingRequests.delete(id)
+            }
+          }
+        })()
+        return
+      }
 
       const request: WorkerRequest = {
         id,
         type: 'generate',
         text: options.text,
+        modelType: modelType,
         voice: options.voice,
         speed: options.speed,
+        pitch: options.pitch,
         dtype: options.dtype,
+        model: options.model,
       }
 
       // Post the request; worker will return an ArrayBuffer which we convert to Blob in onmessage
