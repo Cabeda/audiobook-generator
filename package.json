@@ -38,22 +38,22 @@
     "eslint-plugin-svelte": "^3.12.5",
     "globals": "^16.4.0",
     "husky": "^9.1.7",
-    "jsdom": "^23.0.0",
+    "jsdom": "^27.0.1",
     "lint-staged": "^16.2.5",
     "playwright": "^1.56.1",
     "prettier": "^3.6.2",
     "prettier-plugin-svelte": "^3.4.0",
     "svelte": "^5.41.1",
-    "typescript": "^5.0.0",
+    "typescript": "^5.9.3",
     "vite": "^7.1.11",
     "vitest": "^3.2.4"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
-    "epubjs": "^0.3.88",
-    "jszip": "^3.10.0",
+    "epubjs": "^0.3.93",
+    "jszip": "^3.10.1",
     "kokoro-js": "^1.2.1",
-    "onnxruntime-web": "^1.21.0"
+    "onnxruntime-web": "^1.23.0"
   }
 }
