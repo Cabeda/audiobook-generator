@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+.svelte-kit
+playwright-report
+test-results
+coverage
+package-lock.json
+*.min.js
+*.min.css
