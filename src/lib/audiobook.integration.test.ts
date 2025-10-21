@@ -4,8 +4,18 @@ import { describe, it, expect, beforeAll, vi } from 'vitest'
 vi.mock('@ffmpeg/ffmpeg', () => {
   class MockFFmpeg {
     fs: Record<string, Uint8Array> | undefined
+    // simple event listeners and logger to mirror ffmpeg.wasm APIs
+    private listeners: Record<string, Array<(...args: unknown[]) => void>> = {}
+    private logger?: (log: { message?: string }) => void
     constructor() {
       this.fs = {}
+    }
+    on(event: string, cb: (...args: unknown[]) => void) {
+      this.listeners[event] = this.listeners[event] || []
+      this.listeners[event].push(cb)
+    }
+    setLogger(fn: (log: { message?: string }) => void) {
+      this.logger = fn
     }
     load(_opts?: Record<string, unknown>) {
       // no-op
@@ -20,6 +30,12 @@ vi.mock('@ffmpeg/ffmpeg', () => {
       const out = args[args.length - 1]
       this.fs = this.fs || {}
       this.fs[out] = new Uint8Array([1, 2, 3])
+      // emit a log event if listeners exist
+      const msg = `exec ${args.join(' ')}`
+      if (this.logger) this.logger({ message: msg })
+      if (this.listeners['log']) {
+        for (const cb of this.listeners['log']) cb({ message: msg })
+      }
     }
     run(...args: string[]) {
       // support alternate API
