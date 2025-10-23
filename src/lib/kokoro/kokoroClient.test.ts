@@ -3,27 +3,84 @@ import { generateVoice, listVoices, splitTextIntoChunks, type VoiceId } from './
 
 // Mock kokoro-js to avoid loading the actual model in tests
 vi.mock('kokoro-js', () => {
-  const mockAudio = {
-    toBlob: () => new Blob(['mock audio data'], { type: 'audio/wav' }),
-  }
+  const createMockAudio = (data: string) => ({
+    toBlob: () => new Blob([data], { type: 'audio/wav' }),
+  })
 
   const mockTTS = {
-    generate: vi.fn().mockResolvedValue(mockAudio),
-    stream: vi.fn().mockImplementation(async function* () {
-      yield {
-        text: 'Hello world',
-        phonemes: 'həlˈoʊ wˈɜːld',
-        audio: mockAudio,
-      }
+    generate: vi.fn().mockImplementation(async (text: string) => {
+      return createMockAudio(`mock audio for: ${text}`)
     }),
+    stream: vi
+      .fn()
+      .mockImplementation(
+        (splitter: {
+          push: (text: string) => void
+          close: () => void
+          chunks: string[]
+          closed: boolean
+        }) => {
+          // Return an async generator that yields chunks as they're pushed to the splitter
+          return (async function* () {
+            const chunks: string[] = []
+            let closed = false
+
+            // Override splitter methods to capture chunks
+            const originalPush = splitter.push?.bind(splitter) || (() => {})
+            const originalClose = splitter.close?.bind(splitter) || (() => {})
+
+            splitter.push = (text: string) => {
+              chunks.push(text)
+              originalPush(text)
+            }
+
+            splitter.close = () => {
+              closed = true
+              originalClose()
+            }
+
+            // Wait for chunks to be added
+            while (!closed || chunks.length > 0) {
+              if (chunks.length > 0) {
+                const text = chunks.shift()!
+                yield {
+                  text,
+                  phonemes: 'mock phonemes',
+                  audio: createMockAudio(`mock audio for: ${text}`),
+                }
+              } else {
+                // Wait a bit for more chunks or close signal
+                await new Promise((resolve) => setTimeout(resolve, 10))
+              }
+            }
+          })()
+        }
+      ),
     list_voices: vi.fn(),
     voices: {},
+  }
+
+  interface MockSplitter {
+    chunks: string[]
+    closed: boolean
+    push: (text: string) => void
+    close: () => void
   }
 
   return {
     KokoroTTS: {
       from_pretrained: vi.fn().mockResolvedValue(mockTTS),
     },
+    TextSplitterStream: vi.fn().mockImplementation(function (this: MockSplitter) {
+      this.chunks = []
+      this.closed = false
+      this.push = (text: string) => {
+        this.chunks.push(text)
+      }
+      this.close = () => {
+        this.closed = true
+      }
+    }),
   }
 })
 

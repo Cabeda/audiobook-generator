@@ -1,18 +1,20 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { parseEpubFile, type Chapter } from './epubParser.ts'
-import { readFileSync } from 'fs'
+// Note: avoid static import of Node `fs` in test file to prevent Vite import-analysis
 import { resolve } from 'path'
 
 describe('EPUB Parser', () => {
   let robinsonCrusoeFile: File
 
-  beforeAll(() => {
+  beforeAll(async () => {
     // Load the Robinson Crusoe EPUB from the example folder
     const epubPath = resolve(
       __dirname,
       '../../example/The_Life_and_Adventures_of_Robinson_Crusoe.epub'
     )
-    const buffer = readFileSync(epubPath)
+    // Use dynamic import to access fs at runtime (prevents bundler from resolving `fs`)
+    const fs = await import('fs')
+    const buffer = fs.readFileSync(epubPath)
     const blob = new Blob([buffer], { type: 'application/epub+zip' })
     robinsonCrusoeFile = new File([blob], 'The_Life_and_Adventures_of_Robinson_Crusoe.epub', {
       type: 'application/epub+zip',

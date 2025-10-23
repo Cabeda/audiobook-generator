@@ -163,9 +163,17 @@ export async function generateVoice(
     return audioChunks[0]
   }
 
-  // For multiple chunks, we need to concatenate them
-  // This is a simple concatenation - the audioConcat module will handle proper merging
-  return new Blob(audioChunks, { type: 'audio/wav' })
+  // For multiple chunks, we need to properly concatenate them
+  // Import concatenation utility to properly merge WAV files
+  const { concatenateAudioChapters } = await import('../audioConcat.ts')
+  const audioChapters = audioChunks.map((blob, i) => ({
+    id: `chunk-${i}`,
+    title: `Chunk ${i + 1}`,
+    blob,
+  }))
+
+  console.log(`Concatenating ${audioChunks.length} Web Speech audio chunks...`)
+  return await concatenateAudioChapters(audioChapters, { format: 'wav' })
 }
 
 /**

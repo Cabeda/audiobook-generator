@@ -153,7 +153,7 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
 
 /**
  * Generate speech from text using Kokoro TTS
- * For long texts, automatically splits into chunks and concatenates
+ * For long texts, automatically splits into chunks and concatenates using streaming
  * @param params - Generation parameters
  * @returns WAV audio blob
  */
@@ -173,35 +173,58 @@ export async function generateVoice(
     // Get or initialize the TTS instance
     const tts = await getKokoroInstance(model, dtype)
 
-    // For very long text, split into chunks to avoid TTS limitations
+    // For very long text, use streaming to avoid TTS limitations
     // Most TTS models have token/character limits
     const MAX_CHUNK_SIZE = 1000 // characters per chunk
 
     if (text.length > MAX_CHUNK_SIZE) {
-      console.log(`Long text detected (${text.length} chars), splitting into chunks...`)
+      console.log(`Long text detected (${text.length} chars), using streaming approach...`)
+
+      // Import TextSplitterStream from kokoro-js
+      const { TextSplitterStream } = await import('kokoro-js')
+
+      // Set up the stream
+      const splitter = new TextSplitterStream()
+      const stream = tts.stream(splitter, { voice, speed } as unknown as Parameters<
+        typeof tts.stream
+      >[1])
+
+      // Collect audio blobs from the stream
+      const audioBlobs: Blob[] = []
+      let chunkCount = 0
+
+      // Estimate total chunks for progress reporting
+      const estimatedChunks = Math.ceil(text.length / MAX_CHUNK_SIZE)
+
+      // Process stream in parallel with feeding text
+      const streamPromise = (async () => {
+        for await (const { text: chunkText, phonemes: _phonemes, audio } of stream) {
+          chunkCount++
+          console.log(`Generated chunk ${chunkCount}: ${chunkText.substring(0, 50)}...`)
+          audioBlobs.push(audio.toBlob())
+
+          // Report chunk progress
+          if (onChunkProgress) {
+            onChunkProgress(chunkCount, estimatedChunks)
+          }
+        }
+      })()
+
+      // Feed text to the stream in chunks
       const chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE)
       console.log(`Split into ${chunks.length} chunks`)
 
-      // Generate audio for each chunk
-      const audioBlobs: Blob[] = []
-      for (let i = 0; i < chunks.length; i++) {
-        console.log(`Generating chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`)
-
-        // Report chunk progress
-        if (onChunkProgress) {
-          onChunkProgress(i + 1, chunks.length)
-        }
-
-        const audio = await tts.generate(chunks[i], { voice, speed } as unknown as Parameters<
-          typeof tts.generate
-        >[1])
-        audioBlobs.push(audio.toBlob())
-
+      for (const chunk of chunks) {
+        splitter.push(chunk)
         // Small delay between chunks to prevent overwhelming the system
-        if (i < chunks.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 10))
-        }
+        await new Promise((resolve) => setTimeout(resolve, 10))
       }
+
+      // Close the stream to signal that no more text will be added
+      splitter.close()
+
+      // Wait for all audio to be generated
+      await streamPromise
 
       // If only one chunk, return it directly
       if (audioBlobs.length === 1) {
