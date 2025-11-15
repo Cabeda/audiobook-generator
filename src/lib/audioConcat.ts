@@ -180,6 +180,81 @@ export type ConcatenationOptions = {
   bookAuthor?: string
 }
 
+// Helper: resample and ensure channel counts are consistent
+export function resampleAndNormalizeAudioBuffers(
+  audioContext: AudioContext,
+  buffers: AudioBuffer[]
+): AudioBuffer[] {
+  const targetSampleRate = audioContext.sampleRate
+  const targetNumChannels = Math.max(...buffers.map((b) => b.numberOfChannels))
+
+  return buffers.map((buf) => {
+    // 1) Convert channel count if necessary
+    let converted = buf
+    if (buf.numberOfChannels !== targetNumChannels) {
+      converted = convertChannels(buf, targetNumChannels, audioContext)
+    }
+
+    // 2) Resample if necessary
+    if (converted.sampleRate !== targetSampleRate) {
+      converted = resampleBuffer(converted, targetSampleRate, audioContext)
+    }
+
+    return converted
+  })
+}
+
+// Convert number of channels by duplicating or mixing channels
+function convertChannels(
+  buffer: AudioBuffer,
+  targetChannels: number,
+  audioContext: AudioContext
+): AudioBuffer {
+  if (buffer.numberOfChannels === targetChannels) return buffer
+  const out = audioContext.createBuffer(targetChannels, buffer.length, buffer.sampleRate)
+
+  for (let ch = 0; ch < targetChannels; ch++) {
+    const outData = out.getChannelData(ch)
+    if (ch < buffer.numberOfChannels) {
+      outData.set(buffer.getChannelData(ch))
+    } else {
+      // Duplicate last channel if fewer channels than target
+      outData.set(buffer.getChannelData(buffer.numberOfChannels - 1))
+    }
+  }
+
+  return out
+}
+
+// Resample AudioBuffer to the target sample rate using linear interpolation
+function resampleBuffer(
+  buffer: AudioBuffer,
+  targetSampleRate: number,
+  audioContext: AudioContext
+): AudioBuffer {
+  if (buffer.sampleRate === targetSampleRate) return buffer
+
+  const ratio = targetSampleRate / buffer.sampleRate
+  const newLength = Math.round(buffer.length * ratio)
+  const out = audioContext.createBuffer(buffer.numberOfChannels, newLength, targetSampleRate)
+
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const input = buffer.getChannelData(ch)
+    const output = out.getChannelData(ch)
+    for (let i = 0; i < newLength; i++) {
+      const srcIndex = i / ratio
+      const i0 = Math.floor(srcIndex)
+      const i1 = Math.min(i0 + 1, input.length - 1)
+      const frac = srcIndex - i0
+      const v0 = input[i0]
+      const v1 = input[i1]
+      output[i] = v0 + frac * (v1 - v0)
+    }
+  }
+
+  return out
+}
+
 /**
  * Concatenate multiple audio blobs into a single audio file
  * @param chapters - Array of audio chapters with metadata
@@ -235,6 +310,9 @@ export async function concatenateAudioChapters(
     audioBuffers.push(audioBuffer)
   }
 
+  // Normalize sample rate / channel count across decoded buffers
+  const normalizedBuffers = resampleAndNormalizeAudioBuffers(audioContext, audioBuffers)
+
   onProgress?.({
     current: 0,
     total: 1,
@@ -243,16 +321,16 @@ export async function concatenateAudioChapters(
   })
 
   // Calculate total length
-  const totalLength = audioBuffers.reduce((sum, buffer) => sum + buffer.length, 0)
-  const numberOfChannels = audioBuffers[0].numberOfChannels
+  const totalLength = normalizedBuffers.reduce((sum, buffer) => sum + buffer.length, 0)
+  const numberOfChannels = normalizedBuffers[0].numberOfChannels
 
   // Create output buffer
   const outputBuffer = audioContext.createBuffer(numberOfChannels, totalLength, sampleRate)
 
   // Copy all audio data into output buffer
   let offset = 0
-  for (let i = 0; i < audioBuffers.length; i++) {
-    const buffer = audioBuffers[i]
+  for (let i = 0; i < normalizedBuffers.length; i++) {
+    const buffer = normalizedBuffers[i]
 
     // Yield before processing each chapter to keep UI responsive
     await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))

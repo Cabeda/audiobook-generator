@@ -4,6 +4,7 @@ import {
   downloadAudioFile,
   createChapterMarkers,
   type AudioChapter,
+  resampleAndNormalizeAudioBuffers,
 } from './audioConcat.ts'
 
 // Mock AudioContext for testing
@@ -163,6 +164,31 @@ describe('audioConcat', () => {
 
       expect(result).toBeInstanceOf(Blob)
       expect(result.type).toBe('audio/wav')
+    })
+
+    it('should resample and normalize differing sample rates and channel counts', async () => {
+      const mockContext = new MockAudioContext()
+
+      // Create a 1-second mono buffer at 22050
+      const mono22050 = mockContext.createBuffer(1, 22050, 22050)
+      // Create a 1-second stereo buffer at 44100
+      const stereo44100 = mockContext.createBuffer(2, 44100, 44100)
+
+      const normalized = resampleAndNormalizeAudioBuffers(mockContext as unknown as AudioContext, [
+        mono22050,
+        stereo44100,
+      ])
+
+      expect(normalized.length).toBe(2)
+      // Both should be at the target (mock) sample rate
+      expect(normalized[0].sampleRate).toBe(mockContext.sampleRate)
+      expect(normalized[1].sampleRate).toBe(mockContext.sampleRate)
+      // Both should have the same number of channels (max of inputs i.e. 2)
+      expect(normalized[0].numberOfChannels).toBe(2)
+      expect(normalized[1].numberOfChannels).toBe(2)
+      // Verify lengths: mono22050 should have doubled length after resampling to 44100
+      expect(normalized[0].length).toBe(Math.round(22050 * (mockContext.sampleRate / 22050)))
+      expect(normalized[1].length).toBe(44100)
     })
   })
 
