@@ -2,10 +2,7 @@
   import type { EPubBook, Chapter } from '../lib/epubParser'
   import { getTTSWorker } from '../lib/ttsWorkerManager'
   import { listVoices as listKokoroVoices, type VoiceId } from '../lib/kokoro/kokoroClient'
-  import {
-    waitForVoices,
-    listVoices as listWebSpeechVoices,
-  } from '../lib/webspeech/webSpeechClient'
+  import { waitForVoices, listVoices as listEdgeVoices } from '../lib/edge/edgeTtsClient'
   import { TTS_MODELS, type TTSModelType } from '../lib/tts/ttsModels'
   import {
     concatenateAudioChapters,
@@ -28,7 +25,7 @@
   let concatenationProgress = ''
   let selectedFormat: AudioFormat = 'mp3'
   let selectedBitrate = 192
-  let selectedModel: TTSModelType = 'webspeech'
+  let selectedModel: TTSModelType = 'edge'
   let selectedVoice: string = ''
   let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   let showAdvanced = false
@@ -37,7 +34,7 @@
   import { onMount } from 'svelte'
 
   // Voice lists
-  let webSpeechVoices: Array<{ id: string; name: string; lang: string }> = []
+  let edgeVoices: Array<{ id: string; name: string; lang: string }> = []
   let kokoroVoices = listKokoroVoices()
   let availableVoices: Array<{ id: string; label: string }> = []
   let voicesLoaded = false
@@ -53,9 +50,9 @@
       // ignore (e.g., SSR or privacy mode)
     }
 
-    // Load Web Speech API voices
+    // Load EdgeTTS voices
     const voices = await waitForVoices()
-    webSpeechVoices = voices.map((v) => ({ id: v.voiceURI, name: v.name, lang: v.lang }))
+    edgeVoices = voices.map((v) => ({ id: v as string, name: v as string, lang: 'en-US' }))
     voicesLoaded = true
 
     // Set initial voice list
@@ -66,8 +63,8 @@
   $: if (voicesLoaded) updateAvailableVoices()
 
   function updateAvailableVoices() {
-    if (selectedModel === 'webspeech') {
-      availableVoices = webSpeechVoices.map((v) => ({
+    if (selectedModel === 'edge') {
+      availableVoices = edgeVoices.map((v) => ({
         id: v.id,
         label: `${v.name} (${v.lang})`,
       }))
@@ -159,19 +156,11 @@
 
       try {
         // Use worker for TTS generation (non-blocking)
-        // Note: capturing Web Speech API output to an audio blob is not reliably supported across
-        // browsers and headless environments. For downloadable generation, fall back to Kokoro
-        // (worker-based) even when the user has selected Web Speech as the preferred model.
-        const effectiveModel = selectedModel === 'webspeech' ? 'kokoro' : selectedModel
-        if (selectedModel === 'webspeech') {
-          console.warn(
-            'Falling back to Kokoro TTS for downloadable generation because Web Speech output cannot be reliably captured'
-          )
-        }
-
-        // If we're falling back to Kokoro but the currently-selected voice is a
-        // Web Speech voice (e.g. "Samantha"), switch to a Kokoro-compatible
-        // default so generation doesn't fail in headless/test environments.
+        // Note: The app now uses Edge or Kokoro for generation. Edge is a Node-backed
+        // deterministic TTS client (no audible browser playback). Kokoro remains
+        // available for high-quality neural generation.
+        const effectiveModel: TTSModelType = selectedModel
+        // If Kokoro is selected ensure the voice is valid for Kokoro
         if (effectiveModel === 'kokoro' && !kokoroVoices.includes(selectedVoice as VoiceId)) {
           console.warn(
             'Selected voice is not available for Kokoro; switching to default kokoro voice af_heart for generation'

@@ -154,6 +154,22 @@ example/The_Life_and_Adventures_of_Robinson_Crusoe.epub
 - **Chapters**: 22
 - **Format**: EPUB 2.0
 
+Also included is a tiny, 3-chapter test EPUB for fast test iterations:
+
+```
+books/test-short.epub
+```
+
+- **Title**: Short Test Book
+- **Author**: Test Author
+- **Chapters**: 3
+
+Quick test command:
+
+```bash
+npm run test:e2e:fast
+```
+
 ## Timeouts
 
 Different operations have different timeouts:

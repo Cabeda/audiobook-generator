@@ -2,23 +2,21 @@
 
 ## Overview
 
-The audiobook generator now supports multiple Text-to-Speech (TTS) engines with an extensible architecture that makes it easy to add new models in the future.
+The audiobook generator supports multiple Text-to-Speech (TTS) engines and is designed to be extensible so that new engines can be added easily.
 
 ## Available Models
 
-### 1. Web Speech API (Default)
+### 1. Edge TTS (Default)
 
-- **Description**: Browser built-in TTS using the Web Speech Synthesis API
+- **Description**: Edge TTS is a Node-backed deterministic TTS system (server or local Node runtime) and is the default for stable, silent generation.
 - **Advantages**:
-  - ✅ No model download required
-  - ✅ Works offline immediately
-  - ✅ Fast initialization
-  - ✅ Low memory footprint
-  - ✅ Uses system voices
+  - ✅ Deterministic audio across environments
+  - ✅ No audible browser playback during generation
+  - ✅ Works reliably in headless/test environments
+  - ✅ Consistent quality independent of OS/browser
 - **Disadvantages**:
-  - ❌ Quality depends on OS/browser
-  - ❌ Limited voice customization
-  - ❌ Inconsistent across platforms
+  - ❌ Requires a Node runtime or backend (not a purely in-browser option)
+  - ❌ May require network access if using a cloud-hosted service
 
 ### 2. Kokoro TTS
 
@@ -27,9 +25,9 @@ The audiobook generator now supports multiple Text-to-Speech (TTS) engines with 
   - ✅ Consistent high quality across platforms
   - ✅ Multiple voice options (30+ voices)
   - ✅ Customizable quantization levels
-  - ✅ Works offline after initial download
+  - ✅ Works offline after the initial model download
 - **Disadvantages**:
-  - ❌ Requires ~80-200MB model download
+  - ❌ Requires model download (~80-200 MB)
   - ❌ Higher memory usage
   - ❌ Slower initialization
 
@@ -37,10 +35,10 @@ The audiobook generator now supports multiple Text-to-Speech (TTS) engines with 
 
 ### User Interface
 
-1. **Model Selection**: Choose between "Web Speech API" and "Kokoro TTS" in the TTS Model dropdown
+1. **Model Selection**: Choose between "Edge TTS" and "Kokoro TTS" in the TTS Model dropdown
 2. **Voice Selection**: Available voices update automatically based on selected model
 3. **Advanced Options**:
-   - Kokoro-specific options (quantization) only appear when Kokoro is selected
+   - Kokoro-specific options (quantization) appear when Kokoro is selected
    - Model preference is saved in browser localStorage
 
 ### For Developers
@@ -49,19 +47,19 @@ The audiobook generator now supports multiple Text-to-Speech (TTS) engines with 
 
 The implementation uses a modular architecture with three layers:
 
-1. **TTS Clients** (`src/lib/webspeech/`, `src/lib/kokoro/`)
+1. **TTS Clients** (`src/lib/edge/`, `src/lib/kokoro/`)
    - Individual implementations for each TTS engine
    - Common interface: `generateVoice(params, onChunkProgress?): Promise<Blob>`
 
 2. **Abstraction Layer** (`src/lib/tts/ttsModels.ts`)
    - Unified interface for all TTS engines
-   - Factory function to get appropriate engine
+   - Factory function to get the appropriate engine
    - Model metadata for UI display
 
 3. **Worker Integration** (`src/tts.worker.ts`, `src/lib/ttsWorkerManager.ts`)
-   - Routes requests to appropriate TTS engine
+   - Routes requests to the appropriate TTS engine
    - Handles progress reporting
-   - Prevents UI blocking
+   - Runs generation in a worker to prevent UI blocking
 
 #### Adding a New TTS Model
 
@@ -92,28 +90,9 @@ export function listVoices(): string[] {
 2. **Update the abstraction layer** (`src/lib/tts/ttsModels.ts`):
 
 ```typescript
-export type TTSModelType = 'webspeech' | 'kokoro' | 'mytts'
+export type TTSModelType = 'edge' | 'kokoro' | 'mytts'
 
-export const TTS_MODELS: TTSModelInfo[] = [
-  // ... existing models
-  {
-    id: 'mytts',
-    name: 'My TTS',
-    description: 'Description of my TTS model',
-    requiresDownload: true/false,
-    supportsOffline: true/false,
-  },
-]
-
-// Add case in getTTSEngine():
-case 'mytts': {
-  const { generateVoice } = await import('../mytts/myTTSClient')
-  return {
-    generateVoice: async (params, onChunkProgress) => {
-      return generateVoice(params, onChunkProgress)
-    },
-  }
-}
+// Add model info to TTS_MODELS and a case in getTTSEngine to lazy-import and return the engine
 ```
 
 3. **Update the UI** (`src/components/GeneratePanel.svelte`):
@@ -123,18 +102,23 @@ case 'mytts': {
 
 ## Technical Details
 
-### Web Speech API Implementation
+### Edge TTS Implementation
 
-The Web Speech API client (`src/lib/webspeech/webSpeechClient.ts`) includes:
+The Edge TTS client (`src/lib/edge/edgeTtsClient.ts`) provides:
 
-- **Voice Loading**: Handles async voice loading across different browsers
-- **Text Chunking**: Splits text into manageable chunks for stability
-- **Audio Recording**: Uses MediaRecorder API to capture synthesized audio
-- **Format Conversion**: Converts WebM to WAV for consistency
+- **Voice Loading**: Lists voices available via the Edge/Node TTS implementation
+- **Streaming**: Supports partial streaming for large batched generation
+- **No Playback**: Returns a Blob/ArrayBuffer suitable for concatenation without playing audio in the browser
 
 ### Worker Architecture
 
-All TTS generation happens in a Web Worker to prevent UI blocking:
+1. Main thread sends a generation request with the model type
+2. Worker loads the appropriate TTS engine dynamically
+3. Worker streams progress updates back to the main thread
+4. Completed audio returned as a transferable ArrayBuffer or Blob
+   \*\*\* End Patch
+
+- ❌ May require network access if using a cloud-hosted Edge TTS
 
 1. Main thread sends generation request with model type
 2. Worker loads appropriate TTS engine dynamically
@@ -143,12 +127,12 @@ All TTS generation happens in a Web Worker to prevent UI blocking:
 
 ### Browser Compatibility
 
-**Web Speech API**:
+**Edge TTS**:
 
-- Chrome/Edge: ✅ Full support
+- Chrome/Edge: ✅ Full support (client/server integration)
 - Firefox: ✅ Full support
 - Safari: ✅ Full support
-- Mobile browsers: ⚠️ Limited (varies by OS)
+- Mobile browsers: ✅ Supports generation via server/Edge integration
 
 **Kokoro TTS**:
 
@@ -159,36 +143,33 @@ All TTS generation happens in a Web Worker to prevent UI blocking:
 
 ## Configuration
 
-### LocalStorage Keys
+### Edge TTS Implementation
 
-- `audiobook_model`: Selected TTS model type
-- `audiobook_quantization`: Kokoro quantization level (only for Kokoro)
+The Edge TTS client (`src/lib/edge/edgeTtsClient.ts`) includes:
+
+- **Voice Loading**: Lists voices available via the Edge/Node TTS implementation
+- **Streaming**: Supports partial streaming for large batched generation
+- **No Playback**: Returns a Blob/ArrayBuffer suitable for concatenation without playing audio in the browser
 
 ### Default Settings
 
-- **Model**: Web Speech API (fastest startup)
-- **Voice**: First available system voice
-- **Quantization**: q8 (balanced speed/quality for Kokoro)
+**Edge TTS**:
+
+- Chrome/Edge: ✅ Full support (client/server integration)
+- Firefox: ✅ Full support
+- Safari: ✅ Full support
+- Mobile browsers: ✅ Supports generation via server/Edge integration
 
 ## Performance Considerations
 
-### Memory Usage
-
-- **Web Speech API**: ~10-50 MB (browser-dependent)
-- **Kokoro TTS**:
-  - q4: ~80 MB
-  - q8: ~120 MB
-  - fp16: ~160 MB
-  - fp32: ~200 MB
-
-### Generation Speed
-
-- **Web Speech API**: 2-5x real-time (varies by system)
-- **Kokoro TTS**: 1-3x real-time (depends on quantization)
+- fp32: ~200 MB
+  -- **Edge TTS**: 1-3x real-time (depends on backend)
+  -- **Kokoro TTS**: 1-3x real-time (depends on quantization)
 
 ### Startup Time
 
-- **Web Speech API**: <1 second
+-- **Edge TTS**: <1 - 5 seconds (depends on backend/initialization)
+
 - **Kokoro TTS**: 5-30 seconds (first time, includes download)
 
 ## Future Enhancements
@@ -200,12 +181,13 @@ Potential additions:
 - [ ] Google Cloud TTS
 - [ ] Coqui TTS
 - [ ] Voice cloning options
-- [ ] Pitch/speed controls for Web Speech API
+      -- [ ] Pitch/speed controls for Edge TTS
 - [ ] Voice preview functionality
 - [ ] Batch voice selection for different chapters
 
 ## References
 
-- [Web Speech API Documentation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API)
+---
+
 - [Kokoro TTS on Hugging Face](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX)
 - [ONNX Runtime Web](https://onnxruntime.ai/docs/tutorials/web/)

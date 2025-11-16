@@ -182,7 +182,7 @@ export type ConcatenationOptions = {
 
 // Helper: resample and ensure channel counts are consistent
 export function resampleAndNormalizeAudioBuffers(
-  audioContext: AudioContext,
+  audioContext: BaseAudioContext,
   buffers: AudioBuffer[]
 ): AudioBuffer[] {
   const targetSampleRate = audioContext.sampleRate
@@ -204,11 +204,147 @@ export function resampleAndNormalizeAudioBuffers(
   })
 }
 
+/**
+ * Convert various audio-like objects into a WAV Blob. This helper accepts:
+ * - Blob -> returned as-is
+ * - ArrayBuffer / Uint8Array -> wrapped in Blob
+ * - Objects with arrayBuffer() -> await and wrap in Blob
+ * - AudioBuffer-like objects (with numberOfChannels and getChannelData) -> convert to WAV via audioBufferToWav
+ */
+export async function audioLikeToBlob(
+  audio: unknown,
+  _seen: WeakSet<object> = new WeakSet(),
+  _depth = 0
+): Promise<Blob> {
+  if (!audio) throw new Error('No audio provided')
+  // Prevent infinite recursion on self-referencing wrapper values
+  try {
+    if (typeof audio === 'object' && audio !== null) {
+      if (_seen.has(audio)) {
+        throw new Error('Detected circular audio wrapper reference during conversion')
+      }
+      _seen.add(audio)
+    }
+  } catch (e) {
+    // Some host wrappers might throw when used as map keys; ignore
+  }
+
+  // If already a Blob
+  if (audio instanceof Blob) return audio
+
+  // If it's an ArrayBuffer
+  if (audio instanceof ArrayBuffer) return new Blob([audio], { type: 'audio/wav' })
+
+  if (audio instanceof Uint8Array)
+    return new Blob([new Uint8Array(audio).buffer], { type: 'audio/wav' })
+
+  // Type guards
+  function hasArrayBufferMethod(
+    a: unknown
+  ): a is { arrayBuffer: () => Promise<ArrayBuffer>; type?: string } {
+    return !!a && typeof (a as any).arrayBuffer === 'function'
+  }
+
+  function isAudioBufferLike(a: unknown): a is AudioBuffer {
+    return (
+      !!a &&
+      typeof (a as any).numberOfChannels === 'number' &&
+      typeof (a as any).getChannelData === 'function' &&
+      typeof (a as any).sampleRate === 'number'
+    )
+  }
+
+  // If it has arrayBuffer() method (e.g., Response or other wrappers)
+  if (hasArrayBufferMethod(audio)) {
+    try {
+      const arr = await audio.arrayBuffer()
+      const t = (audio as any).type as string | undefined
+      return new Blob([arr], { type: t || 'audio/wav' })
+    } catch (e) {
+      // fall through
+    }
+  }
+
+  // If it looks like an AudioBuffer-like object
+  if (isAudioBufferLike(audio)) {
+    try {
+      // Use internal converter
+      return audioBufferToWav(audio as AudioBuffer)
+    } catch (e) {
+      // fall through
+    }
+  }
+
+  // Abort if we've unwrapped too many levels to avoid infinite recursion
+  if (_depth > 12) {
+    throw new Error('Exceeded maximum audio wrapper unwrapping depth')
+  }
+
+  // If it's a Promise-like that resolves to something, await it and try again
+  if (typeof (audio as any)?.then === 'function') {
+    try {
+      const resolved = await (audio as Promise<unknown>)
+      return await audioLikeToBlob(resolved, _seen, _depth + 1)
+    } catch {
+      // fall through
+    }
+  }
+
+  // If it's a JSHandle-like wrapper exported from e.g. Playwright, attempt to find underlying value
+  const ctorName = (audio as any)?.constructor?.name
+  if (typeof ctorName === 'string' && ctorName.includes('JSHandle')) {
+    // Try common unwrapping patterns, including Playwright's jsonValue/getter style
+    const candidates = [
+      (audio as any).value,
+      (audio as any).json,
+      (audio as any).toJSON,
+      (audio as any).payload,
+      // Playwright's JSHandle exposes jsonValue() which returns a Promise
+      typeof (audio as any).jsonValue === 'function' ? (audio as any).jsonValue() : undefined,
+      // Some wrappers may expose a getter like .get() or .valueOf()
+      typeof (audio as any).get === 'function' ? (audio as any).get() : undefined,
+      typeof (audio as any).valueOf === 'function' ? (audio as any).valueOf() : undefined,
+    ]
+
+    for (const cand of candidates) {
+      if (cand == null) continue
+      try {
+        // If candidate is a Promise, await it
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore - runtime checks will ensure safety
+        const resolved = typeof (cand as any)?.then === 'function' ? await cand : cand
+        const maybe = await audioLikeToBlob(resolved, _seen, _depth + 1)
+        return maybe
+      } catch (e) {
+        // try next candidate
+      }
+    }
+    // If none of the unwrapping attempts returned something useful, inspect representation
+    const repr = String(audio?.toString?.() ?? audio)
+    if (repr.includes('JSHandle@error')) {
+      // Explicit error returned from the wrapper; surface as failure for consumer to handle
+      // Log a warning for tests to assert on
+      console.warn('[audioLikeToBlob] JSHandle reported an error state:', repr)
+      throw new Error('JSHandle reported an error when attempting to convert to Blob')
+    }
+    console.warn(
+      '[audioLikeToBlob] Detected JSHandle-like wrapper but could not unwrap it. Throwing strict error.'
+    )
+    // Strict mode: do not fallback to a fake blob; throw and let caller handle the error.
+    throw new Error('Unsupported JSHandle-like wrapper; could not convert to Blob')
+  }
+
+  // If we reach here we cannot convert
+  throw new Error(
+    `Unsupported audio type for conversion: ${String(audio?.constructor?.name || typeof audio)}`
+  )
+}
+
 // Convert number of channels by duplicating or mixing channels
 function convertChannels(
   buffer: AudioBuffer,
   targetChannels: number,
-  audioContext: AudioContext
+  audioContext: BaseAudioContext
 ): AudioBuffer {
   if (buffer.numberOfChannels === targetChannels) return buffer
   const out = audioContext.createBuffer(targetChannels, buffer.length, buffer.sampleRate)
@@ -230,7 +366,7 @@ function convertChannels(
 function resampleBuffer(
   buffer: AudioBuffer,
   targetSampleRate: number,
-  audioContext: AudioContext
+  audioContext: BaseAudioContext
 ): AudioBuffer {
   if (buffer.sampleRate === targetSampleRate) return buffer
 
@@ -277,13 +413,26 @@ export async function concatenateAudioChapters(
     return chapters[0].blob
   }
 
-  // Create audio context for processing
-  const AudioContextClass =
-    globalThis.AudioContext ||
-    (globalThis as typeof globalThis & { webkitAudioContext: typeof AudioContext })
-      .webkitAudioContext
-  const audioContext = new AudioContextClass()
-  const sampleRate = audioContext.sampleRate
+  // Create audio context for processing when available. Some environments
+  // (e.g., Web Workers, headless) may not expose `AudioContext` or
+  // `OfflineAudioContext`. When Web Audio is unavailable, we fall back to an
+  // FFmpeg-based concatenation which works in both workers and main thread.
+  let audioContext: AudioContext | OfflineAudioContext | null = null
+  if (typeof (globalThis as any).AudioContext === 'function') {
+    audioContext = new (globalThis as any).AudioContext()
+    console.log('[audioConcat] Using AudioContext')
+  } else if (typeof (globalThis as any).OfflineAudioContext === 'function') {
+    // Use a minimal offline context for decoding and resampling in worker contexts
+    audioContext = new (globalThis as any).OfflineAudioContext(2, 1, 44100)
+    console.log('[audioConcat] Using OfflineAudioContext (worker fallback)')
+  } else if (typeof (globalThis as any).webkitAudioContext === 'function') {
+    audioContext = new (globalThis as any).webkitAudioContext()
+    console.log('[audioConcat] Using webkitAudioContext')
+  }
+  const sampleRate = (audioContext as any)?.sampleRate || 44100
+  console.log(
+    `[audioConcat] audioContext: ${audioContext?.constructor?.name || 'unknown'}; sampleRate: ${sampleRate}`
+  )
 
   onProgress?.({
     current: 0,
@@ -291,6 +440,30 @@ export async function concatenateAudioChapters(
     status: 'loading',
     message: 'Loading audio chapters...',
   })
+
+  // If we couldn't create a WebAudio context, fallback to FFmpeg-based
+  // concatenation which doesn't rely on Web Audio APIs and works in worker
+  // contexts. This is particularly useful for headless CI and the web worker
+  // where AudioContext is missing.
+  if (!audioContext) {
+    console.warn(
+      '[audioConcat] Web Audio API unavailable — attempting FFmpeg-based concat fallback'
+    )
+    try {
+      return await ffmpegConcatenateBlobs(chapters, format, bitrate, options, onProgress)
+    } catch (err) {
+      console.warn('[audioConcat] FFmpeg fallback failed:', err)
+      // Try a lightweight WAV-only concatenation if all inputs are WAV PCM with matching params
+      try {
+        return await concatWavBlobs(chapters)
+      } catch (wavErr) {
+        console.error('[audioConcat] WAV-only concatenation fallback failed:', wavErr)
+        throw new Error(
+          'Web Audio API not available and FFmpeg fallback failed; cannot concatenate audio'
+        )
+      }
+    }
+  }
 
   // Decode all audio blobs to AudioBuffers
   const audioBuffers: AudioBuffer[] = []
@@ -332,8 +505,13 @@ export async function concatenateAudioChapters(
   for (let i = 0; i < normalizedBuffers.length; i++) {
     const buffer = normalizedBuffers[i]
 
-    // Yield before processing each chapter to keep UI responsive
-    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+    // Yield before processing each chapter to keep UI responsive. In Web Workers
+    // requestAnimationFrame may not exist, so fall back to setTimeout.
+    await new Promise((resolve) =>
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame(() => setTimeout(resolve, 0))
+        : setTimeout(resolve, 0)
+    )
 
     for (let channel = 0; channel < numberOfChannels; channel++) {
       const outputData = outputBuffer.getChannelData(channel)
@@ -375,8 +553,14 @@ export async function concatenateAudioChapters(
     message: 'Audiobook created successfully!',
   })
 
-  // Close audio context to free resources
-  await audioContext.close()
+  // Close audio context to free resources if the method exists
+  if (typeof (audioContext as any).close === 'function') {
+    try {
+      await (audioContext as any).close()
+    } catch {
+      // Swallow errors closing contexts in some environments
+    }
+  }
 
   return outputBlob
 }
@@ -452,6 +636,227 @@ export async function audioBufferToMp3(
       // swallow cleanup errors
     }
   }
+}
+
+/**
+ * Lightweight WAV-only concatenation that does not require WebAudio or FFmpeg.
+ * This supports only PCM WAV files with identical sampleRate, channels, and bitDepth.
+ */
+async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
+  if (!chapters || chapters.length === 0) throw new Error('No chapters')
+
+  // Parse WAV header info and extract PCM data for each chapter
+  const parsed: Array<{
+    sampleRate: number
+    numChannels: number
+    bitsPerSample: number
+    pcm: Uint8Array
+  }> = []
+
+  for (let i = 0; i < chapters.length; i++) {
+    const blob = chapters[i].blob
+    const arr = new Uint8Array(await blob.arrayBuffer())
+    // Basic WAV header parsing (RIFF/WAVE fmt/data)
+    const view = new DataView(arr.buffer)
+    if (String.fromCharCode(...arr.slice(0, 4)) !== 'RIFF') throw new Error('Not a RIFF WAV file')
+    if (String.fromCharCode(...arr.slice(8, 12)) !== 'WAVE') throw new Error('Not a WAVE file')
+
+    // Search for 'fmt ' chunk
+    let offset = 12
+    let fmtFound = false
+    let audioFormat = 1
+    let numChannels = 1
+    let sampleRate = 44100
+    let bitsPerSample = 16
+    let dataOffset = -1
+    let dataLength = 0
+
+    while (offset < arr.length) {
+      const chunkId = String.fromCharCode(...arr.slice(offset, offset + 4))
+      const chunkSize = view.getUint32(offset + 4, true)
+      if (chunkId === 'fmt ') {
+        fmtFound = true
+        audioFormat = view.getUint16(offset + 8, true)
+        numChannels = view.getUint16(offset + 10, true)
+        sampleRate = view.getUint32(offset + 12, true)
+        bitsPerSample = view.getUint16(offset + 22, true)
+      } else if (chunkId === 'data') {
+        dataOffset = offset + 8
+        dataLength = chunkSize
+        break
+      }
+      offset += 8 + chunkSize
+    }
+
+    if (!fmtFound || dataOffset < 0) throw new Error('Invalid WAV file: missing fmt/data chunks')
+    if (audioFormat !== 1) throw new Error('Unsupported WAV format: only PCM supported')
+
+    const pcm = arr.slice(dataOffset, dataOffset + dataLength)
+    parsed.push({ sampleRate, numChannels, bitsPerSample, pcm })
+  }
+
+  // Ensure all WAVs have compatible sample rates / channels / bit depth
+  const first = parsed[0]
+  for (let i = 1; i < parsed.length; i++) {
+    const p = parsed[i]
+    if (
+      p.sampleRate !== first.sampleRate ||
+      p.numChannels !== first.numChannels ||
+      p.bitsPerSample !== first.bitsPerSample
+    ) {
+      throw new Error('WAV files have incompatible formats; cannot concatenate without resampling')
+    }
+  }
+
+  // Create new WAV header with concatenated PCM
+  const totalPCMLength = parsed.reduce((sum, p) => sum + p.pcm.length, 0)
+  const byteRate = first.sampleRate * first.numChannels * (first.bitsPerSample / 8)
+  const blockAlign = first.numChannels * (first.bitsPerSample / 8)
+  const dataBuffer = new ArrayBuffer(44 + totalPCMLength)
+  const view = new DataView(dataBuffer)
+
+  function writeString(view: DataView, offset: number, str: string) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
+  }
+
+  writeString(view, 0, 'RIFF')
+  view.setUint32(4, 36 + totalPCMLength, true)
+  writeString(view, 8, 'WAVE')
+  writeString(view, 12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, first.numChannels, true)
+  view.setUint32(24, first.sampleRate, true)
+  view.setUint32(28, byteRate, true)
+  view.setUint16(32, blockAlign, true)
+  view.setUint16(34, first.bitsPerSample, true)
+  writeString(view, 36, 'data')
+  view.setUint32(40, totalPCMLength, true)
+
+  // Copy PCM data
+  let offset = 44
+  for (const p of parsed) {
+    new Uint8Array(dataBuffer).set(p.pcm, offset)
+    offset += p.pcm.length
+  }
+
+  return new Blob([dataBuffer], { type: 'audio/wav' })
+}
+
+/**
+ * FFmpeg-based concatenation fallback for environments without Web Audio
+ * (e.g. Web Workers, headless). This writes each chapter blob into FFmpeg's
+ * virtual filesystem, normalizes each file to a WAV with matching sample rate
+ * and channels, concatenates using the concat demuxer or filter, and then
+ * encodes to the requested format.
+ */
+async function ffmpegConcatenateBlobs(
+  chapters: AudioChapter[],
+  format: AudioFormat,
+  bitrate: number,
+  options: ConcatenationOptions,
+  onProgress?: (progress: ConcatenationProgress) => void
+): Promise<Blob> {
+  const ffmpeg = await getFFmpeg()
+
+  onProgress?.({
+    current: 0,
+    total: chapters.length,
+    status: 'loading',
+    message: 'Loading audio via FFmpeg...',
+  })
+
+  // Prepare input files and convert them to standardized WAV files (44100Hz, stereo)
+  const tmpFiles: string[] = []
+  for (let i = 0; i < chapters.length; i++) {
+    const c = chapters[i]
+    const ext = inferExtensionFromMime(c.blob.type)
+    const inFilename = `input_${i}.${ext}`
+    // Use a distinct filename for normalized WAV to avoid FFmpeg in-place editing
+    const wavFilename = `input_${i}.normalized.wav`
+
+    const data = new Uint8Array(await c.blob.arrayBuffer())
+    await ffWriteFile(ffmpeg, inFilename, data)
+
+    // Normalize to WAV 44100 stereo PCM
+    const args = ['-i', inFilename, '-ar', '44100', '-ac', '2', '-y', wavFilename]
+    await ffRun(ffmpeg, args)
+    tmpFiles.push(wavFilename)
+
+    // Delete original input file to free FFmpeg virtual FS memory when possible
+    try {
+      await ffDeleteFile(ffmpeg, inFilename)
+    } catch {
+      // best-effort; ignore
+    }
+
+    onProgress?.({
+      current: i + 1,
+      total: chapters.length,
+      status: 'decoding',
+      message: `Converted ${c.title}`,
+    })
+  }
+
+  onProgress?.({
+    current: 0,
+    total: 1,
+    status: 'concatenating',
+    message: 'Concatenating via FFmpeg...',
+  })
+
+  // Build filter_complex for concat
+  const inputArgs: string[] = []
+  for (const f of tmpFiles) inputArgs.push('-i', f)
+  const concatInputs = tmpFiles.map((_f, idx) => `[${idx}:0]`).join('')
+  const filterComplex = `${concatInputs}concat=n=${tmpFiles.length}:v=0:a=1[out]`
+
+  // Produce a WAV output first
+  const outWav = 'output.wav'
+  const ffArgs = [...inputArgs, '-filter_complex', filterComplex, '-map', '[out]', '-y', outWav]
+  await ffRun(ffmpeg, ffArgs)
+
+  // Convert to final desired format if needed
+  const isM4B = format === 'm4b'
+  const outFile = format === 'wav' ? outWav : format === 'mp3' ? 'output.mp3' : 'output.m4b'
+
+  if (format === 'mp3' || format === 'm4b') {
+    const codec = isM4B ? 'aac' : 'libmp3lame'
+    const args = ['-i', outWav, '-c:a', codec, '-b:a', `${bitrate}k`, '-y', outFile]
+    await ffRun(ffmpeg, args)
+  }
+
+  // Read final file
+  const data = ffReadFile(ffmpeg, outFile)
+  const mime = format === 'wav' ? 'audio/wav' : format === 'mp3' ? 'audio/mpeg' : 'audio/m4b'
+
+  // Cleanup temporary files
+  try {
+    for (const f of tmpFiles) await ffDeleteFile(ffmpeg, f)
+    await ffDeleteFile(ffmpeg, outWav)
+    await ffDeleteFile(ffmpeg, outFile)
+  } catch {
+    // best effort
+  }
+
+  onProgress?.({
+    current: 1,
+    total: 1,
+    status: 'complete',
+    message: 'FFmpeg concatenation complete',
+  })
+
+  return new Blob([new Uint8Array(data)], { type: mime })
+}
+
+function inferExtensionFromMime(mime: string): string {
+  if (!mime) return 'bin'
+  if (mime.includes('wav')) return 'wav'
+  if (mime.includes('mpeg') || mime.includes('mp3')) return 'mp3'
+  if (mime.includes('webm')) return 'webm'
+  if (mime.includes('ogg')) return 'ogg'
+  if (mime.includes('m4a') || mime.includes('m4b')) return 'm4a'
+  return 'bin'
 }
 
 /**

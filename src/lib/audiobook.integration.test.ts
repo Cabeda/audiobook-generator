@@ -69,7 +69,6 @@ vi.mock('@ffmpeg/ffmpeg', () => {
 
 vi.mock('@ffmpeg/util', () => ({ toBlobURL: () => 'blob:mock' }))
 
-import { generateVoice } from './kokoro/kokoroClient.ts'
 import { concatenateAudioChapters, type AudioChapter } from './audioConcat.ts'
 import { parseEpubFile } from './epubParser.ts'
 
@@ -148,6 +147,9 @@ vi.mock('kokoro-js', () => {
     TextSplitterStream,
   }
 })
+
+// Import generateVoice after mocking kokoro-js to ensure the module loads the mock
+import { generateVoice } from './kokoro/kokoroClient.ts'
 
 // Mock AudioContext for testing
 class MockAudioContext {

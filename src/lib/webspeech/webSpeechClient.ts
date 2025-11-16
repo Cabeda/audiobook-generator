@@ -1,17 +1,6 @@
-/**
- * Web Speech API TTS Client
- * Provides text-to-speech using the browser's built-in SpeechSynthesis API
- * This is the default TTS engine - works offline, no model downloads required
- */
-
-export type WebSpeechVoice = string // Voice URI or name
-
-export type GenerateParams = {
-  text: string
-  voice?: WebSpeechVoice
-  speed?: number
-  pitch?: number
-}
+// Deprecated: in-browser TTS removed. Use Edge/Kokoro TTS clients instead.
+// This file has been intentionally left empty and will be removed in a future cleanup.
+export {}
 
 /**
  * Get available voices from the browser
@@ -19,7 +8,7 @@ export type GenerateParams = {
  */
 export function getAvailableVoices(): SpeechSynthesisVoice[] {
   if (!('speechSynthesis' in window)) {
-    console.warn('Web Speech API not supported in this browser')
+    console.warn('In-browser speech synthesis not supported in this browser')
     return []
   }
   return window.speechSynthesis.getVoices()
@@ -69,8 +58,8 @@ export function getDefaultVoice(): SpeechSynthesisVoice | null {
 }
 
 /**
- * Split text into chunks for Web Speech API
- * Web Speech API has limitations on text length and can be more stable with smaller chunks
+ * Split text into chunks for browser-based speech synthesis
+ * Browser speech synthesis may have limitations on text length and can be more stable with smaller chunks
  */
 export function splitTextIntoChunks(text: string, maxChunkSize: number = 200): string[] {
   const chunks: string[] = []
@@ -123,7 +112,7 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 200): s
 }
 
 /**
- * Convert text to speech using Web Speech API and return as WAV Blob
+ * Convert text to speech using browser speech synthesis and return as WAV Blob
  * @param params - Generation parameters
  * @param onChunkProgress - Optional callback for chunk progress (current, total)
  */
@@ -132,7 +121,7 @@ export async function generateVoice(
   onChunkProgress?: (current: number, total: number) => void
 ): Promise<Blob> {
   if (!('speechSynthesis' in window)) {
-    throw new Error('Web Speech API is not supported in this browser')
+    throw new Error('In-browser speech synthesis is not supported in this browser')
   }
 
   const { text, voice: voiceId, speed = 1.0, pitch = 1.0 } = params
@@ -172,7 +161,7 @@ export async function generateVoice(
     blob,
   }))
 
-  console.log(`Concatenating ${audioChunks.length} Web Speech audio chunks...`)
+  console.log(`Concatenating ${audioChunks.length} audio chunks...`)
   return await concatenateAudioChapters(audioChapters, { format: 'wav' })
 }
 

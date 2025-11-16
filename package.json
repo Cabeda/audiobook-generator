@@ -16,7 +16,9 @@
     "lint:fix": "eslint . --fix && prettier --write .",
     "format": "prettier --write .",
     "type-check": "tsc --noEmit",
-    "prepare": "husky"
+    "prepare": "husky",
+    "build:epub": "pandoc --metadata-file=books/short-epub/metadata.yaml --toc -o books/test-short.epub books/short-epub/01-chapter-1.md books/short-epub/02-chapter-2.md books/short-epub/03-chapter-3.md",
+    "test:e2e:fast": "npm run build:epub && playwright test -g \"SHORT EPUB\" --project=chromium --reporter=list --workers=1"
   },
   "lint-staged": {
     "*.{ts,tsx,svelte}": [

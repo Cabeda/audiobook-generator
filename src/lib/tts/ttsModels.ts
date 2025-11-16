@@ -3,7 +3,7 @@
  * Provides a unified interface for different TTS engines
  */
 
-export type TTSModelType = 'webspeech' | 'kokoro'
+export type TTSModelType = 'edge' | 'kokoro'
 
 export interface TTSGenerateParams {
   text: string
@@ -27,8 +27,8 @@ export interface TTSEngine {
  */
 export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> {
   switch (modelType) {
-    case 'webspeech': {
-      const { generateVoice } = await import('../webspeech/webSpeechClient')
+    case 'edge': {
+      const { generateVoice } = await import('../edge/edgeTtsClient')
       return {
         generateVoice: async (params, onChunkProgress) => {
           return generateVoice(
@@ -79,9 +79,9 @@ export interface TTSModelInfo {
 
 export const TTS_MODELS: TTSModelInfo[] = [
   {
-    id: 'webspeech',
-    name: 'Web Speech API',
-    description: 'Browser built-in TTS (fast, no download required)',
+    id: 'edge',
+    name: 'Edge TTS',
+    description: 'Edge/EdgeTTS Node-backed TTS (no browser playback)',
     requiresDownload: false,
     supportsOffline: true,
   },

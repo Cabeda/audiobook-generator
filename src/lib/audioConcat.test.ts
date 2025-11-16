@@ -92,6 +92,44 @@ describe('audioConcat', () => {
       expect(result.size).toBeGreaterThan(0)
     })
 
+    it('should produce an output WAV whose length equals the sum of input lengths', async () => {
+      const chapters: AudioChapter[] = [
+        {
+          id: 'ch1',
+          title: 'Chapter 1',
+          blob: new Blob([new ArrayBuffer(4000)], { type: 'audio/wav' }),
+        },
+        {
+          id: 'ch2',
+          title: 'Chapter 2',
+          blob: new Blob([new ArrayBuffer(8000)], { type: 'audio/wav' }),
+        },
+      ]
+
+      // Decode each original chunk to determine expected total length
+      const audioCtx = new (
+        globalThis as unknown as { AudioContext: typeof MockAudioContext }
+      ).AudioContext()
+      const decodedBuffers: AudioBuffer[] = []
+      for (const c of chapters) {
+        const array = await c.blob.arrayBuffer()
+        const db = await audioCtx.decodeAudioData(array)
+        decodedBuffers.push(db)
+      }
+
+      const expectedLength = decodedBuffers.reduce((s, b) => s + b.length, 0)
+
+      // Concatenate using the function under test
+      const result = await concatenateAudioChapters(chapters, { format: 'wav' })
+      const outArray = await result.arrayBuffer()
+      const outBuf = await audioCtx.decodeAudioData(outArray)
+
+      // Allow a small tolerance due to resampling / channel mixing that may slightly alter lengths
+      const diff = Math.abs(outBuf.length - expectedLength)
+      expect(diff).toBeLessThanOrEqual(16)
+      expect(outBuf.numberOfChannels).toBe(decodedBuffers[0].numberOfChannels)
+    })
+
     it('should call progress callback during concatenation', async () => {
       const chapters: AudioChapter[] = [
         {
@@ -190,6 +228,62 @@ describe('audioConcat', () => {
       expect(normalized[0].length).toBe(Math.round(22050 * (mockContext.sampleRate / 22050)))
       expect(normalized[1].length).toBe(44100)
     })
+
+    it('should work when only OfflineAudioContext is available (worker fallback)', async () => {
+      // Create a mock offline audio context constructor that accepts (channels, length, sampleRate)
+      class MockOfflineAudioContext {
+        sampleRate = 44100
+        constructor(
+          public _channels = 2,
+          public _length = 1,
+          sampleRate = 44100
+        ) {
+          this.sampleRate = sampleRate
+        }
+        createBuffer(numberOfChannels: number, length: number, sampleRate: number) {
+          const buffer = {
+            numberOfChannels,
+            length,
+            sampleRate,
+            duration: length / sampleRate,
+            getChannelData: (_channel: number) => new Float32Array(length),
+          }
+          return buffer as AudioBuffer
+        }
+        decodeAudioData(arrayBuffer: ArrayBuffer) {
+          const length = Math.floor(arrayBuffer.byteLength / 4)
+          return Promise.resolve(this.createBuffer(2, length, this.sampleRate))
+        }
+      }
+
+      // Remove global AudioContext and use Offline fallback
+      ;(globalThis as unknown as { AudioContext?: any }).AudioContext = undefined
+      ;(globalThis as unknown as { OfflineAudioContext?: any }).OfflineAudioContext =
+        MockOfflineAudioContext as any
+
+      const chapters: AudioChapter[] = [
+        {
+          id: 'ch1',
+          title: 'Chapter 1',
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+        },
+        {
+          id: 'ch2',
+          title: 'Chapter 2',
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+        },
+      ]
+
+      const result = await concatenateAudioChapters(chapters)
+
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/wav')
+
+      // Restore mocked AudioContext for other tests
+      ;(globalThis as unknown as { AudioContext: typeof MockAudioContext }).AudioContext =
+        MockAudioContext
+      delete (globalThis as unknown as { OfflineAudioContext?: any }).OfflineAudioContext
+    })
   })
 
   describe('createChapterMarkers', () => {
@@ -232,6 +326,76 @@ describe('audioConcat', () => {
       expect(markers).toContain('CHAPTER01=00:00:00.000')
       expect(markers).toContain('CHAPTER02=00:00:01.000')
       expect(markers).toContain('CHAPTER03=00:00:04.000')
+    })
+  })
+
+  describe('audioBufferToMp3 metadata handling', () => {
+    it('should write metadata.txt and include -map_metadata 1 when generating M4B', async () => {
+      // Mock @ffmpeg/ffmpeg so we can capture file write and run args
+      const writtenFiles: Record<string, Uint8Array> = {}
+      const runArgs: string[] = []
+
+      class MockFFmpeg {
+        fs: Record<string, Uint8Array> | undefined = {}
+        listeners: Record<string, Array<(msg: any) => void>> = {}
+        on(_event: string, cb: (m: unknown) => void) {
+          this.listeners['log'] = this.listeners['log'] || []
+          this.listeners['log'].push(cb)
+        }
+        async load() {}
+        writeFile(name: string, data: Uint8Array) {
+          writtenFiles[name] = data
+        }
+        exec(args: string[]) {
+          runArgs.push(...args)
+          const out = args[args.length - 1]
+          this.fs = this.fs || {}
+          this.fs[out] = new Uint8Array([1, 2, 3])
+        }
+        readFile(name: string) {
+          return (this.fs && this.fs[name]) || new Uint8Array()
+        }
+        FS(op: 'writeFile' | 'readFile' | 'unlink' | 'remove', name: string, data?: Uint8Array) {
+          if (op === 'writeFile') writtenFiles[name] = data as Uint8Array
+          if (op === 'readFile') return this.fs[name]
+        }
+      }
+
+      // Reset modules to ensure audioConcat will be re-imported with mocked ffmpeg
+      vi.resetModules()
+      // Do runtime module mock for FFmpeg (must be set before import)
+      vi.doMock('@ffmpeg/ffmpeg', () => ({ FFmpeg: MockFFmpeg }))
+      // Now import audioBufferToMp3 dynamically so it picks up the mocked FFmpeg
+      const { audioBufferToMp3 } = await import('./audioConcat.ts')
+
+      // Create a dummy AudioBuffer using the MockAudioContext
+      const audioCtx = new (
+        globalThis as unknown as { AudioContext: typeof MockAudioContext }
+      ).AudioContext()
+      const audioBuffer = audioCtx.createBuffer(2, 44100, 44100)
+
+      const chapters = [
+        { id: 'ch1', title: 'Intro', blob: new Blob(), duration: 1 },
+        { id: 'ch2', title: 'Main', blob: new Blob(), duration: 2 },
+      ]
+
+      // Call audioBufferToMp3 with m4b (which triggers metadata creation)
+      const m4b = await audioBufferToMp3(audioBuffer, 192, chapters as any, {
+        format: 'm4b',
+        bookTitle: 'Test Book',
+        bookAuthor: 'Test Author',
+      })
+
+      // Assert that metadata.txt was written and '-map_metadata' included
+      expect(Object.keys(writtenFiles)).toContain('metadata.txt')
+      expect(runArgs.join(' ')).toContain('-map_metadata')
+      // M4B Blob should be present
+      expect(m4b).toBeInstanceOf(Blob)
+
+      // Unmock FFmpeg so other tests are unaffected
+      vi.doUnmock('@ffmpeg/ffmpeg')
+      // Reset modules to clear our dynamic import mock state
+      vi.resetModules()
     })
   })
 
