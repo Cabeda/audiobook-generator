@@ -264,6 +264,15 @@ export async function generateVoice(
     if (text.length > MAX_CHUNK_SIZE) {
       console.log(`Long text detected (${text.length} chars), using streaming approach...`)
 
+      // Split text into chunks first to get accurate count
+      const chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE)
+      console.log(`Split into ${chunks.length} chunks`)
+
+      // Report accurate total chunks for progress from the start
+      if (onChunkProgress) {
+        onChunkProgress(0, chunks.length)
+      }
+
       // Import TextSplitterStream from kokoro-js
       const { TextSplitterStream } = await import('kokoro-js')
 
@@ -276,9 +285,6 @@ export async function generateVoice(
       // Collect audio blobs from the stream
       const audioBlobs: Blob[] = []
       let chunkCount = 0
-
-      // Estimate total chunks for progress reporting
-      const estimatedChunks = Math.ceil(text.length / MAX_CHUNK_SIZE)
 
       // Process stream in parallel with feeding text
       const streamPromise = (async () => {
@@ -350,17 +356,14 @@ export async function generateVoice(
             throw e
           }
 
-          // Report chunk progress
+          // Report chunk progress with actual total
           if (onChunkProgress) {
-            onChunkProgress(chunkCount, estimatedChunks)
+            onChunkProgress(chunkCount, chunks.length)
           }
         }
       })()
 
       // Feed text to the stream in chunks
-      const chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE)
-      console.log(`Split into ${chunks.length} chunks`)
-
       for (const chunk of chunks) {
         splitter.push(chunk)
         // Small delay between chunks to prevent overwhelming the system

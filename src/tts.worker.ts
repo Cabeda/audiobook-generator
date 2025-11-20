@@ -43,7 +43,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       self.postMessage({
         id,
         type: 'progress',
-        message: modelType === 'kokoro' ? 'Loading model...' : 'Initializing speech...',
+        message: modelType === 'kokoro' ? 'Preparing...' : 'Initializing speech...',
       } as WorkerResponse)
 
       // Get the appropriate TTS engine

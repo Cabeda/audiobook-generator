@@ -772,6 +772,7 @@ async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
 
   // Parse WAV header info and extract PCM data for each chapter
   const parsed: Array<{
+    audioFormat: number
     sampleRate: number
     numChannels: number
     bitsPerSample: number
@@ -814,26 +815,41 @@ async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
     }
 
     if (!fmtFound || dataOffset < 0) throw new Error('Invalid WAV file: missing fmt/data chunks')
-    if (audioFormat !== 1) throw new Error('Unsupported WAV format: only PCM supported')
+    // Support both PCM (1) and IEEE Float (3) formats
+    // Kokoro TTS outputs IEEE Float WAV which is format 3
+    if (audioFormat !== 1 && audioFormat !== 3) {
+      throw new Error(
+        `Unsupported WAV format: ${audioFormat} (only PCM format 1 and IEEE Float format 3 supported)`
+      )
+    }
 
     const pcm = arr.slice(dataOffset, dataOffset + dataLength)
-    parsed.push({ sampleRate, numChannels, bitsPerSample, pcm })
+    parsed.push({ audioFormat, sampleRate, numChannels, bitsPerSample, pcm })
   }
 
-  // Ensure all WAVs have compatible sample rates / channels / bit depth
+  // Ensure all WAVs have compatible format, sample rates, channels, and bit depth
   const first = parsed[0]
   for (let i = 1; i < parsed.length; i++) {
     const p = parsed[i]
     if (
+      p.audioFormat !== first.audioFormat ||
       p.sampleRate !== first.sampleRate ||
       p.numChannels !== first.numChannels ||
       p.bitsPerSample !== first.bitsPerSample
     ) {
-      throw new Error('WAV files have incompatible formats; cannot concatenate without resampling')
+      const formatName = (code: number) =>
+        code === 1 ? 'PCM' : code === 3 ? 'IEEE Float' : `Unknown(${code})`
+      throw new Error(
+        `WAV files have incompatible formats; ` +
+          `file 0: ${formatName(first.audioFormat)} ${first.sampleRate}Hz ${first.numChannels}ch ${first.bitsPerSample}bit, ` +
+          `file ${i}: ${formatName(p.audioFormat)} ${p.sampleRate}Hz ${p.numChannels}ch ${p.bitsPerSample}bit`
+      )
     }
   }
 
   // Create new WAV header with concatenated PCM
+  // Use the audio format from the first file (all are validated to match)
+  const audioFormatCode = first.audioFormat
   const totalPCMLength = parsed.reduce((sum, p) => sum + p.pcm.length, 0)
   const byteRate = first.sampleRate * first.numChannels * (first.bitsPerSample / 8)
   const blockAlign = first.numChannels * (first.bitsPerSample / 8)
@@ -849,7 +865,7 @@ async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
   writeString(view, 8, 'WAVE')
   writeString(view, 12, 'fmt ')
   view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
+  view.setUint16(20, audioFormatCode, true) // Use actual format code (1=PCM, 3=IEEE Float)
   view.setUint16(22, first.numChannels, true)
   view.setUint32(24, first.sampleRate, true)
   view.setUint32(28, byteRate, true)
