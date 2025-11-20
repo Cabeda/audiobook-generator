@@ -1,8 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
-  import type { EPubBook, Chapter } from '../lib/epubParser'
+  import type { Book, Chapter } from '../lib/types/book'
 
-  export let book: EPubBook
+  export let book: Book
   const dispatch = createEventDispatcher()
 
   // Map of chapter id -> selected
@@ -68,7 +68,12 @@
 </script>
 
 <div>
-  <h2>{book.title}</h2>
+  <div class="book-meta">
+    <h2>{book.title}</h2>
+    {#if book.format}
+      <span class="format-badge">{book.format.toUpperCase()}</span>
+    {/if}
+  </div>
   <p><strong>Author:</strong> {book.author}</p>
   {#if book.cover}
     <img class="cover" src={book.cover} alt="cover" />
@@ -129,5 +134,24 @@
     display: flex;
     gap: 8px;
     align-items: center;
+  }
+  .book-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .book-meta h2 {
+    margin: 0;
+  }
+  .format-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: #e3f2fd;
+    color: #1976d2;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
   }
 </style>

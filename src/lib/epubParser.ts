@@ -1,20 +1,30 @@
 import JSZip from 'jszip'
+import type { Book, BookParser, Chapter } from './types/book'
 
 // This file runs in the browser and depends on lib.dom being available.
 // If your TypeScript environment complains, enable the 'dom' lib or
 // provide a `global.d.ts` (see `src/global.d.ts`).
 
-export interface Chapter {
-  id: string
-  title: string
-  content: string
-}
+// Export types for backward compatibility
+export type { Chapter }
+export type EPubBook = Book
 
-export interface EPubBook {
-  title: string
-  author: string
-  cover?: string // object URL (blob:...)
-  chapters: Chapter[]
+/**
+ * EPUB parser implementing the BookParser interface
+ */
+export class EpubParser implements BookParser {
+  async canParse(file: File): Promise<boolean> {
+    const ext = file.name.toLowerCase()
+    return ext.endsWith('.epub') || file.type === 'application/epub+zip'
+  }
+
+  getFormatName(): string {
+    return 'EPUB'
+  }
+
+  async parse(file: File): Promise<Book> {
+    return parseEpubFile(file)
+  }
 }
 
 function cleanHtml(html: string): string {
@@ -147,5 +157,9 @@ export async function parseEpubFile(file: File): Promise<EPubBook> {
     author,
     cover: coverUrl,
     chapters,
+    format: 'epub',
   }
 }
+
+// Export singleton instance
+export const epubParser = new EpubParser()
