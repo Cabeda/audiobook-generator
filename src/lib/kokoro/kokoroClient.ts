@@ -57,6 +57,61 @@ let ttsInstance: KokoroTTS | null = null
  * @param dtype - Model precision: "fp32", "fp16", "q8", "q4", "q4f16" (default: q8 for speed)
  * @param device - Execution device: "wasm" or "webgpu" (default: wasm for compatibility)
  */
+/**
+ * Factory for custom fetch wrapper that caches large model files using the Cache API
+ * @param originalFetch - The original global fetch function to avoid recursion
+ */
+function createFetchWithCache(originalFetch: typeof fetch) {
+  return async function fetchWithCache(
+    input: RequestInfo | URL,
+    init?: RequestInit
+  ): Promise<Response> {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+
+    // Only cache ONNX model files and their configs
+    // The model file is large (~300MB) and static
+    // Check if Cache API is available (it might not be in some test environments)
+    if (typeof caches === 'undefined') {
+      return originalFetch(input, init)
+    }
+
+    if (url.includes('onnx') || url.includes('config.json') || url.includes('model.onnx')) {
+      try {
+        const cacheName = 'kokoro-models-v1'
+        const cache = await caches.open(cacheName)
+        const cachedResponse = await cache.match(input)
+
+        if (cachedResponse) {
+          console.warn(`[KokoroCache] Serving from cache: ${url}`)
+          return cachedResponse
+        }
+
+        console.warn(`[KokoroCache] Fetching and caching: ${url}`)
+        // Fetch from network using original fetch to avoid recursion
+        const networkResponse = await originalFetch(input, init)
+
+        // Clone response to store in cache (streams can only be read once)
+        // Ensure we only cache successful responses
+        if (networkResponse.ok) {
+          try {
+            await cache.put(input, networkResponse.clone())
+          } catch (err) {
+            console.warn('[KokoroCache] Failed to cache response:', err)
+          }
+        }
+
+        return networkResponse
+      } catch (err) {
+        console.warn('[KokoroCache] Cache access failed, falling back to network:', err)
+        return originalFetch(input, init)
+      }
+    }
+
+    // Default behavior for other requests
+    return originalFetch(input, init)
+  }
+}
+
 async function getKokoroInstance(
   modelId: string = 'onnx-community/Kokoro-82M-v1.0-ONNX',
   dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8',
@@ -70,25 +125,37 @@ async function getKokoroInstance(
     process.env.NODE_ENV === 'test' ||
     (globalThis as unknown as { __vitest__?: boolean }).__vitest__ === true
   if (!ttsInstance || isTestEnv) {
+    console.warn(`[KokoroClient] Initializing instance. Model: ${modelId}`)
     console.log(`Loading Kokoro TTS model: ${modelId} (${dtype}, ${device})...`)
-    ttsInstance = await KokoroTTS.from_pretrained(modelId, {
-      dtype,
-      device,
-      progress_callback: (progress: {
-        status: string
-        file?: string
-        loaded?: number
-        total?: number
-      }) => {
-        if (progress.loaded && progress.total) {
-          const percent = ((progress.loaded / progress.total) * 100).toFixed(1)
-          console.log(`Loading ${progress.file}: ${percent}%`)
-        } else {
-          console.log(`Model loading: ${progress.status}`)
-        }
-      },
-    })
-    console.log('Kokoro TTS model loaded successfully')
+
+    // Intercept global fetch to enable caching for the model loading
+    const originalFetch = globalThis.fetch
+    // Create cached fetch using the original fetch to avoid recursion
+    globalThis.fetch = createFetchWithCache(originalFetch) as typeof fetch
+
+    try {
+      ttsInstance = await KokoroTTS.from_pretrained(modelId, {
+        dtype,
+        device,
+        progress_callback: (progress: {
+          status: string
+          file?: string
+          loaded?: number
+          total?: number
+        }) => {
+          if (progress.loaded && progress.total) {
+            const percent = ((progress.loaded / progress.total) * 100).toFixed(1)
+            console.log(`Loading ${progress.file}: ${percent}%`)
+          } else {
+            console.log(`Model loading: ${progress.status}`)
+          }
+        },
+      })
+      console.log('Kokoro TTS model loaded successfully')
+    } finally {
+      // Restore original fetch
+      globalThis.fetch = originalFetch
+    }
   }
   return ttsInstance
 }

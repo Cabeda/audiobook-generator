@@ -78,6 +78,14 @@ async function ffWriteFile(ffmpeg: FFmpeg, filename: string, data: Uint8Array) {
 }
 
 async function ffRun(ffmpeg: FFmpeg, args: string[]) {
+  let aborted = false
+  const logHandler = ({ message }: { message: string }) => {
+    if (message.includes('Aborted')) {
+      aborted = true
+    }
+  }
+  ffmpeg.on('log', logHandler)
+
   const asWithRun = ffmpeg as unknown as {
     exec?: (a: string[]) => Promise<unknown>
     run?: (...a: string[]) => Promise<unknown>
@@ -87,6 +95,10 @@ async function ffRun(ffmpeg: FFmpeg, args: string[]) {
     if (typeof asWithRun.exec === 'function') {
       console.log('[FFmpeg] Executing with exec():', args.join(' '))
       const result = await asWithRun.exec(args)
+      if (aborted) throw new Error('FFmpeg aborted unexpectedly')
+      if (typeof result === 'number' && result !== 0) {
+        throw new Error(`FFmpeg exec failed with code ${result}`)
+      }
       console.log('[FFmpeg] Execution completed successfully')
       return result
     }
@@ -95,15 +107,22 @@ async function ffRun(ffmpeg: FFmpeg, args: string[]) {
       console.log('[FFmpeg] Executing with run():', args.join(' '))
       try {
         const result = await asWithRun.run(...args)
+        if (aborted) throw new Error('FFmpeg aborted unexpectedly')
+        if (typeof result === 'number' && result !== 0) {
+          throw new Error(`FFmpeg run failed with code ${result}`)
+        }
         console.log('[FFmpeg] Execution completed successfully')
         return result
-      } catch {
+      } catch (err) {
+        if (aborted) throw new Error('FFmpeg aborted unexpectedly')
+
         // fallback: some builds accept an array as single arg
         // The call signature may not match compile-time types; ignore here with explanation.
         console.log('[FFmpeg] Retrying with array argument')
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore: calling run with an array is required for some FFmpeg builds
         const result = await asWithRun.run(args)
+        if (aborted) throw new Error('FFmpeg aborted unexpectedly')
         console.log('[FFmpeg] Execution completed successfully')
         return result
       }
@@ -111,20 +130,56 @@ async function ffRun(ffmpeg: FFmpeg, args: string[]) {
 
     throw new Error('FFmpeg run/exec API not available')
   } catch (err) {
-    console.error('[FFmpeg] Execution failed:', err)
+    console.warn('[FFmpeg] Execution failed:', err)
     throw err
+  } finally {
+    ffmpeg.off('log', logHandler)
   }
 }
 
 function ffReadFile(ffmpeg: FFmpeg, filename: string): Uint8Array {
-  const asWithRead = ffmpeg as unknown as { readFile?: (name: string) => Uint8Array } & FFmpegFS
+  const asWithRead = ffmpeg as unknown as {
+    readFile?: (name: string) => Uint8Array
+    FS?: ((op: string, name: string) => Uint8Array) | { readFile?: (name: string) => Uint8Array }
+  }
 
+  // Debug note: some FFmpeg builds expose FS differently; log the type for debugging in CI
+  // Common JS-like build: ffmpeg.readFile(name)
   if (typeof asWithRead.readFile === 'function') {
     return asWithRead.readFile(filename)
   }
 
+  // Some builds expose FS as a function: FS('readFile', filename)
   if (typeof asWithRead.FS === 'function') {
-    return asWithRead.FS('readFile', filename) as Uint8Array
+    try {
+      return (asWithRead.FS as (op: string, name: string) => Uint8Array)('readFile', filename)
+    } catch (err) {
+      console.warn('[FFmpeg] FS(readFile) threw error:', err)
+      throw err
+    }
+  }
+
+  // Other builds expose FS as an object with methods like FS.readFile(name)
+  if (typeof asWithRead.FS === 'object' && asWithRead.FS !== null) {
+    try {
+      const fsObj = asWithRead.FS as any
+      if (typeof fsObj.readFile === 'function') {
+        const result = fsObj.readFile(filename)
+        if (!result) {
+          console.warn('[FFmpeg] FS.readFile returned falsy result for', filename)
+        }
+        return result
+      }
+      // Some builds expose FS as an object with a call signature (Emscripten FS API)
+      if (typeof fsObj === 'function') {
+        const result = fsObj('readFile', filename)
+        if (!result) console.warn('[FFmpeg] FS function returned falsy result for', filename)
+        return result
+      }
+    } catch (err) {
+      console.warn('[FFmpeg] FS.readFile/function threw error:', err)
+      throw err
+    }
   }
 
   throw new Error('FFmpeg read API not available')
@@ -578,54 +633,124 @@ export async function audioBufferToMp3(
   const wavBlob = audioBufferToWav(audioBuffer)
 
   // Then convert WAV to MP3 or M4B using FFmpeg
-  const ffmpeg = await getFFmpeg()
+  let ffmpeg = await getFFmpeg()
 
   // Determine output format and file (declare here so finally can reference)
   const isM4B = options.format === 'm4b'
   const outputFile = isM4B ? 'output.m4b' : 'output.mp3'
   const codec = isM4B ? 'aac' : 'libmp3lame'
 
+  // Sanitize bitrate for mono audio to prevent encoder crashes
+  // AAC/MP3 encoders often fail with high bitrates on mono streams
+  let currentBitrate = bitrate
+  if (audioBuffer.numberOfChannels === 1 && currentBitrate > 192) {
+    console.log(`[audioConcat] Capping mono bitrate from ${bitrate}k to 192k`)
+    currentBitrate = 192
+  }
+
+  let attempts = 0
+  const maxAttempts = 2
+
   try {
-    // Write input WAV file
-    const wavData = new Uint8Array(await wavBlob.arrayBuffer())
-    console.log(`[audioConcat] Writing input WAV: ${wavData.length} bytes`)
-    await ffWriteFile(ffmpeg, 'input.wav', wavData)
+    while (attempts < maxAttempts) {
+      attempts++
+      try {
+        // Write input WAV file (must be done on every attempt in case of instance reset)
+        const wavData = new Uint8Array(await wavBlob.arrayBuffer())
+        console.log(`[audioConcat] Writing input WAV: ${wavData.length} bytes`)
+        await ffWriteFile(ffmpeg, 'input.wav', wavData)
 
-    // Build FFmpeg command with -y flag to overwrite output
-    const args: string[] = ['-i', 'input.wav', '-c:a', codec, '-b:a', `${bitrate}k`, '-y']
+        // Build FFmpeg command
+        const args: string[] = ['-i', 'input.wav']
 
-    // Add metadata if available
-    if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
-    if (options.bookAuthor) args.push('-metadata', `artist=${options.bookAuthor}`)
+        // Add chapter metadata for M4B (must be an input)
+        if (isM4B && chapters.length > 0) {
+          const metadata = createFFmpegMetadata(chapters, audioBuffer.duration)
+          await ffWriteFile(ffmpeg, 'metadata.txt', new TextEncoder().encode(metadata))
+          // Add metadata file as second input
+          args.push('-i', 'metadata.txt')
+        }
 
-    // Add chapter metadata for M4B
-    if (isM4B && chapters.length > 0) {
-      const metadata = createFFmpegMetadata(chapters, audioBuffer.duration)
-      await ffWriteFile(ffmpeg, 'metadata.txt', new TextEncoder().encode(metadata))
-      // Note: second input (index 1) contains metadata
-      args.push('-i', 'metadata.txt', '-map_metadata', '1')
+        // Map metadata from second input (index 1) to output
+        if (isM4B && chapters.length > 0) {
+          args.push('-map_metadata', '1')
+        }
+
+        // Output options
+        // Force stereo output to avoid potential mono encoding issues with some encoders/builds
+        args.push('-ac', '2')
+        args.push('-c:a', codec, '-b:a', `${currentBitrate}k`, '-y')
+
+        // Add metadata tags if available
+        if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
+        if (options.bookAuthor) args.push('-metadata', `artist=${options.bookAuthor}`)
+
+        args.push(outputFile)
+
+        console.log(`[audioConcat] Running FFmpeg (attempt ${attempts}) with args:`, args)
+
+        // Execute FFmpeg
+        await ffRun(ffmpeg, args)
+
+        console.log(`[audioConcat] Reading output file: ${outputFile}`)
+
+        // Read output file
+        const raw = ffReadFile(ffmpeg, outputFile)
+        const data = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
+        console.log(`[audioConcat] Output file size: ${data.length} bytes`)
+
+        if (data.length === 0) {
+          throw new Error('FFmpeg produced an empty output file')
+        }
+
+        return new Blob([data as any], { type: isM4B ? 'audio/m4b' : 'audio/mpeg' })
+      } catch (err) {
+        console.warn(`[audioConcat] Attempt ${attempts} failed:`, err)
+
+        // Heroic recovery: check if output file exists and is valid despite the error (e.g. abort during exit)
+        try {
+          const raw = await ffReadFile(ffmpeg, outputFile)
+          const data = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
+          if (data.length > 0) {
+            console.warn(`[audioConcat] Recovered output file despite error (${data.length} bytes)`)
+            return new Blob([data as any], { type: isM4B ? 'audio/m4b' : 'audio/mpeg' })
+          }
+        } catch (readErr) {
+          console.log('[audioConcat] Could not recover output file:', readErr)
+        }
+
+        // Force FFmpeg reload on failure
+        try {
+          ffmpegInstance?.terminate()
+        } catch (e) {
+          console.warn('[audioConcat] Failed to terminate FFmpeg:', e)
+        }
+        ffmpegInstance = null
+        ffmpegLoaded = false
+
+        if (attempts < maxAttempts) {
+          // Reload FFmpeg for retry
+          try {
+            ffmpeg = await getFFmpeg()
+          } catch (reloadErr) {
+            throw new Error(`Failed to reload FFmpeg for retry: ${reloadErr}`)
+          }
+
+          // Reduce bitrate for retry
+          const newBitrate = Math.max(64, Math.floor(currentBitrate / 2))
+          console.log(`[audioConcat] Retrying with lower bitrate: ${newBitrate}k`)
+          currentBitrate = newBitrate
+
+          // Cleanup output file before retry (not needed if instance reset, but good practice if logic changes)
+          // try { await ffDeleteFile(ffmpeg, outputFile) } catch {}
+        } else {
+          throw new Error(
+            `Failed to convert audio buffer to ${options.format || 'mp3'} after ${maxAttempts} attempts: ${String(err)}`
+          )
+        }
+      }
     }
-
-    args.push(outputFile)
-
-    console.log(`[audioConcat] Running FFmpeg with args:`, args)
-
-    // Execute FFmpeg
-    await ffRun(ffmpeg, args)
-
-    console.log(`[audioConcat] Reading output file: ${outputFile}`)
-
-    // Read output file
-    const data = ffReadFile(ffmpeg, outputFile)
-    console.log(`[audioConcat] Output file size: ${data.length} bytes`)
-
-    if (data.length === 0) {
-      throw new Error('FFmpeg produced an empty output file')
-    }
-
-    return new Blob([new Uint8Array(data)], { type: isM4B ? 'audio/m4b' : 'audio/mpeg' })
-  } catch (err) {
-    throw new Error(`Failed to convert audio buffer to ${options.format || 'mp3'}: ${String(err)}`)
+    throw new Error('Unexpected unreachable code')
   } finally {
     // Best-effort cleanup
     try {
@@ -827,7 +952,8 @@ async function ffmpegConcatenateBlobs(
   }
 
   // Read final file
-  const data = ffReadFile(ffmpeg, outFile)
+  const raw = ffReadFile(ffmpeg, outFile)
+  const data = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
   const mime = format === 'wav' ? 'audio/wav' : format === 'mp3' ? 'audio/mpeg' : 'audio/m4b'
 
   // Cleanup temporary files
@@ -846,7 +972,7 @@ async function ffmpegConcatenateBlobs(
     message: 'FFmpeg concatenation complete',
   })
 
-  return new Blob([new Uint8Array(data)], { type: mime })
+  return new Blob([data as any], { type: mime })
 }
 
 function inferExtensionFromMime(mime: string): string {

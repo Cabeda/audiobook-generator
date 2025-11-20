@@ -3,12 +3,9 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
-const EXAMPLE_EPUB = join(
-  process.cwd(),
-  'example',
-  'The_Life_and_Adventures_of_Robinson_Crusoe.epub'
-)
-const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
+// Use the short EPUB for deterministic, faster E2E runs
+const EXAMPLE_EPUB = join(process.cwd(), 'books', 'test-short.epub')
+const SHORT_EPUB = EXAMPLE_EPUB
 
 test.describe('Audiobook Generation E2E', () => {
   test.beforeEach(async ({ page }) => {
@@ -30,7 +27,7 @@ test.describe('Audiobook Generation E2E', () => {
     test.setTimeout(120000) // 2 minutes
 
     // Upload EPUB
-    const epubPath = EXAMPLE_EPUB
+    const epubPath = SHORT_EPUB
 
     const epubBuffer = await readFile(epubPath)
 
@@ -43,7 +40,7 @@ test.describe('Audiobook Generation E2E', () => {
     await fileInput.setInputFiles(epubPath)
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+    await page.waitForSelector('text=Short Test Book', {
       timeout: 10000,
     })
 
@@ -64,8 +61,8 @@ test.describe('Audiobook Generation E2E', () => {
     const firstCheckbox = page.locator('input[type="checkbox"]').first()
     await firstCheckbox.check()
 
-    // Verify chapter is selected (UI shows "Selected: X / Y")
-    await expect(page.locator('text=Selected: 1 / 22')).toBeVisible()
+    // Verify chapter is selected (UI shows "Selected: 1 / Y") — short EPUB uses fewer chapters
+    await expect(page.locator('text=Selected: 1 /')).toBeVisible()
 
     // Capture any download-trigger console logs and wait for the in-UI 'Download started!' message
     const downloadConsoleLogs: any[] = []
@@ -81,7 +78,7 @@ test.describe('Audiobook Generation E2E', () => {
       }
     })
 
-    // Click 'Advanced Options' and set to WAV format to avoid FFmpeg/concat complexity for default E2E run
+    // Click 'Advanced Options' and set to MP3 format for deterministic downloadable generation
     const advToggle = page.locator('button:has-text("Advanced Options")')
     await expect(advToggle).toBeVisible()
     await advToggle.click()
@@ -89,7 +86,7 @@ test.describe('Audiobook Generation E2E', () => {
     await expect(adv).toBeVisible()
     const formatSelect = adv.locator('label:has-text("Format") select')
     await expect(formatSelect).toBeVisible()
-    await formatSelect.selectOption('wav')
+    await formatSelect.selectOption('mp3')
 
     // Click generate & download button
     const generateButton = page.locator('button:has-text("Generate & Download")')
@@ -102,7 +99,8 @@ test.describe('Audiobook Generation E2E', () => {
     // Wait for 'Download started!' in UI and validate via download-trigger console message
     await page.waitForSelector('text=Download started!', { timeout: 120000 })
     expect(downloadConsoleLogs.length).toBeGreaterThan(0)
-    expect(downloadConsoleLogs[0]).toContain('.mp3')
+    // Validate the download object reports an MP3 filename
+    expect(downloadConsoleLogs[0].filename?.endsWith('.mp3')).toBeTruthy()
 
     // Verify file size via download-trigger console log size field (should be > 1KB)
     expect(downloadConsoleLogs.length).toBeGreaterThan(0)
@@ -116,7 +114,7 @@ test.describe('Audiobook Generation E2E', () => {
 
   test('should upload EPUB and display book info', async ({ page }) => {
     // Load the example EPUB file
-    const epubPath = EXAMPLE_EPUB
+    const epubPath = SHORT_EPUB
     const epubBuffer = await readFile(epubPath)
 
     // Upload file
@@ -156,7 +154,7 @@ test.describe('Audiobook Generation E2E', () => {
     await expect(page.getByText('Author: Test Author')).toBeVisible()
   })
 
-  test('should generate single chapter as MP3', async ({ page }) => {
+  test('SHORT EPUB - should generate single chapter as MP3', async ({ page }) => {
     test.setTimeout(180000) // 3 minutes for the entire test
 
     // Upload EPUB
@@ -207,9 +205,11 @@ test.describe('Audiobook Generation E2E', () => {
       }
     })
 
-    // Advanced options already open; proceed to generate
-    // Click generate button
-    await page.locator('button:has-text("Generate & Download")').click()
+    // Prepare to capture download event and trigger generation
+    const [downloadEvent] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('button:has-text("Generate & Download")').click(),
+    ])
 
     // Wait for generation to complete
     await page.waitForSelector('text=/Audiobook created successfully/i', { timeout: 120000 })
@@ -217,17 +217,27 @@ test.describe('Audiobook Generation E2E', () => {
     // Wait for 'Download started!' in UI and validate via download-trigger console message
     await page.waitForSelector('text=Download started!', { timeout: 120000 })
     expect(downloadConsoleLogs.length).toBeGreaterThan(0)
-    expect(downloadConsoleLogs[0]).toContain('.mp3')
+    // Validate the download object reports an MP3 filename
+    expect(downloadConsoleLogs[0].filename?.endsWith('.mp3')).toBeTruthy()
 
     // Verify file size via download-trigger console log size field (should be > 1KB)
-    expect(downloadConsoleLogs.length).toBeGreaterThan(0)
     expect(downloadConsoleLogs[0].size).toBeGreaterThan(1000)
+
+    // Validate the actual downloaded file is an MP3 by checking its bytes
+    const suggested = downloadEvent.suggestedFilename()
+    expect(suggested.endsWith('.mp3')).toBeTruthy()
+    const path = await downloadEvent.path()
+    const downloadedData = await readFile(path)
+    // MP3 files commonly start with 'ID3' or a sync frame (0xFF 0xFx)
+    const startsWithID3 = downloadedData.slice(0, 3).toString() === 'ID3'
+    const startsWithSync = downloadedData[0] === 0xff && (downloadedData[1] & 0xf0) === 0xf0
+    expect(startsWithID3 || startsWithSync).toBeTruthy()
   })
 
-  test('should generate single chapter as M4B', async ({ page }) => {
+  test('SHORT EPUB - should generate single chapter as M4B', async ({ page }) => {
     test.setTimeout(180000) // 3 minutes for M4B generation
     // Upload EPUB
-    const epubPath = EXAMPLE_EPUB
+    const epubPath = SHORT_EPUB
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
@@ -238,7 +248,7 @@ test.describe('Audiobook Generation E2E', () => {
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+    await page.waitForSelector('text=Short Test Book', {
       timeout: 10000,
     })
 
@@ -274,23 +284,25 @@ test.describe('Audiobook Generation E2E', () => {
       }
     })
 
-    // Advanced options already open; proceed to generate
-    // Click generate button
-    await page.locator('button:has-text("Generate & Download")').click()
+    // Prepare to capture download event and trigger generation
+    const [downloadEvent] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('button:has-text("Generate & Download")').click(),
+    ])
 
     // Wait for generation
     await page.waitForSelector('text=/Audiobook created successfully/i', { timeout: 120000 })
 
     // Verify download
-    const download = await downloadPromise
-    expect(download.suggestedFilename()).toMatch(/\.m4b$/)
+    const suggested = downloadEvent.suggestedFilename()
+    expect(suggested).toMatch(/\.m4b$/)
   })
 
   test('should generate two chapters as MP3', async ({ page }) => {
     test.setTimeout(240000) // 4 minutes for two chapters
 
     // Upload EPUB
-    const epubPath = EXAMPLE_EPUB
+    const epubPath = SHORT_EPUB
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
@@ -301,7 +313,7 @@ test.describe('Audiobook Generation E2E', () => {
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+    await page.waitForSelector('text=Short Test Book', {
       timeout: 10000,
     })
 
@@ -349,7 +361,8 @@ test.describe('Audiobook Generation E2E', () => {
     // Verify download via 'Download started!' UI text and download-trigger console message
     await page.waitForSelector('text=Download started!', { timeout: 180000 })
     expect(downloadConsoleLogs.length).toBeGreaterThan(0)
-    expect(downloadConsoleLogs[0]).toContain('.mp3')
+    // Validate the download object reports an MP3 filename
+    expect(downloadConsoleLogs[0].filename?.endsWith('.mp3')).toBeTruthy()
 
     // Verify file is larger than single chapter via download-console log size
     expect(downloadConsoleLogs.length).toBeGreaterThan(0)
@@ -360,7 +373,7 @@ test.describe('Audiobook Generation E2E', () => {
     test.setTimeout(240000) // 4 minutes for two chapters
 
     // Upload EPUB
-    const epubPath = EXAMPLE_EPUB
+    const epubPath = SHORT_EPUB
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
@@ -371,7 +384,7 @@ test.describe('Audiobook Generation E2E', () => {
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+    await page.waitForSelector('text=Short Test Book', {
       timeout: 10000,
     })
 
@@ -426,7 +439,7 @@ test.describe('Audiobook Generation E2E', () => {
     test.setTimeout(180000) // 3 minutes
 
     // Upload EPUB
-    const epubPath = EXAMPLE_EPUB
+    const epubPath = SHORT_EPUB
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
@@ -437,7 +450,7 @@ test.describe('Audiobook Generation E2E', () => {
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+    await page.waitForSelector('text=Short Test Book', {
       timeout: 10000,
     })
 
@@ -461,7 +474,7 @@ test.describe('Audiobook Generation E2E', () => {
 
   test('should allow format and bitrate selection', async ({ page }) => {
     // Upload EPUB
-    const epubPath = EXAMPLE_EPUB
+    const epubPath = SHORT_EPUB
     const epubBuffer = await readFile(epubPath)
 
     const fileInput = page.locator('input[type="file"]')
@@ -471,7 +484,7 @@ test.describe('Audiobook Generation E2E', () => {
       buffer: epubBuffer,
     })
 
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+    await page.waitForSelector('text=Short Test Book', {
       timeout: 10000,
     })
 
@@ -523,7 +536,7 @@ test.describe('Audiobook Generation E2E', () => {
       buffer: epubBuffer,
     })
 
-    await page.waitForSelector('text=The Life and Adventures of Robinson Crusoe', {
+    await page.waitForSelector('text=Short Test Book', {
       timeout: 10000,
     })
 
