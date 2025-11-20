@@ -69,6 +69,13 @@
       alert('Failed to convert to MP3. See console for details.')
     }
   }
+
+  // Get chapter title from ID
+  function getChapterTitle(id: string): string {
+    if (!book) return id
+    const chapter = book.chapters.find((c) => c.id === id)
+    return chapter?.title || id
+  }
 </script>
 
 <main>
@@ -85,7 +92,7 @@
         {#each Array.from(generated.entries()) as [id, rec]}
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <audio controls src={rec.url}></audio>
-            <div style="min-width:120px">{id}</div>
+            <div style="min-width:120px">{getChapterTitle(id)}</div>
             <button on:click={() => downloadBlob(id)}>Download WAV</button>
             <button on:click={() => downloadBlobAsMp3(id)}>Download MP3</button>
           </div>

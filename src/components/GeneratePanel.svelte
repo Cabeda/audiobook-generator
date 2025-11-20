@@ -184,7 +184,8 @@
             totalChunks = total
             // Calculate overall progress: completed chapters + current chapter progress
             const completedProgress = (i / totalChapters) * 100
-            const currentChapterProgress = (current / total) * (100 / totalChapters)
+            // If total chunks is unknown (0), estimate progress based on time or just show indeterminate
+            const currentChapterProgress = total > 0 ? (current / total) * (100 / totalChapters) : 0 // Don't add chunk progress if we don't know the total
             overallProgress = Math.round(completedProgress + currentChapterProgress)
           },
           dtype: effectiveModel === 'kokoro' ? selectedQuantization : undefined,
@@ -406,8 +407,8 @@
         {#if running && totalChapters > 0}
           <div class="progress-info">
             📖 Chapter: {currentChapter}/{totalChapters}
-            {#if totalChunks > 0}
-              | 🔊 Chunk: {currentChunk}/{totalChunks}
+            {#if currentChunk > 0}
+              | 🔊 Chunk: {currentChunk}{totalChunks > 0 ? `/${totalChunks}` : ''}
             {/if}
           </div>
         {/if}

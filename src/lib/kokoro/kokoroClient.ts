@@ -266,12 +266,9 @@ export async function generateVoice(
 
       // Split text into chunks first to get accurate count
       const chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE)
-      console.log(`Split into ${chunks.length} chunks`)
-
-      // Report accurate total chunks for progress from the start
-      if (onChunkProgress) {
-        onChunkProgress(0, chunks.length)
-      }
+      console.log(
+        `Split into ${chunks.length} chunks (Kokoro may generate more based on sentences)`
+      )
 
       // Import TextSplitterStream from kokoro-js
       const { TextSplitterStream } = await import('kokoro-js')
@@ -356,9 +353,10 @@ export async function generateVoice(
             throw e
           }
 
-          // Report chunk progress with actual total
+          // Report chunk progress - we don't know total chunks since Kokoro splits by sentences
+          // Just report current chunk count
           if (onChunkProgress) {
-            onChunkProgress(chunkCount, chunks.length)
+            onChunkProgress(chunkCount, 0) // 0 means unknown total
           }
         }
       })()
