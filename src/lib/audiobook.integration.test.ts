@@ -69,8 +69,8 @@ vi.mock('@ffmpeg/ffmpeg', () => {
 
 vi.mock('@ffmpeg/util', () => ({ toBlobURL: () => 'blob:mock' }))
 
-import { generateVoice } from './kokoro/kokoroClient.ts'
 import { concatenateAudioChapters, type AudioChapter } from './audioConcat.ts'
+import { parseEpubFile } from './epubParser.ts'
 
 // Mock kokoro-js to avoid loading the actual model in tests
 vi.mock('kokoro-js', () => {
@@ -130,13 +130,26 @@ vi.mock('kokoro-js', () => {
     list_voices: vi.fn(),
     voices: {},
   }
+  // Provide a simple TextSplitterStream implementation to satisfy streaming API
+  class TextSplitterStream {
+    push(_chunk: string) {
+      // no-op; our mock stream yields a single chunk regardless
+    }
+    close() {
+      // no-op
+    }
+  }
 
   return {
     KokoroTTS: {
       from_pretrained: vi.fn().mockResolvedValue(mockTTS),
     },
+    TextSplitterStream,
   }
 })
+
+// Import generateVoice after mocking kokoro-js to ensure the module loads the mock
+import { generateVoice } from './kokoro/kokoroClient.ts'
 
 // Mock AudioContext for testing
 class MockAudioContext {
@@ -400,6 +413,58 @@ describe('Audiobook Generation Integration Tests', () => {
       expect(m4bBlob).toBeInstanceOf(Blob)
       expect(m4bBlob.type).toBe('audio/m4b')
       expect(m4bBlob.size).toBeGreaterThan(0)
+    })
+
+    it('should convert example EPUB to M4B without UI', async () => {
+      // Load the example EPUB and convert to M4B using generator pipeline
+      const fs = await import('fs')
+      const { resolve } = await import('path')
+
+      const epubPath = resolve(
+        __dirname,
+        '../../example/The_Life_and_Adventures_of_Robinson_Crusoe.epub'
+      )
+      const buffer = fs.readFileSync(epubPath)
+      const blob = new Blob([buffer], { type: 'application/epub+zip' })
+      const epubFile = new File([blob], 'The_Life_and_Adventures_of_Robinson_Crusoe.epub', {
+        type: 'application/epub+zip',
+      })
+
+      // Ensure File.arrayBuffer exists
+      if (!epubFile.arrayBuffer) {
+        Object.defineProperty(epubFile, 'arrayBuffer', {
+          value: () => {
+            const ab = new ArrayBuffer(buffer.length)
+            const view = new Uint8Array(ab)
+            for (let i = 0; i < buffer.length; i++) view[i] = buffer[i]
+            return Promise.resolve(ab)
+          },
+        })
+      }
+
+      const book = await parseEpubFile(epubFile)
+      expect(book).toBeDefined()
+      expect(book.chapters.length).toBeGreaterThan(0)
+
+      // Generate audio for a small subset of chapters (first three) to limit test time
+      const chaptersToUse = book.chapters.slice(0, 3)
+      const audioChapters: AudioChapter[] = []
+
+      for (const chap of chaptersToUse) {
+        const blob = await generateVoice({ text: chap.content, voice: 'bm_george' })
+        audioChapters.push({ id: chap.id, title: chap.title, blob })
+      }
+
+      const output = await concatenateAudioChapters(audioChapters, {
+        format: 'm4b',
+        bitrate: 192,
+        bookTitle: book.title,
+        bookAuthor: book.author,
+      })
+
+      expect(output).toBeInstanceOf(Blob)
+      expect(output.type).toBe('audio/m4b')
+      expect(output.size).toBeGreaterThan(0)
     })
   })
 

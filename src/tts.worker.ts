@@ -35,7 +35,7 @@ type WorkerResponse = {
 
 // Handle messages from main thread
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
-  const { id, type, text, modelType = 'webspeech', voice, speed, pitch, model, dtype } = event.data
+  const { id, type, text, modelType = 'edge', voice, speed, pitch, model, dtype } = event.data
 
   if (type === 'generate') {
     try {
@@ -82,11 +82,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         { transfer: [arrayBuffer] }
       )
     } catch (error) {
-      // Send error response
+      // Send error response with optional stack if available
+      const errMsg = error instanceof Error ? error.message : String(error)
+      const errStack = error instanceof Error ? error.stack : undefined
       self.postMessage({
         id,
         type: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errMsg,
+        message: errStack,
       } as WorkerResponse)
     }
   }

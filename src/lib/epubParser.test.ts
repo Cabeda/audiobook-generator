@@ -152,4 +152,48 @@ describe('EPUB Parser', () => {
       await expect(parseEpubFile(invalidFile)).rejects.toThrow()
     })
   })
+
+  describe('parseEpubFile with SHORT EPUB fixture', () => {
+    let shortFile: File
+
+    beforeAll(async () => {
+      const epubPath = resolve(__dirname, '../../books/test-short.epub')
+      const fs = await import('fs')
+      const buffer = fs.readFileSync(epubPath)
+      const blob = new Blob([buffer], { type: 'application/epub+zip' })
+      shortFile = new File([blob], 'test-short.epub', { type: 'application/epub+zip' })
+
+      // Polyfill arrayBuffer method for File in test environment
+      if (!shortFile.arrayBuffer) {
+        Object.defineProperty(shortFile, 'arrayBuffer', {
+          value: () => {
+            const ab = new ArrayBuffer(buffer.length)
+            const view = new Uint8Array(ab)
+            for (let i = 0; i < buffer.length; i++) view[i] = buffer[i]
+            return Promise.resolve(ab)
+          },
+        })
+      }
+    })
+
+    it('should parse the short EPUB and extract expected metadata', async () => {
+      const book = await parseEpubFile(shortFile)
+      expect(book).toBeDefined()
+      expect(book.title).toBe('Short Test Book')
+      expect(book.author).toBe('Test Author')
+      // pandoc sometimes includes extra title/cover pages in the spine; assert at least 3 chapters
+      expect(book.chapters.length).toBeGreaterThanOrEqual(3)
+    })
+
+    it('should extract chapter content and titles from short EPUB', async () => {
+      const book = await parseEpubFile(shortFile)
+      const titles = book.chapters.map((c) => c.title)
+      // At least one of the chapter titles should include Chapter 1, Chapter 2, Chapter 3 respectively
+      expect(titles.some((t) => /Chapter 1/i.test(t))).toBe(true)
+      expect(titles.some((t) => /Chapter 2/i.test(t))).toBe(true)
+      expect(titles.some((t) => /Chapter 3/i.test(t))).toBe(true)
+      // content lengths should be small but non-zero
+      expect(book.chapters.every((c) => c.content.length > 0)).toBe(true)
+    })
+  })
 })

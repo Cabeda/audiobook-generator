@@ -66,6 +66,15 @@ export class TTSWorkerManager {
           switch (type) {
             case 'success': {
               const resp = data as Extract<WorkerResponse, { type: 'success' }>
+              try {
+                if (resp.data instanceof ArrayBuffer) {
+                  console.log(`[TTSWorker] success: data Size=${resp.data.byteLength} bytes`)
+                } else {
+                  console.log('[TTSWorker] success: data type:', typeof resp.data, resp.data)
+                }
+              } catch (e) {
+                console.warn('[TTSWorker] Failed to inspect success data', e)
+              }
               const blob = new Blob([resp.data], { type: 'audio/wav' })
               pending.resolve(blob)
               this.pendingRequests.delete(id)
@@ -73,7 +82,22 @@ export class TTSWorkerManager {
             }
             case 'error': {
               const resp = data as Extract<WorkerResponse, { type: 'error' }>
-              pending.reject(new Error(resp.error || 'Unknown worker error'))
+              console.error('[TTSWorker] error from worker:', resp.error)
+              const err = new Error(resp.error || 'Unknown worker error')
+              // If worker provided a stack in message, attach it for debugging
+              // (the worker posts its stack as `message` when available). We attach
+              // it to the `stack` property so it appears in console logs.
+              const respAny = resp as unknown as { message?: string }
+              if (respAny.message) {
+                try {
+                  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                  // @ts-ignore - assign stack for enhanced debugging
+                  err.stack = respAny.message
+                } catch {
+                  // ignore if we cannot assign stack
+                }
+              }
+              pending.reject(err)
               this.pendingRequests.delete(id)
               break
             }
@@ -132,38 +156,8 @@ export class TTSWorkerManager {
         onProgress: options.onProgress,
         onChunkProgress: options.onChunkProgress,
       })
-      // If using the Web Speech API, run generation on the main thread because
-      // SpeechSynthesis is not available inside Web Workers.
-      const modelType = options.modelType || 'webspeech'
-      if (modelType === 'webspeech') {
-        ;(async () => {
-          try {
-            const mod = await import('./webspeech/webSpeechClient')
-            const blob = await mod.generateVoice(
-              {
-                text: options.text,
-                voice: options.voice,
-                speed: options.speed,
-                pitch: options.pitch,
-              },
-              options.onChunkProgress
-            )
-            // Resolve and cleanup
-            const pending = this.pendingRequests.get(id)
-            if (pending) {
-              pending.resolve(blob)
-              this.pendingRequests.delete(id)
-            }
-          } catch (err) {
-            const pending = this.pendingRequests.get(id)
-            if (pending) {
-              pending.reject(err as Error)
-              this.pendingRequests.delete(id)
-            }
-          }
-        })()
-        return
-      }
+      // Default to 'edge' model type for generation unless otherwise specified
+      const modelType = options.modelType || 'edge'
 
       const request: WorkerRequest = {
         id,

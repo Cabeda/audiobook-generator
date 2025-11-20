@@ -12,5 +12,6 @@ export default defineConfig({
         resources: 'usable',
       },
     },
+    setupFiles: ['./test/setup.ts'],
   },
 })
