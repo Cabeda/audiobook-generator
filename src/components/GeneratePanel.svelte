@@ -60,7 +60,11 @@
   })
 
   // Update available voices when model changes
-  $: if (voicesLoaded) updateAvailableVoices()
+  $: if (voicesLoaded) {
+    updateAvailableVoices()
+    // Ensure selectedModel is tracked as a reactive dependency
+    void selectedModel
+  }
 
   function updateAvailableVoices() {
     if (selectedModel === 'edge') {
