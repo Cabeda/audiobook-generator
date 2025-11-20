@@ -9,15 +9,16 @@ Scope & precedence
 
 Quick environment notes
 
+- **Package Manager**: This project uses `pnpm`. Install dependencies with `pnpm install`.
 - Node scripts: see `package.json` for the authoritative scripts. Common scripts:
-  - `npm run dev` — starts the Vite dev server
-  - `npm run build` — builds a production bundle
-  - `npm run preview` — preview the build
-  - `npm run test` — run unit tests with `vitest`
-  - `npm run test:e2e` — run Playwright e2e tests
-  - `npm run test:e2e:headed` — run Playwright e2e tests in headed mode
-  - `npm run lint` / `npm run lint:fix` — ESLint + Prettier checks/fix
-  - `npm run type-check` — TypeScript type check
+  - `pnpm dev` — starts the Vite dev server
+  - `pnpm build` — builds a production bundle
+  - `pnpm preview` — preview the build
+  - `pnpm test` — run unit tests with `vitest`
+  - `pnpm test:e2e` — run Playwright e2e tests
+  - `pnpm test:e2e:headed` — run Playwright e2e tests in headed mode
+  - `pnpm lint` / `pnpm lint:fix` — ESLint + Prettier checks/fix
+  - `pnpm type-check` — TypeScript type check
 
 Workflow: git worktree + branch (recommended for multi-agent)
 
@@ -52,7 +53,7 @@ Using `gh` CLI (preferred) for GitHub interactions
 
 E2E tests & debugging (Playwright + Chrome DevTools / CDP (mcp))
 
-Playwright is used for e2e tests here (`npm run test:e2e`). For debugging and deep inspection, prefer using Chrome DevTools and the Chrome DevTools Protocol (CDP / "mcp") as follows:
+Playwright is used for e2e tests here (`pnpm test:e2e`). For debugging and deep inspection, prefer using Chrome DevTools and the Chrome DevTools Protocol (CDP / "mcp") as follows:
 
 - Fast debug (Playwright inspector):
   - `PWDEBUG=1 npx playwright test --debug` or `PWDEBUG=1 npx playwright test --headed` opens the Playwright inspector which is useful for stepping through tests.
@@ -68,8 +69,8 @@ Playwright is used for e2e tests here (`npm run test:e2e`). For debugging and de
 
 Recommendations when running e2e locally/CI
 
-- Run `npm run dev` (or `npm run preview` for a full build preview) before `npm run test:e2e` when you need a live app server.
-- For local debugging prefer `npm run test:e2e:headed` so you can see the browser window.
+- Run `pnpm dev` (or `pnpm preview` for a full build preview) before `pnpm test:e2e` when you need a live app server.
+- For local debugging prefer `pnpm test:e2e:headed` so you can see the browser window.
 - Use `PWDEBUG=1` whenever you want interactive test debugging.
 
 Agent safety & repository etiquette
@@ -77,13 +78,13 @@ Agent safety & repository etiquette
 - Read the repo files you will edit before making changes — start with `package.json`, `vitest.config.ts`, `playwright.config.ts`, and `src/`.
 - Make minimal, focused changes. Do not change unrelated code or formatting unless required by a pre-commit hook.
 - Respect existing linters and pre-commit hooks: this repo uses `husky` + `lint-staged` (see `package.json` for details).
-- Run `npm run lint` and `npm run type-check` before pushing changes to catch issues early.
+- Run `pnpm lint` and `pnpm type-check` before pushing changes to catch issues early.
 
 Testing and validation
 
-- Unit tests: `npm run test` (vitest)
-- E2E tests: `npm run test:e2e` (Playwright)
-- Lint and format: `npm run lint` / `npm run format`
+- Unit tests: `pnpm test` (vitest)
+- E2E tests: `pnpm test:e2e` (Playwright)
+- Lint and format: `pnpm lint` / `pnpm format`
 
 Files & locations (quick references)
 
