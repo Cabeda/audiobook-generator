@@ -2,7 +2,9 @@
   import UploadArea from './components/UploadArea.svelte'
   import BookInspector from './components/BookInspector.svelte'
   import GeneratePanel from './components/GeneratePanel.svelte'
+  import UrlInput from './components/UrlInput.svelte'
   import type { Book, Chapter } from './lib/types/book'
+  import { getTTSWorker } from './lib/ttsWorkerManager'
 
   let book: Book | null = null
 
@@ -45,12 +47,18 @@
 
     try {
       const { parseEpubFile } = await import('./lib/epubParser')
-      book = await parseEpubFile(file)
+      const parsedBook = await parseEpubFile(file)
+      book = parsedBook
       selectedMap = new Map(book.chapters.map((c) => [c.id, true]))
     } catch (err) {
       console.error('Failed to parse EPUB:', err)
       alert('Failed to parse EPUB. See console for details.')
     }
+  }
+
+  function onBookLoaded(event: CustomEvent<{ book: Book }>) {
+    // Reuse onFileSelected logic for book loading
+    onFileSelected(new CustomEvent('fileselected', { detail: { book: event.detail.book } }))
   }
 
   function onSelectionChanged(e: CustomEvent) {
@@ -120,6 +128,8 @@
 
 <main>
   <h1>Audiobook Generator (Web)</h1>
+
+  <UrlInput on:bookloaded={onBookLoaded} />
   <UploadArea on:fileselected={onFileSelected} />
 
   {#if book}
