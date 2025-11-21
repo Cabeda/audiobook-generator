@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
+  import { onDestroy, untrack } from 'svelte'
   import type { Chapter } from '../lib/types/book'
   import { getTTSWorker } from '../lib/ttsWorkerManager'
 
@@ -47,9 +47,10 @@
   // Initialize segments
   $effect(() => {
     if (chapter) {
-      segments = splitIntoSegments(chapter.content)
-      bufferedSegments = new Array(segments.length).fill(false)
-      cleanup()
+      const newSegments = splitIntoSegments(chapter.content)
+      segments = newSegments
+      bufferedSegments = new Array(newSegments.length).fill(false)
+      untrack(() => cleanup())
     }
   })
 
