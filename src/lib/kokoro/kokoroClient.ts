@@ -263,6 +263,8 @@ export async function generateVoice(
     // Get or initialize the TTS instance
     const tts = await getKokoroInstance(model, dtype, 'wasm', onProgress)
 
+    if (onProgress) onProgress('Generating speech...')
+
     // For very long text, use streaming to avoid TTS limitations
     // Most TTS models have token/character limits
     const MAX_CHUNK_SIZE = 1000 // characters per chunk
