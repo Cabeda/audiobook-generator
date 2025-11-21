@@ -1,0 +1,559 @@
+<script lang="ts">
+  import { onDestroy } from 'svelte'
+  import type { Chapter } from '../lib/types/book'
+  import { getTTSWorker } from '../lib/ttsWorkerManager'
+
+  export let chapter: Chapter
+  export let voice: string
+  export let quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+  export let device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
+  export let onClose: () => void
+
+  interface TextSegment {
+    index: number
+    text: string
+  }
+
+  // State
+  let segments: TextSegment[] = []
+  let audioSegments = new Map<number, string>() // segment index -> blob URL
+  let currentSegmentIndex = -1
+  let isPlaying = false
+  let isGenerating = false
+  let audio: HTMLAudioElement | null = null
+  let bufferTarget = 5 // Number of segments to buffer ahead
+  let bufferStatus = { ready: 0, total: 0 }
+
+  // Split text into segments (sentences)
+  function splitIntoSegments(text: string): TextSegment[] {
+    // Split by sentence-ending punctuation followed by space or newline
+    // Keep the punctuation with the sentence
+    const sentences = text.split(/(?<=[.!?])\s+/)
+    return sentences
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .map((text, index) => ({ index, text }))
+  }
+
+  // Initialize segments
+  $: if (chapter) {
+    segments = splitIntoSegments(chapter.content)
+    cleanup()
+  }
+
+  // Generate audio for a specific segment
+  async function generateSegment(index: number): Promise<void> {
+    if (audioSegments.has(index)) return // Already generated
+
+    const segment = segments[index]
+    if (!segment) return
+
+    try {
+      const worker = getTTSWorker()
+      const blob = await worker.generateVoice({
+        text: segment.text,
+        modelType: 'kokoro',
+        voice: voice,
+        dtype: quantization,
+        device: device,
+      })
+
+      const url = URL.createObjectURL(blob)
+      audioSegments.set(index, url)
+      // Don't trigger reactivity here - let buffer update handle it
+    } catch (err) {
+      console.error(`Failed to generate segment ${index}:`, err)
+      throw err
+    }
+  }
+
+  // Generate multiple segments (for buffering)
+  async function bufferSegments(startIndex: number, count: number): Promise<void> {
+    isGenerating = true
+
+    try {
+      for (let i = 0; i < count; i++) {
+        const index = startIndex + i
+        if (index >= segments.length) break
+        if (audioSegments.has(index)) continue // Skip already generated
+
+        // Generate sequentially to avoid flooding the main thread
+        await generateSegment(index)
+
+        // Small yield to let UI update
+        await new Promise((resolve) => setTimeout(resolve, 10))
+
+        // If we stopped playing or closed, stop buffering
+        if (!isPlaying && currentSegmentIndex === -1) break
+      }
+    } finally {
+      isGenerating = false
+      updateBufferStatus()
+    }
+  }
+
+  // Update buffer status for display
+  function updateBufferStatus() {
+    if (currentSegmentIndex < 0) {
+      bufferStatus = { ready: 0, total: 0 }
+      return
+    }
+
+    const remaining = segments.length - currentSegmentIndex
+    const targetCount = Math.min(bufferTarget, remaining)
+    let readyCount = 0
+
+    for (let i = 0; i < targetCount; i++) {
+      if (audioSegments.has(currentSegmentIndex + i)) {
+        readyCount++
+      }
+    }
+
+    // Only update if changed to avoid unnecessary re-renders
+    const newStatus = { ready: readyCount, total: targetCount }
+    if (bufferStatus.ready !== newStatus.ready || bufferStatus.total !== newStatus.total) {
+      bufferStatus = newStatus
+    }
+  }
+
+  // Play segment at specific index
+  async function playFromSegment(index: number) {
+    if (index < 0 || index >= segments.length) return
+
+    // Stop current playback
+    if (audio) {
+      audio.pause()
+      audio = null
+    }
+
+    currentSegmentIndex = index
+    isPlaying = true
+
+    // Ensure current segment is generated
+    if (!audioSegments.has(index)) {
+      try {
+        await generateSegment(index)
+      } catch (err) {
+        console.error('Failed to generate segment:', err)
+        isPlaying = false
+        return
+      }
+    }
+
+    // Start buffering ahead
+    bufferSegments(index + 1, bufferTarget).catch(console.error)
+
+    // Play current segment
+    playCurrentSegment()
+
+    // Scroll to current segment
+    scrollToSegment(index)
+  }
+
+  function playCurrentSegment() {
+    const url = audioSegments.get(currentSegmentIndex)
+    if (!url) {
+      console.error('No audio for current segment')
+      isPlaying = false
+      return
+    }
+
+    audio = new Audio(url)
+
+    audio.onended = () => {
+      // Move to next segment
+      const nextIndex = currentSegmentIndex + 1
+      if (nextIndex < segments.length && isPlaying) {
+        currentSegmentIndex = nextIndex
+
+        // Check buffer and replenish if needed
+        const buffered = countBufferedSegments()
+        if (buffered < 3) {
+          // Buffer running low, generate more
+          bufferSegments(currentSegmentIndex + 1, bufferTarget).catch(console.error)
+        }
+
+        // Clean up old segments (keep only last 5 behind current position)
+        cleanupOldSegments()
+
+        playCurrentSegment()
+        scrollToSegment(currentSegmentIndex)
+      } else {
+        // Finished or stopped
+        isPlaying = false
+        audio = null
+      }
+    }
+
+    audio.onerror = (err) => {
+      console.error('Audio playback error:', err)
+      isPlaying = false
+      audio = null
+    }
+
+    audio.play().catch((err) => {
+      console.error('Failed to play audio:', err)
+      isPlaying = false
+      audio = null
+    })
+
+    // Use requestAnimationFrame to batch DOM updates
+    requestAnimationFrame(() => updateBufferStatus())
+  }
+
+  function countBufferedSegments(): number {
+    let count = 0
+    for (let i = 1; i <= bufferTarget; i++) {
+      if (audioSegments.has(currentSegmentIndex + i)) {
+        count++
+      } else {
+        break
+      }
+    }
+    return count
+  }
+
+  function cleanupOldSegments() {
+    const keepBehind = 5
+    const threshold = currentSegmentIndex - keepBehind
+
+    for (const [index, url] of audioSegments.entries()) {
+      if (index < threshold) {
+        URL.revokeObjectURL(url)
+        audioSegments.delete(index)
+      }
+    }
+    // No need to trigger reactivity - segments are already rendered
+  }
+
+  function scrollToSegment(index: number) {
+    requestAnimationFrame(() => {
+      const element = document.getElementById(`segment-${index}`)
+      const container = document.querySelector('.text-content')
+
+      if (element && container) {
+        const elementRect = element.getBoundingClientRect()
+        const containerRect = container.getBoundingClientRect()
+
+        // Check if element is within the comfortable reading zone (middle 60% of view)
+        const topThreshold = containerRect.top + containerRect.height * 0.2
+        const bottomThreshold = containerRect.bottom - containerRect.height * 0.2
+
+        const isAbove = elementRect.top < topThreshold
+        const isBelow = elementRect.bottom > bottomThreshold
+
+        if (isAbove || isBelow) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }
+    })
+  }
+
+  function togglePlayPause() {
+    if (isPlaying) {
+      pause()
+    } else {
+      if (currentSegmentIndex < 0) {
+        // Start from beginning
+        playFromSegment(0)
+      } else {
+        // Resume from current position
+        isPlaying = true
+        playCurrentSegment()
+      }
+    }
+  }
+
+  function pause() {
+    isPlaying = false
+    if (audio) {
+      audio.pause()
+    }
+  }
+
+  function stop() {
+    isPlaying = false
+    currentSegmentIndex = -1
+    if (audio) {
+      audio.pause()
+      audio = null
+    }
+    updateBufferStatus()
+  }
+
+  function cleanup() {
+    // Revoke all blob URLs
+    for (const url of audioSegments.values()) {
+      URL.revokeObjectURL(url)
+    }
+    audioSegments.clear()
+
+    if (audio) {
+      audio.pause()
+      audio = null
+    }
+
+    isPlaying = false
+    currentSegmentIndex = -1
+    updateBufferStatus()
+  }
+
+  onDestroy(() => {
+    cleanup()
+  })
+</script>
+
+<div class="reader-overlay">
+  <div class="reader-container">
+    <!-- Header -->
+    <div class="reader-header">
+      <h2>{chapter.title}</h2>
+      <button class="close-button" on:click={onClose} title="Close reader">✕</button>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button on:click={togglePlayPause} disabled={isGenerating && currentSegmentIndex < 0}>
+        {isPlaying ? '⏸️ Pause' : '▶️ Play'}
+      </button>
+      <button on:click={stop} disabled={currentSegmentIndex < 0}>⏹️ Stop</button>
+
+      <div class="status">
+        {#if isGenerating}
+          <span class="generating">⏳ Generating...</span>
+        {:else if isPlaying}
+          <span class="playing">
+            {currentSegmentIndex + 1} / {segments.length}
+          </span>
+        {/if}
+      </div>
+
+      {#if bufferStatus.total > 0}
+        <div class="buffer-status" class:low={bufferStatus.ready < 3}>
+          Buffer: {bufferStatus.ready}/{bufferStatus.total}
+          {bufferStatus.ready === bufferStatus.total ? '✓' : '⚠️'}
+        </div>
+      {/if}
+    </div>
+
+    <!-- Text content -->
+    <div class="text-content">
+      {#each segments as segment (segment.index)}
+        <p
+          id="segment-{segment.index}"
+          class="segment"
+          class:reading={currentSegmentIndex === segment.index}
+          class:buffered={audioSegments.has(segment.index)}
+          class:clickable={!isGenerating}
+          on:click={() => !isGenerating && playFromSegment(segment.index)}
+          role="button"
+          tabindex="0"
+          on:keypress={(e) => {
+            if (e.key === 'Enter' && !isGenerating) playFromSegment(segment.index)
+          }}
+        >
+          {segment.text}
+        </p>
+      {/each}
+    </div>
+  </div>
+</div>
+
+<style>
+  .reader-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .reader-container {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    max-width: 800px;
+    width: 90%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.3s ease-out;
+  }
+
+  @keyframes slideUp {
+    from {
+      transform: translateY(20px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .reader-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e0e0e0;
+  }
+
+  .reader-header h2 {
+    margin: 0;
+    font-size: 22px;
+    color: #333;
+    flex: 1;
+  }
+
+  .close-button {
+    background: none;
+    border: none;
+    font-size: 28px;
+    color: #666;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+
+  .close-button:hover {
+    background: #f0f0f0;
+    color: #333;
+  }
+
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid #e0e0e0;
+    background: #f8f8f8;
+  }
+
+  .controls button {
+    padding: 10px 20px;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    background: white;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .controls button:hover:not(:disabled) {
+    background: #f0f0f0;
+    border-color: #ccc;
+  }
+
+  .controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .status {
+    margin-left: auto;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666;
+  }
+
+  .status .playing {
+    color: #4caf50;
+  }
+
+  .status .generating {
+    color: #ff9800;
+  }
+
+  .buffer-status {
+    padding: 6px 12px;
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .buffer-status.low {
+    background: #fff3e0;
+    color: #e65100;
+  }
+
+  .text-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    line-height: 1.8;
+  }
+
+  .segment {
+    margin: 0 0 16px 0;
+    padding: 12px;
+    padding-left: 8px; /* Fixed padding to match reading state */
+    border-left: 4px solid transparent; /* Pre-allocate border space */
+    border-radius: 6px;
+    transition:
+      background-color 0.2s,
+      border-color 0.2s,
+      box-shadow 0.2s;
+    cursor: default;
+  }
+
+  .segment.clickable {
+    cursor: pointer;
+  }
+
+  .segment.clickable:hover {
+    background: #f5f5f5;
+  }
+
+  .segment.buffered {
+    border-left-color: #e0e0e0;
+  }
+
+  .segment.reading {
+    background: #fff9c4;
+    border-left-color: #fbc02d;
+    box-shadow: 0 2px 8px rgba(251, 192, 45, 0.2);
+  }
+
+  /* Scrollbar styling */
+  .text-content::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .text-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  .text-content::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+  }
+
+  .text-content::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+</style>

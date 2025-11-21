@@ -152,6 +152,7 @@
           {book}
           {selectedVoice}
           {selectedQuantization}
+          {selectedDevice}
           on:selectionchanged={onSelectionChanged}
         />
 
