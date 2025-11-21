@@ -126,8 +126,11 @@
   }
 
   function handleUrlKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !urlLoading && url) {
-      fetchArticle()
+    if (e.key === 'Enter') {
+      e.stopPropagation()
+      if (!urlLoading && url) {
+        fetchArticle()
+      }
     }
   }
 </script>
@@ -146,7 +149,7 @@
   role="button"
   tabindex="0"
   on:click={onContainerClick}
-  on:keypress={(e) => e.key === 'Enter' && fileInput?.click()}
+  on:keydown={(e) => e.key === 'Enter' && fileInput?.click()}
   on:drop={onDrop}
   on:dragover={onDragOver}
   on:dragleave={onDragLeave}
