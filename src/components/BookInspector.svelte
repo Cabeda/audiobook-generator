@@ -2,10 +2,12 @@
   import { createEventDispatcher } from 'svelte'
   import type { Book, Chapter } from '../lib/types/book'
   import { getTTSWorker } from '../lib/ttsWorkerManager'
+  import TextReader from './TextReader.svelte'
 
   export let book: Book
   export let selectedVoice: string
   export let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+  export let selectedDevice: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
 
   const dispatch = createEventDispatcher()
 
@@ -20,6 +22,9 @@
   // Cache for preview URLs: key -> blob URL
   // Key format: `${chapterId}:${voice}:${quantization}`
   let previewCache = new Map<string, string>()
+
+  // Track which chapter reader is open
+  let openReaderId: string | null = null
 
   // initialize selections when book changes
   $: if (book) {
@@ -173,6 +178,16 @@
       alert('Failed to generate preview: ' + (err instanceof Error ? err.message : 'Unknown error'))
     }
   }
+
+  function openReader(ch: Chapter) {
+    // Stop any preview that might be playing
+    stopPreview()
+    openReaderId = ch.id
+  }
+
+  function closeReader() {
+    openReaderId = null
+  }
 </script>
 
 <div>
@@ -213,7 +228,7 @@
             {ch.content.slice(0, 300)}{ch.content.length > 300 ? '…' : ''}
           </div>
         </div>
-        <div style="width:140px; text-align:right; display:flex; gap:4px; justify-content:flex-end">
+        <div style="width:180px; text-align:right; display:flex; gap:4px; justify-content:flex-end">
           <button
             class="preview-button"
             class:loading={loadingChapterId === ch.id}
@@ -232,11 +247,26 @@
               🔊
             {/if}
           </button>
+          <button on:click={() => openReader(ch)} title="Read full text with TTS">📖 Read</button>
           <button on:click={() => copyChapterContent(ch)}>Copy</button>
         </div>
       </div>
     {/each}
   </div>
+
+  <!-- TextReader modal -->
+  {#if openReaderId}
+    {@const readerChapter = book.chapters.find((ch) => ch.id === openReaderId)}
+    {#if readerChapter}
+      <TextReader
+        chapter={readerChapter}
+        voice={selectedVoice}
+        quantization={selectedQuantization}
+        device={selectedDevice}
+        onClose={closeReader}
+      />
+    {/if}
+  {/if}
 </div>
 
 <style>
