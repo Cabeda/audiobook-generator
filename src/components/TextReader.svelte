@@ -3,11 +3,19 @@
   import type { Chapter } from '../lib/types/book'
   import { getTTSWorker } from '../lib/ttsWorkerManager'
 
-  export let chapter: Chapter
-  export let voice: string
-  export let quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-  export let device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
-  export let onClose: () => void
+  let {
+    chapter,
+    voice,
+    quantization,
+    device = 'auto',
+    onClose,
+  } = $props<{
+    chapter: Chapter
+    voice: string
+    quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+    device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+    onClose: () => void
+  }>()
 
   interface TextSegment {
     index: number
@@ -15,14 +23,15 @@
   }
 
   // State
-  let segments: TextSegment[] = []
-  let audioSegments = new Map<number, string>() // segment index -> blob URL
-  let currentSegmentIndex = -1
-  let isPlaying = false
-  let isGenerating = false
+  let segments = $state<TextSegment[]>([])
+  let audioSegments = $state(new Map<number, string>()) // segment index -> blob URL
+  let bufferedSegments = $state<boolean[]>([]) // Reactive array for UI state
+  let currentSegmentIndex = $state(-1)
+  let isPlaying = $state(false)
+  let isGenerating = $state(false)
   let audio: HTMLAudioElement | null = null
   let bufferTarget = 5 // Number of segments to buffer ahead
-  let bufferStatus = { ready: 0, total: 0 }
+  let bufferStatus = $state({ ready: 0, total: 0 })
 
   // Split text into segments (sentences)
   function splitIntoSegments(text: string): TextSegment[] {
@@ -36,10 +45,13 @@
   }
 
   // Initialize segments
-  $: if (chapter) {
-    segments = splitIntoSegments(chapter.content)
-    cleanup()
-  }
+  $effect(() => {
+    if (chapter) {
+      segments = splitIntoSegments(chapter.content)
+      bufferedSegments = new Array(segments.length).fill(false)
+      cleanup()
+    }
+  })
 
   // Generate audio for a specific segment
   async function generateSegment(index: number): Promise<void> {
@@ -60,7 +72,7 @@
 
       const url = URL.createObjectURL(blob)
       audioSegments.set(index, url)
-      // Don't trigger reactivity here - let buffer update handle it
+      bufferedSegments[index] = true // Trigger fine-grained reactivity
     } catch (err) {
       console.error(`Failed to generate segment ${index}:`, err)
       throw err
@@ -80,8 +92,8 @@
         // Generate sequentially to avoid flooding the main thread
         await generateSegment(index)
 
-        // Small yield to let UI update
-        await new Promise((resolve) => setTimeout(resolve, 10))
+        // Yield to let UI update and prevent staggering
+        await new Promise((resolve) => setTimeout(resolve, 50))
 
         // If we stopped playing or closed, stop buffering
         if (!isPlaying && currentSegmentIndex === -1) break
@@ -104,7 +116,7 @@
     let readyCount = 0
 
     for (let i = 0; i < targetCount; i++) {
-      if (audioSegments.has(currentSegmentIndex + i)) {
+      if (bufferedSegments[currentSegmentIndex + i]) {
         readyCount++
       }
     }
@@ -221,6 +233,7 @@
       if (index < threshold) {
         URL.revokeObjectURL(url)
         audioSegments.delete(index)
+        bufferedSegments[index] = false
       }
     }
     // No need to trigger reactivity - segments are already rendered
@@ -308,15 +321,15 @@
     <!-- Header -->
     <div class="reader-header">
       <h2>{chapter.title}</h2>
-      <button class="close-button" on:click={onClose} title="Close reader">✕</button>
+      <button class="close-button" onclick={onClose} title="Close reader">✕</button>
     </div>
 
     <!-- Controls -->
     <div class="controls">
-      <button on:click={togglePlayPause} disabled={isGenerating && currentSegmentIndex < 0}>
+      <button onclick={togglePlayPause} disabled={isGenerating && currentSegmentIndex < 0}>
         {isPlaying ? '⏸️ Pause' : '▶️ Play'}
       </button>
-      <button on:click={stop} disabled={currentSegmentIndex < 0}>⏹️ Stop</button>
+      <button onclick={stop} disabled={currentSegmentIndex < 0}>⏹️ Stop</button>
 
       <div class="status">
         {#if isGenerating}
@@ -343,12 +356,12 @@
           id="segment-{segment.index}"
           class="segment"
           class:reading={currentSegmentIndex === segment.index}
-          class:buffered={audioSegments.has(segment.index)}
+          class:buffered={bufferedSegments[segment.index]}
           class:clickable={!isGenerating}
-          on:click={() => !isGenerating && playFromSegment(segment.index)}
+          onclick={() => !isGenerating && playFromSegment(segment.index)}
           role="button"
           tabindex="0"
-          on:keypress={(e) => {
+          onkeypress={(e) => {
             if (e.key === 'Enter' && !isGenerating) playFromSegment(segment.index)
           }}
         >

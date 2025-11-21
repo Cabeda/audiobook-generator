@@ -2,21 +2,20 @@
   import BookInspector from './components/BookInspector.svelte'
   import GeneratePanel from './components/GeneratePanel.svelte'
   import LandingPage from './components/LandingPage.svelte'
-  import type { Book, Chapter } from './lib/types/book'
-  import { getTTSWorker } from './lib/ttsWorkerManager'
+  import type { Book } from './lib/types/book'
 
-  let book: Book | null = null
+  let book = $state<Book | null>(null)
 
   // Map of chapter id -> boolean (selected)
-  let selectedMap: Map<string, boolean> = new Map()
+  let selectedMap = $state(new Map<string, boolean>())
 
   // generated audio map: chapter id -> { url, blob }
-  let generated = new Map<string, { url: string; blob: Blob }>()
+  let generated = $state(new Map<string, { url: string; blob: Blob }>())
 
   // TTS options (lifted from GeneratePanel for sharing with BookInspector)
-  let selectedVoice: string = 'af_heart'
-  let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
-  let selectedDevice: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
+  let selectedVoice = $state('af_heart')
+  let selectedQuantization = $state<'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'>('q8')
+  let selectedDevice = $state<'auto' | 'wasm' | 'webgpu' | 'cpu'>('auto')
 
   // Load TTS options from localStorage on mount
   import { onMount } from 'svelte'
@@ -59,8 +58,8 @@
     const { id, blob } = e.detail
     const url = URL.createObjectURL(blob)
     generated.set(id, { url, blob })
-    // trigger reactivity
-    generated = new Map(generated)
+    // trigger reactivity - NOT NEEDED in Svelte 5 with $state(Map)
+    // generated = new Map(generated)
   }
 
   function downloadBlob(id: string) {
@@ -131,9 +130,7 @@
     <div class="app-container">
       <div class="header">
         <h1>Audiobook Generator</h1>
-        <button class="back-button" on:click={() => window.location.reload()}>
-          ← Start Over
-        </button>
+        <button class="back-button" onclick={() => window.location.reload()}> ← Start Over </button>
       </div>
 
       <div class="main-content">
@@ -167,8 +164,8 @@
                     {getChapterTitle(id)}
                   </div>
                   <div class="actions">
-                    <button on:click={() => downloadBlob(id)}>WAV</button>
-                    <button on:click={() => downloadBlobAsMp3(id)}>MP3</button>
+                    <button onclick={() => downloadBlob(id)}>WAV</button>
+                    <button onclick={() => downloadBlobAsMp3(id)}>MP3</button>
                   </div>
                 </div>
               {/each}

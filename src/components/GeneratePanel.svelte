@@ -18,23 +18,25 @@
   import { createEventDispatcher } from 'svelte'
   import { EpubGenerator, type EpubMetadata } from '../lib/epub/epubGenerator'
 
-  export let book: EPubBook
-  export let selectedMap: Map<string, boolean>
-  export let selectedVoice: string
-  export let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-  export let selectedDevice: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+  let { book, selectedMap, selectedVoice, selectedQuantization, selectedDevice } = $props<{
+    book: EPubBook
+    selectedMap: Map<string, boolean>
+    selectedVoice: string
+    selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+    selectedDevice: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+  }>()
 
   const dispatch = createEventDispatcher()
-  let running = false
-  let progressText = ''
-  let canceled = false
-  let generatedChapters: Map<string, Blob> = new Map()
-  let concatenating = false
-  let concatenationProgress = ''
-  let selectedFormat: AudioFormat | 'epub' = 'mp3'
-  let selectedBitrate = 192
-  let selectedModel: TTSModelType = 'kokoro'
-  let showAdvanced = false
+  let running = $state(false)
+  let progressText = $state('')
+  let canceled = $state(false)
+  let generatedChapters = $state(new Map<string, Blob>())
+  let concatenating = $state(false)
+  let concatenationProgress = $state('')
+  let selectedFormat = $state<AudioFormat | 'epub'>('mp3')
+  let selectedBitrate = $state(192)
+  let selectedModel = $state<TTSModelType>('kokoro')
+  let showAdvanced = $state(false)
 
   // Voice metadata for better UI labels (for Kokoro voices)
   const voiceLabels: Record<string, string> = {
@@ -75,18 +77,17 @@
   }))
 
   // Detailed progress tracking
-  let currentChapter = 0
-  let totalChapters = 0
-  let currentChunk = 0
-  let totalChunks = 0
-  let overallProgress = 0
+  let currentChapter = $state(0)
+  let totalChapters = $state(0)
+  let currentChunk = $state(0)
+  let totalChunks = $state(0)
+  let overallProgress = $state(0)
 
   // Check WebGPU availability
-  let webgpuAvailable = false
-  $: webgpuAvailable = isWebGPUAvailable()
+  let webgpuAvailable = isWebGPUAvailable()
 
   function getSelectedChapters(): Chapter[] {
-    return book.chapters.filter((ch) => selectedMap.get(ch.id))
+    return book.chapters.filter((ch: Chapter) => selectedMap.get(ch.id))
   }
 
   async function generate() {
@@ -409,7 +410,7 @@
       <select
         bind:value={selectedVoice}
         disabled={running || concatenating}
-        on:change={() => dispatch('voicechanged', { voice: selectedVoice })}
+        onchange={() => dispatch('voicechanged', { voice: selectedVoice })}
       >
         {#each availableVoices as voice}
           <option value={voice.id}>{voice.label}</option>
@@ -419,7 +420,7 @@
   </div>
 
   <!-- Advanced Options Toggle -->
-  <button class="advanced-toggle" on:click={() => (showAdvanced = !showAdvanced)}>
+  <button class="advanced-toggle" onclick={() => (showAdvanced = !showAdvanced)}>
     <span class="toggle-icon">{showAdvanced ? '▼' : '▶'}</span>
     Advanced Options
   </button>
@@ -432,8 +433,7 @@
           <select
             bind:value={selectedQuantization}
             disabled={running || concatenating}
-            on:change={() =>
-              dispatch('quantizationchanged', { quantization: selectedQuantization })}
+            onchange={() => dispatch('quantizationchanged', { quantization: selectedQuantization })}
           >
             <option value="q8">q8 (default — faster)</option>
             <option value="q4">q4 (smaller)</option>
@@ -448,7 +448,7 @@
           <select
             bind:value={selectedDevice}
             disabled={running || concatenating}
-            on:change={() => dispatch('devicechanged', { device: selectedDevice })}
+            onchange={() => dispatch('devicechanged', { device: selectedDevice })}
           >
             <option value="auto">Auto {webgpuAvailable ? '(WebGPU detected ✅)' : '(WASM)'}</option>
             <option value="webgpu" disabled={!webgpuAvailable}
@@ -488,13 +488,13 @@
   <div class="actions">
     <button
       class="primary"
-      on:click={generateAndConcatenate}
+      onclick={generateAndConcatenate}
       disabled={running || concatenating || getSelectedChapters().length === 0}
     >
       {running || concatenating ? '⏳ Processing...' : '🎧 Generate & Download'}
     </button>
     {#if running}
-      <button class="secondary" on:click={cancel}> ✕ Cancel </button>
+      <button class="secondary" onclick={cancel}> ✕ Cancel </button>
     {/if}
   </div>
 
@@ -525,7 +525,7 @@
   {/if}
   {#if generatedChapters.size > 0 && !running && !concatenating}
     <div class="download-section">
-      <button class="secondary" on:click={concatenateAndDownload} disabled={concatenating}>
+      <button class="secondary" onclick={concatenateAndDownload} disabled={concatenating}>
         📥 Download Complete Audiobook ({generatedChapters.size} chapter{generatedChapters.size !==
         1
           ? 's'

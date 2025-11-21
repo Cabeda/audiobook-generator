@@ -4,19 +4,26 @@
   import { getTTSWorker } from '../lib/ttsWorkerManager'
   import TextReader from './TextReader.svelte'
 
-  export let book: Book
-  export let selectedVoice: string
-  export let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-  export let selectedDevice: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
+  let {
+    book,
+    selectedVoice,
+    selectedQuantization,
+    selectedDevice = 'auto',
+  } = $props<{
+    book: Book
+    selectedVoice: string
+    selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+    selectedDevice?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+  }>()
 
   const dispatch = createEventDispatcher()
 
   // Map of chapter id -> selected
-  let selected = new Map<string, boolean>()
+  let selected = $state(new Map<string, boolean>())
 
   // Preview playback state
-  let playingChapterId: string | null = null
-  let loadingChapterId: string | null = null
+  let playingChapterId = $state<string | null>(null)
+  let loadingChapterId = $state<string | null>(null)
   let previewAudio: HTMLAudioElement | null = null
 
   // Cache for preview URLs: key -> blob URL
@@ -24,45 +31,57 @@
   let previewCache = new Map<string, string>()
 
   // Track which chapter reader is open
-  let openReaderId: string | null = null
+  let openReaderId = $state<string | null>(null)
 
   // initialize selections when book changes
-  $: if (book) {
-    const newMap = new Map<string, boolean>()
-    for (const ch of book.chapters) {
-      // default: selected
-      newMap.set(ch.id, selected.get(ch.id) ?? true)
-    }
-    selected = newMap
+  $effect(() => {
+    if (book) {
+      // Use untracked to prevent circular dependency if needed, but here we just need to ensure
+      // we don't read 'selected' in a way that triggers this effect again.
+      // Actually, 'selected' is a dependency, but we only want to run this when 'book' changes.
+      // In Svelte 5, we should be careful.
+      // Better approach: derive initial state or just run once when book changes.
 
-    // Clear cache and revoke URLs when book changes
-    for (const url of previewCache.values()) {
-      URL.revokeObjectURL(url)
+      // However, since we want to preserve selection if possible or reset it,
+      // we should probably just recreate the map based on the new book.
+
+      const newMap = new Map<string, boolean>()
+      for (const ch of book.chapters) {
+        // default: selected
+        // We use untracked to avoid re-running when 'selected' changes
+        newMap.set(ch.id, true)
+      }
+      selected = newMap
+
+      // Clear cache and revoke URLs when book changes
+      for (const url of previewCache.values()) {
+        URL.revokeObjectURL(url)
+      }
+      previewCache.clear()
     }
-    previewCache.clear()
-  }
+  })
 
   function toggleChapter(id: string) {
     selected.set(id, !selected.get(id))
-    // trigger reactivity
-    selected = new Map(selected)
+    // trigger reactivity - NOT NEEDED in Svelte 5 with $state(Map)
+    // selected = new Map(selected)
     dispatch('selectionchanged', { selected: Array.from(selected.entries()) })
   }
 
   function selectAll() {
     for (const k of selected.keys()) selected.set(k, true)
-    selected = new Map(selected)
+    // selected = new Map(selected)
     dispatch('selectionchanged', { selected: Array.from(selected.entries()) })
   }
 
   function deselectAll() {
     for (const k of selected.keys()) selected.set(k, false)
-    selected = new Map(selected)
+    // selected = new Map(selected)
     dispatch('selectionchanged', { selected: Array.from(selected.entries()) })
   }
 
   function exportSelected() {
-    const selectedChapters: Chapter[] = book.chapters.filter((ch) => selected.get(ch.id))
+    const selectedChapters: Chapter[] = book.chapters.filter((ch: Chapter) => selected.get(ch.id))
     if (selectedChapters.length === 0) {
       alert('No chapters selected')
       return
@@ -203,9 +222,9 @@
   {/if}
 
   <div class="controls">
-    <button on:click={selectAll}>Select all</button>
-    <button on:click={deselectAll}>Deselect all</button>
-    <button on:click={exportSelected}>Export selected</button>
+    <button onclick={selectAll}>Select all</button>
+    <button onclick={deselectAll}>Deselect all</button>
+    <button onclick={exportSelected}>Export selected</button>
     <div style="margin-left:auto">
       Selected: {Array.from(selected.values()).filter(Boolean).length} / {book.chapters.length}
     </div>
@@ -219,7 +238,7 @@
           <input
             type="checkbox"
             checked={selected.get(ch.id)}
-            on:change={() => toggleChapter(ch.id)}
+            onchange={() => toggleChapter(ch.id)}
           />
         </div>
         <div style="flex:1">
@@ -233,7 +252,7 @@
             class="preview-button"
             class:loading={loadingChapterId === ch.id}
             class:playing={playingChapterId === ch.id}
-            on:click={() => previewChapter(ch)}
+            onclick={() => previewChapter(ch)}
             disabled={loadingChapterId === ch.id}
             title={playingChapterId === ch.id
               ? 'Stop preview'
@@ -247,8 +266,8 @@
               🔊
             {/if}
           </button>
-          <button on:click={() => openReader(ch)} title="Read full text with TTS">📖 Read</button>
-          <button on:click={() => copyChapterContent(ch)}>Copy</button>
+          <button onclick={() => openReader(ch)} title="Read full text with TTS">📖 Read</button>
+          <button onclick={() => copyChapterContent(ch)}>Copy</button>
         </div>
       </div>
     {/each}
@@ -256,7 +275,7 @@
 
   <!-- TextReader modal -->
   {#if openReaderId}
-    {@const readerChapter = book.chapters.find((ch) => ch.id === openReaderId)}
+    {@const readerChapter = book.chapters.find((ch: Chapter) => ch.id === openReaderId)}
     {#if readerChapter}
       <TextReader
         chapter={readerChapter}

@@ -32,22 +32,22 @@
   "devDependencies": {
     "@playwright/test": "^1.56.1",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
-    "@typescript-eslint/eslint-plugin": "^8.46.2",
-    "@typescript-eslint/parser": "^8.46.2",
+    "@typescript-eslint/eslint-plugin": "^8.47.0",
+    "@typescript-eslint/parser": "^8.47.0",
     "@vitest/ui": "^3.2.4",
-    "eslint": "^9.38.0",
+    "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-svelte": "^3.12.5",
-    "globals": "^16.4.0",
+    "eslint-plugin-svelte": "^3.13.0",
+    "globals": "^16.5.0",
     "husky": "^9.1.7",
-    "jsdom": "^27.0.1",
-    "lint-staged": "^16.2.5",
+    "jsdom": "^27.2.0",
+    "lint-staged": "^16.2.7",
     "playwright": "^1.56.1",
     "prettier": "^3.6.2",
     "prettier-plugin-svelte": "^3.4.0",
-    "svelte": "^5.41.1",
+    "svelte": "^5.43.14",
     "typescript": "^5.9.3",
-    "vite": "^7.1.11",
+    "vite": "^7.2.4",
     "vitest": "^3.2.4"
   },
   "dependencies": {
@@ -57,7 +57,7 @@
     "epubjs": "^0.3.93",
     "jszip": "^3.10.1",
     "kokoro-js": "^1.2.1",
-    "onnxruntime-web": "^1.23.0",
+    "onnxruntime-web": "^1.23.2",
     "pdfjs-dist": "^5.4.394"
   }
 }

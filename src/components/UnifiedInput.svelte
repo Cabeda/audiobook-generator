@@ -138,7 +138,7 @@
 <input
   type="file"
   accept=".epub,.pdf,.txt,.html,.htm,.mobi,.docx,application/epub+zip,application/pdf,text/plain,text/html"
-  on:change={onFileChange}
+  onchange={onFileChange}
   bind:this={fileInput}
   style="display:none"
 />
@@ -148,11 +148,11 @@
   class:drag-active={dragActive}
   role="button"
   tabindex="0"
-  on:click={onContainerClick}
-  on:keydown={(e) => e.key === 'Enter' && fileInput?.click()}
-  on:drop={onDrop}
-  on:dragover={onDragOver}
-  on:dragleave={onDragLeave}
+  onclick={onContainerClick}
+  onkeydown={(e) => e.key === 'Enter' && fileInput?.click()}
+  ondrop={onDrop}
+  ondragover={onDragOver}
+  ondragleave={onDragLeave}
   aria-label="Upload eBook or import from URL"
 >
   <div class="content">
@@ -164,15 +164,15 @@
       <span>OR</span>
     </div>
 
-    <div class="url-input-group" on:click|stopPropagation>
+    <div class="url-input-group">
       <input
         type="url"
         placeholder="Paste article URL here..."
         bind:value={url}
-        on:keydown={handleUrlKeydown}
+        onkeydown={handleUrlKeydown}
         disabled={urlLoading || parsing}
       />
-      <button on:click={fetchArticle} disabled={!url || urlLoading || parsing}>
+      <button onclick={fetchArticle} disabled={!url || urlLoading || parsing}>
         {#if urlLoading}
           ⏳
         {:else}
