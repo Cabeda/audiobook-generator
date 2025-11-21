@@ -115,7 +115,8 @@ function createFetchWithCache(originalFetch: typeof fetch) {
 async function getKokoroInstance(
   modelId: string = 'onnx-community/Kokoro-82M-v1.0-ONNX',
   dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8',
-  device: 'wasm' | 'webgpu' = 'wasm'
+  device: 'wasm' | 'webgpu' = 'wasm',
+  onProgress?: (status: string) => void
 ): Promise<KokoroTTS> {
   // In test environments, do not reuse the cached instance to avoid leaking mocked
   // behavior across tests (vitest re-mocks modules per-test but caching module
@@ -127,6 +128,7 @@ async function getKokoroInstance(
   if (!ttsInstance || isTestEnv) {
     console.warn(`[KokoroClient] Initializing instance. Model: ${modelId}`)
     console.log(`Loading Kokoro TTS model: ${modelId} (${dtype}, ${device})...`)
+    if (onProgress) onProgress('Loading model...')
 
     // Intercept global fetch to enable caching for the model loading
     const originalFetch = globalThis.fetch
@@ -144,10 +146,13 @@ async function getKokoroInstance(
           total?: number
         }) => {
           if (progress.loaded && progress.total) {
-            const percent = ((progress.loaded / progress.total) * 100).toFixed(1)
-            console.log(`Loading ${progress.file}: ${percent}%`)
+            const percent = ((progress.loaded / progress.total) * 100).toFixed(0)
+            const msg = `Downloading ${progress.file}: ${percent}%`
+            console.log(msg)
+            if (onProgress) onProgress(msg)
           } else {
             console.log(`Model loading: ${progress.status}`)
+            if (onProgress) onProgress(`Loading: ${progress.status}`)
           }
         },
       })
@@ -243,7 +248,8 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
  */
 export async function generateVoice(
   params: GenerateParams,
-  onChunkProgress?: (current: number, total: number) => void
+  onChunkProgress?: (current: number, total: number) => void,
+  onProgress?: (status: string) => void
 ): Promise<Blob> {
   const {
     text,
@@ -255,7 +261,7 @@ export async function generateVoice(
 
   try {
     // Get or initialize the TTS instance
-    const tts = await getKokoroInstance(model, dtype)
+    const tts = await getKokoroInstance(model, dtype, 'wasm', onProgress)
 
     // For very long text, use streaming to avoid TTS limitations
     // Most TTS models have token/character limits

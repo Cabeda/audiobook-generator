@@ -18,7 +18,8 @@ export interface TTSGenerateParams {
 export interface TTSEngine {
   generateVoice(
     params: TTSGenerateParams,
-    onChunkProgress?: (current: number, total: number) => void
+    onChunkProgress?: (current: number, total: number) => void,
+    onProgress?: (status: string) => void
   ): Promise<Blob>
 }
 
@@ -31,7 +32,7 @@ export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> 
       const { generateVoice } = await import('../kokoro/kokoroClient')
       type KokoroVoiceId = Parameters<typeof generateVoice>[0]['voice']
       return {
-        generateVoice: async (params, onChunkProgress) => {
+        generateVoice: async (params, onChunkProgress, onProgress) => {
           return generateVoice(
             {
               text: params.text,
@@ -40,7 +41,8 @@ export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> 
               model: params.model,
               dtype: params.dtype,
             },
-            onChunkProgress
+            onChunkProgress,
+            onProgress
           )
         },
       }

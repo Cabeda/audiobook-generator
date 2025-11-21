@@ -66,6 +66,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
             type: 'chunk-progress',
             chunkProgress: { current, total },
           } as WorkerResponse)
+        },
+        (status) => {
+          // Send general progress update (model loading, etc)
+          self.postMessage({
+            id,
+            type: 'progress',
+            message: status,
+          } as WorkerResponse)
         }
       )
 
