@@ -2,9 +2,9 @@
   import UploadArea from './components/UploadArea.svelte'
   import BookInspector from './components/BookInspector.svelte'
   import GeneratePanel from './components/GeneratePanel.svelte'
-  import type { EPubBook, Chapter } from './lib/epubParser'
+  import type { Book, Chapter } from './lib/types/book'
 
-  let book: EPubBook | null = null
+  let book: Book | null = null
 
   // Map of chapter id -> boolean (selected)
   let selectedMap: Map<string, boolean> = new Map()

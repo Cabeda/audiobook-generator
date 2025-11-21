@@ -32,14 +32,15 @@
     if (!f) return
     file = f
     parsing = true
-    // Try to parse inline for quick feedback if parser is present
     try {
-      const mod = await import('../lib/epubParser')
-      const book = await mod.parseEpubFile(f)
+      // Use new book loader instead of direct EPUB parser
+      const { loadBook } = await import('../lib/bookLoader')
+      const book = await loadBook(f)
       dispatch('fileselected', { file: f, book })
     } catch (err) {
-      // Fallback: just emit file and let parent import parser
-      dispatch('fileselected', { file: f })
+      console.error('Failed to parse book:', err)
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      alert(`Failed to parse book: ${message}`)
     } finally {
       parsing = false
     }
@@ -48,11 +49,11 @@
 
 <input
   type="file"
-  accept=".epub"
+  accept=".epub,.pdf,.txt,.html,.htm,.mobi,.docx,application/epub+zip,application/pdf,text/plain,text/html"
   on:change={onFileChange}
   bind:this={fileInput}
   style="display:none"
-  aria-label="Upload EPUB file"
+  aria-label="Upload eBook file"
 />
 
 <div
@@ -68,13 +69,14 @@
   on:dragover={(e) => e.preventDefault()}
   aria-label="Click to upload or drop EPUB file"
 >
-  <p>
-    {#if parsing}
-      Parsing EPUB...
-    {:else}
-      📚 Drop EPUB file here or click to select
-    {/if}
-  </p>
+  {#if parsing}
+    <p>Parsing eBook...</p>
+  {:else}
+    <div class="upload-text">
+      <p class="primary">📚 Drop eBook file here or click to select</p>
+      <p class="secondary supported-formats">Supported: EPUB, PDF, TXT, HTML (MOBI coming soon)</p>
+    </div>
+  {/if}
   {#if file}
     <p style="color: #4CAF50; font-weight: 500;">Selected: {file.name}</p>
   {/if}
@@ -98,5 +100,9 @@
   }
   .drop p {
     margin: 8px 0;
+  }
+  .supported-formats {
+    font-size: 0.85em;
+    color: #666;
   }
 </style>
