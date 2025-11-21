@@ -3,7 +3,7 @@
  * Provides a unified interface for different TTS engines
  */
 
-export type TTSModelType = 'edge' | 'kokoro'
+export type TTSModelType = 'kokoro'
 
 export interface TTSGenerateParams {
   text: string
@@ -27,22 +27,6 @@ export interface TTSEngine {
  */
 export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> {
   switch (modelType) {
-    case 'edge': {
-      const { generateVoice } = await import('../edge/edgeTtsClient')
-      return {
-        generateVoice: async (params, onChunkProgress) => {
-          return generateVoice(
-            {
-              text: params.text,
-              voice: params.voice,
-              speed: params.speed,
-              pitch: params.pitch,
-            },
-            onChunkProgress
-          )
-        },
-      }
-    }
     case 'kokoro': {
       const { generateVoice } = await import('../kokoro/kokoroClient')
       type KokoroVoiceId = Parameters<typeof generateVoice>[0]['voice']
@@ -78,13 +62,6 @@ export interface TTSModelInfo {
 }
 
 export const TTS_MODELS: TTSModelInfo[] = [
-  {
-    id: 'edge',
-    name: 'Edge TTS',
-    description: 'Edge/EdgeTTS Node-backed TTS (no browser playback)',
-    requiresDownload: false,
-    supportsOffline: true,
-  },
   {
     id: 'kokoro',
     name: 'Kokoro TTS',

@@ -35,7 +35,7 @@ type WorkerResponse = {
 
 // Handle messages from main thread
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
-  const { id, type, text, modelType = 'edge', voice, speed, pitch, model, dtype } = event.data
+  const { id, type, text, modelType = 'kokoro', voice, speed, pitch, model, dtype } = event.data
 
   if (type === 'generate') {
     try {

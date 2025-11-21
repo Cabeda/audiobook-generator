@@ -2,8 +2,7 @@
   import type { EPubBook, Chapter } from '../lib/epubParser'
   import { getTTSWorker } from '../lib/ttsWorkerManager'
   import { listVoices as listKokoroVoices, type VoiceId } from '../lib/kokoro/kokoroClient'
-  import { waitForVoices, listVoices as listEdgeVoices } from '../lib/edge/edgeTtsClient'
-  import { TTS_MODELS, type TTSModelType } from '../lib/tts/ttsModels'
+  import type { TTSModelType } from '../lib/tts/ttsModels'
   import {
     concatenateAudioChapters,
     downloadAudioFile,
@@ -15,6 +14,8 @@
 
   export let book: EPubBook
   export let selectedMap: Map<string, boolean>
+  export let selectedVoice: string
+  export let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
 
   const dispatch = createEventDispatcher()
   let running = false
@@ -25,75 +26,8 @@
   let concatenationProgress = ''
   let selectedFormat: AudioFormat = 'mp3'
   let selectedBitrate = 192
-  let selectedModel: TTSModelType = 'edge'
-  let selectedVoice: string = ''
-  let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
+  let selectedModel: TTSModelType = 'kokoro'
   let showAdvanced = false
-  const QUANT_KEY = 'audiobook_quantization'
-  const MODEL_KEY = 'audiobook_model'
-  import { onMount } from 'svelte'
-
-  // Voice lists
-  let edgeVoices: Array<{ id: string; name: string; lang: string }> = []
-  let kokoroVoices = listKokoroVoices()
-  let availableVoices: Array<{ id: string; label: string }> = []
-  let voicesLoaded = false
-
-  onMount(async () => {
-    try {
-      const savedModel = localStorage.getItem(MODEL_KEY)
-      if (savedModel) selectedModel = savedModel as TTSModelType
-
-      const savedQuant = localStorage.getItem(QUANT_KEY)
-      if (savedQuant) selectedQuantization = savedQuant as typeof selectedQuantization
-    } catch (e) {
-      // ignore (e.g., SSR or privacy mode)
-    }
-
-    // Load EdgeTTS voices
-    const voices = await waitForVoices()
-    edgeVoices = voices.map((v) => ({ id: v as string, name: v as string, lang: 'en-US' }))
-    voicesLoaded = true
-
-    // Set initial voice list
-    updateAvailableVoices()
-  })
-
-  // Update available voices when model changes
-  $: if (voicesLoaded) {
-    updateAvailableVoices()
-    // Ensure selectedModel is tracked as a reactive dependency
-    void selectedModel
-  }
-
-  function updateAvailableVoices() {
-    if (selectedModel === 'edge') {
-      availableVoices = edgeVoices.map((v) => ({
-        id: v.id,
-        label: `${v.name} (${v.lang})`,
-      }))
-      // Set default voice if not set
-      if (!selectedVoice && availableVoices.length > 0) {
-        selectedVoice = availableVoices[0].id
-      }
-    } else {
-      availableVoices = kokoroVoices.map((v) => ({
-        id: v,
-        label: voiceLabels[v] || v,
-      }))
-      // Set default Kokoro voice
-      if (!selectedVoice || !kokoroVoices.includes(selectedVoice as VoiceId)) {
-        selectedVoice = 'af_heart'
-      }
-    }
-  }
-
-  // Detailed progress tracking
-  let currentChapter = 0
-  let totalChapters = 0
-  let currentChunk = 0
-  let totalChunks = 0
-  let overallProgress = 0
 
   // Voice metadata for better UI labels (for Kokoro voices)
   const voiceLabels: Record<string, string> = {
@@ -125,6 +59,20 @@
     bm_daniel: '🇬🇧 Daniel (Male British)',
     bm_fable: '🇬🇧 Fable (Male British)',
   }
+
+  // Voice lists
+  let kokoroVoices = listKokoroVoices()
+  let availableVoices: Array<{ id: string; label: string }> = kokoroVoices.map((v) => ({
+    id: v,
+    label: voiceLabels[v] || v,
+  }))
+
+  // Detailed progress tracking
+  let currentChapter = 0
+  let totalChapters = 0
+  let currentChunk = 0
+  let totalChunks = 0
+  let overallProgress = 0
 
   function getSelectedChapters(): Chapter[] {
     return book.chapters.filter((ch) => selectedMap.get(ch.id))
@@ -296,29 +244,12 @@
   <!-- Essential Options -->
   <div class="option-group">
     <label>
-      <span class="label-text">🤖 TTS Model</span>
-      <select
-        bind:value={selectedModel}
-        disabled={running || concatenating}
-        on:change={() => {
-          try {
-            localStorage.setItem(MODEL_KEY, selectedModel)
-          } catch (e) {
-            /* ignore */
-          }
-        }}
-      >
-        {#each TTS_MODELS as model}
-          <option value={model.id}>
-            {model.name} - {model.description}
-          </option>
-        {/each}
-      </select>
-    </label>
-
-    <label>
       <span class="label-text">🎤 Voice</span>
-      <select bind:value={selectedVoice} disabled={running || concatenating || !voicesLoaded}>
+      <select
+        bind:value={selectedVoice}
+        disabled={running || concatenating}
+        on:change={() => dispatch('voicechanged', { voice: selectedVoice })}
+      >
         {#each availableVoices as voice}
           <option value={voice.id}>{voice.label}</option>
         {/each}
@@ -335,28 +266,21 @@
   {#if showAdvanced}
     <div class="advanced-options">
       <div class="option-group">
-        {#if selectedModel === 'kokoro'}
-          <label>
-            <span class="label-text">🧮 Quantization</span>
-            <select
-              bind:value={selectedQuantization}
-              disabled={running || concatenating}
-              on:change={() => {
-                try {
-                  localStorage.setItem(QUANT_KEY, selectedQuantization)
-                } catch (e) {
-                  /* ignore */
-                }
-              }}
-            >
-              <option value="q8">q8 (default — faster)</option>
-              <option value="q4">q4 (smaller)</option>
-              <option value="q4f16">q4f16 (balanced)</option>
-              <option value="fp16">fp16 (higher precision)</option>
-              <option value="fp32">fp32 (full precision)</option>
-            </select>
-          </label>
-        {/if}
+        <label>
+          <span class="label-text">🧮 Quantization</span>
+          <select
+            bind:value={selectedQuantization}
+            disabled={running || concatenating}
+            on:change={() =>
+              dispatch('quantizationchanged', { quantization: selectedQuantization })}
+          >
+            <option value="q8">q8 (default — faster)</option>
+            <option value="q4">q4 (smaller)</option>
+            <option value="q4f16">q4f16 (balanced)</option>
+            <option value="fp16">fp16 (higher precision)</option>
+            <option value="fp32">fp32 (full precision)</option>
+          </select>
+        </label>
 
         <label>
           <span class="label-text">📦 Format</span>

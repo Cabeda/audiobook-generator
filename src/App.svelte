@@ -12,6 +12,27 @@
   // generated audio map: chapter id -> { url, blob }
   let generated = new Map<string, { url: string; blob: Blob }>()
 
+  // TTS options (lifted from GeneratePanel for sharing with BookInspector)
+  let selectedVoice: string = 'af_heart'
+  let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
+
+  // Load TTS options from localStorage on mount
+  import { onMount } from 'svelte'
+  const QUANT_KEY = 'audiobook_quantization'
+  const VOICE_KEY = 'audiobook_voice'
+
+  onMount(() => {
+    try {
+      const savedVoice = localStorage.getItem(VOICE_KEY)
+      if (savedVoice) selectedVoice = savedVoice
+
+      const savedQuant = localStorage.getItem(QUANT_KEY)
+      if (savedQuant) selectedQuantization = savedQuant as typeof selectedQuantization
+    } catch (e) {
+      // ignore (e.g., SSR or privacy mode)
+    }
+  })
+
   async function onFileSelected(e: CustomEvent) {
     const file: File = e.detail.file
     const providedBook = e.detail.book
@@ -76,6 +97,25 @@
     const chapter = book.chapters.find((c) => c.id === id)
     return chapter?.title || id
   }
+
+  // Handle TTS option changes from GeneratePanel
+  function onVoiceChanged(e: CustomEvent) {
+    selectedVoice = e.detail.voice
+    try {
+      localStorage.setItem(VOICE_KEY, selectedVoice)
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function onQuantizationChanged(e: CustomEvent) {
+    selectedQuantization = e.detail.quantization
+    try {
+      localStorage.setItem(QUANT_KEY, selectedQuantization)
+    } catch (e) {
+      // ignore
+    }
+  }
 </script>
 
 <main>
@@ -83,8 +123,21 @@
   <UploadArea on:fileselected={onFileSelected} />
 
   {#if book}
-    <BookInspector {book} on:selectionchanged={onSelectionChanged} />
-    <GeneratePanel {book} {selectedMap} on:generated={onGenerated} />
+    <GeneratePanel
+      {book}
+      {selectedMap}
+      {selectedVoice}
+      {selectedQuantization}
+      on:generated={onGenerated}
+      on:voicechanged={onVoiceChanged}
+      on:quantizationchanged={onQuantizationChanged}
+    />
+    <BookInspector
+      {book}
+      {selectedVoice}
+      {selectedQuantization}
+      on:selectionchanged={onSelectionChanged}
+    />
 
     {#if generated.size > 0}
       <h3>Generated audio</h3>

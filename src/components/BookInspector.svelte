@@ -1,12 +1,25 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
   import type { Book, Chapter } from '../lib/types/book'
+  import { getTTSWorker } from '../lib/ttsWorkerManager'
 
   export let book: Book
+  export let selectedVoice: string
+  export let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+
   const dispatch = createEventDispatcher()
 
   // Map of chapter id -> selected
   let selected = new Map<string, boolean>()
+
+  // Preview playback state
+  let playingChapterId: string | null = null
+  let loadingChapterId: string | null = null
+  let previewAudio: HTMLAudioElement | null = null
+
+  // Cache for preview URLs: key -> blob URL
+  // Key format: `${chapterId}:${voice}:${quantization}`
+  let previewCache = new Map<string, string>()
 
   // initialize selections when book changes
   $: if (book) {
@@ -16,6 +29,12 @@
       newMap.set(ch.id, selected.get(ch.id) ?? true)
     }
     selected = newMap
+
+    // Clear cache and revoke URLs when book changes
+    for (const url of previewCache.values()) {
+      URL.revokeObjectURL(url)
+    }
+    previewCache.clear()
   }
 
   function toggleChapter(id: string) {
@@ -65,6 +84,98 @@
       .then(() => alert('Copied to clipboard'))
       .catch(() => alert('Clipboard not available'))
   }
+
+  function getPreviewText(content: string, maxChars = 500): string {
+    // Split by paragraphs
+    const paragraphs = content.split(/\n\n+/).filter((p) => p.trim())
+
+    // Take first 2 paragraphs
+    let preview = paragraphs.slice(0, 2).join('\n\n')
+
+    // Limit to maxChars
+    if (preview.length > maxChars) {
+      preview = preview.slice(0, maxChars).trim() + '...'
+    }
+
+    return preview || content.slice(0, maxChars)
+  }
+
+  function stopPreview() {
+    if (previewAudio) {
+      previewAudio.pause()
+      // Don't revoke URL here as we want to cache it
+      previewAudio = null
+    }
+    playingChapterId = null
+    loadingChapterId = null
+  }
+
+  async function previewChapter(ch: Chapter) {
+    // If this chapter is currently playing, stop it
+    if (playingChapterId === ch.id) {
+      stopPreview()
+      return
+    }
+
+    try {
+      // Stop any currently playing preview
+      stopPreview()
+
+      // Check cache first
+      const cacheKey = `${ch.id}:${selectedVoice}:${selectedQuantization}`
+      let url = previewCache.get(cacheKey)
+
+      if (!url) {
+        // Set loading state only if we need to generate
+        loadingChapterId = ch.id
+
+        // Get preview text (first 500 chars or 2 paragraphs)
+        const previewText = getPreviewText(ch.content)
+
+        // Generate TTS preview using selected options
+        const worker = getTTSWorker()
+        const blob = await worker.generateVoice({
+          text: previewText,
+          modelType: 'kokoro',
+          voice: selectedVoice,
+          dtype: selectedQuantization,
+        })
+
+        // Clear loading state
+        loadingChapterId = null
+
+        // Create URL and cache it
+        url = URL.createObjectURL(blob)
+        previewCache.set(cacheKey, url)
+      }
+
+      // Create and play audio
+      if (url) {
+        previewAudio = new Audio(url)
+        playingChapterId = ch.id
+
+        // Clear playing state when audio ends
+        previewAudio.onended = () => {
+          playingChapterId = null
+          previewAudio = null
+        }
+
+        // Handle errors
+        previewAudio.onerror = () => {
+          playingChapterId = null
+          loadingChapterId = null
+          alert('Failed to play preview audio')
+        }
+
+        await previewAudio.play()
+      }
+    } catch (err) {
+      playingChapterId = null
+      loadingChapterId = null
+      console.error('Preview generation error:', err)
+      alert('Failed to generate preview: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    }
+  }
 </script>
 
 <div>
@@ -105,7 +216,25 @@
             {ch.content.slice(0, 300)}{ch.content.length > 300 ? '…' : ''}
           </div>
         </div>
-        <div style="width:90px; text-align:right">
+        <div style="width:140px; text-align:right; display:flex; gap:4px; justify-content:flex-end">
+          <button
+            class="preview-button"
+            class:loading={loadingChapterId === ch.id}
+            class:playing={playingChapterId === ch.id}
+            on:click={() => previewChapter(ch)}
+            disabled={loadingChapterId === ch.id}
+            title={playingChapterId === ch.id
+              ? 'Stop preview'
+              : 'Preview with current TTS settings'}
+          >
+            {#if loadingChapterId === ch.id}
+              ⏳
+            {:else if playingChapterId === ch.id}
+              ⏹️
+            {:else}
+              🔊
+            {/if}
+          </button>
           <button on:click={() => copyChapterContent(ch)}>Copy</button>
         </div>
       </div>
@@ -153,5 +282,51 @@
     font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
+  }
+
+  /* Preview button animations */
+  .preview-button {
+    transition: all 0.2s ease;
+    position: relative;
+  }
+
+  .preview-button:hover:not(:disabled) {
+    transform: scale(1.1);
+    filter: brightness(1.1);
+  }
+
+  .preview-button:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+
+  .preview-button.loading {
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  .preview-button.playing {
+    animation: playing-pulse 2s ease-in-out infinite;
+    box-shadow: 0 0 0 0 rgba(25, 118, 210, 0.4);
+  }
+
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(1.05);
+    }
+  }
+
+  @keyframes playing-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(25, 118, 210, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(25, 118, 210, 0);
+    }
   }
 </style>
