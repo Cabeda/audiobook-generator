@@ -26,8 +26,17 @@ type ChunkProgress = {
 
 type WorkerResponse = {
   id: string
-  type: 'success' | 'error' | 'progress' | 'ready' | 'chunk-progress'
+  type:
+    | 'success'
+    | 'error'
+    | 'progress'
+    | 'ready'
+    | 'chunk-progress'
+    | 'complete'
+    | 'complete-segments'
   data?: ArrayBuffer
+  blob?: Blob
+  segments?: { text: string; blob: Blob }[]
   error?: string
   message?: string
   chunkProgress?: ChunkProgress
@@ -77,27 +86,70 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         }
       )
 
-      // Convert blob to ArrayBuffer for transfer
-      const arrayBuffer = await blob.arrayBuffer()
-
-      // Send success response with transferable ArrayBuffer
-      self.postMessage(
-        {
-          id,
-          type: 'success',
-          data: arrayBuffer,
-        } as WorkerResponse,
-        { transfer: [arrayBuffer] }
-      )
+      // Send success response
+      self.postMessage({
+        id,
+        type: 'complete',
+        blob,
+      } as WorkerResponse)
     } catch (error) {
-      // Send error response with optional stack if available
-      const errMsg = error instanceof Error ? error.message : String(error)
-      const errStack = error instanceof Error ? error.stack : undefined
+      // Send error response
       self.postMessage({
         id,
         type: 'error',
-        error: errMsg,
-        message: errStack,
+        error: error instanceof Error ? error.message : String(error),
+      } as WorkerResponse)
+    }
+  } else if (type === 'generate-segments') {
+    try {
+      // Send progress update
+      self.postMessage({
+        id,
+        type: 'progress',
+        message: modelType === 'kokoro' ? 'Preparing...' : 'Initializing speech...',
+      } as WorkerResponse)
+
+      const engine = await getTTSEngine(modelType)
+
+      if (!engine.generateSegments) {
+        throw new Error(`Model ${modelType} does not support segment generation`)
+      }
+
+      const segments = await engine.generateSegments(
+        {
+          text,
+          voice,
+          speed,
+          pitch,
+          model,
+          dtype,
+        },
+        (current, total) => {
+          self.postMessage({
+            id,
+            type: 'chunk-progress',
+            chunkProgress: { current, total },
+          } as WorkerResponse)
+        },
+        (status) => {
+          self.postMessage({
+            id,
+            type: 'progress',
+            message: status,
+          } as WorkerResponse)
+        }
+      )
+
+      self.postMessage({
+        id,
+        type: 'complete-segments',
+        segments,
+      } as WorkerResponse)
+    } catch (error) {
+      self.postMessage({
+        id,
+        type: 'error',
+        error: error instanceof Error ? error.message : String(error),
       } as WorkerResponse)
     }
   }
