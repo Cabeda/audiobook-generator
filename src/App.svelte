@@ -1,7 +1,7 @@
 <script lang="ts">
   import BookInspector from './components/BookInspector.svelte'
   import GeneratePanel from './components/GeneratePanel.svelte'
-  import UnifiedInput from './components/UnifiedInput.svelte'
+  import LandingPage from './components/LandingPage.svelte'
   import type { Book, Chapter } from './lib/types/book'
   import { getTTSWorker } from './lib/ttsWorkerManager'
 
@@ -111,39 +111,140 @@
 </script>
 
 <main>
-  <h1>Audiobook Generator (Web)</h1>
-
-  <UnifiedInput on:bookloaded={onBookLoaded} />
-
-  {#if book}
-    <GeneratePanel
-      {book}
-      {selectedMap}
-      {selectedVoice}
-      {selectedQuantization}
-      on:generated={onGenerated}
-      on:voicechanged={onVoiceChanged}
-      on:quantizationchanged={onQuantizationChanged}
-    />
-    <BookInspector
-      {book}
-      {selectedVoice}
-      {selectedQuantization}
-      on:selectionchanged={onSelectionChanged}
-    />
-
-    {#if generated.size > 0}
-      <h3>Generated audio</h3>
-      <div>
-        {#each Array.from(generated.entries()) as [id, rec]}
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <audio controls src={rec.url}></audio>
-            <div style="min-width:120px">{getChapterTitle(id)}</div>
-            <button on:click={() => downloadBlob(id)}>Download WAV</button>
-            <button on:click={() => downloadBlobAsMp3(id)}>Download MP3</button>
-          </div>
-        {/each}
+  {#if !book}
+    <LandingPage on:bookloaded={onBookLoaded} />
+  {:else}
+    <div class="app-container">
+      <div class="header">
+        <h1>Audiobook Generator</h1>
+        <button class="back-button" on:click={() => window.location.reload()}>
+          ← Start Over
+        </button>
       </div>
-    {/if}
+
+      <div class="main-content">
+        <GeneratePanel
+          {book}
+          {selectedMap}
+          {selectedVoice}
+          {selectedQuantization}
+          on:generated={onGenerated}
+          on:voicechanged={onVoiceChanged}
+          on:quantizationchanged={onQuantizationChanged}
+        />
+        <BookInspector
+          {book}
+          {selectedVoice}
+          {selectedQuantization}
+          on:selectionchanged={onSelectionChanged}
+        />
+
+        {#if generated.size > 0}
+          <div class="generated-section">
+            <h3>Generated Audio</h3>
+            <div class="generated-list">
+              {#each Array.from(generated.entries()) as [id, rec]}
+                <div class="generated-item">
+                  <audio controls src={rec.url}></audio>
+                  <div class="chapter-title" title={getChapterTitle(id)}>
+                    {getChapterTitle(id)}
+                  </div>
+                  <div class="actions">
+                    <button on:click={() => downloadBlob(id)}>WAV</button>
+                    <button on:click={() => downloadBlobAsMp3(id)}>MP3</button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
+    </div>
   {/if}
 </main>
+
+<style>
+  .app-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+
+  .back-button {
+    background: transparent;
+    border: 1px solid #ddd;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .back-button:hover {
+    background: #fff;
+    border-color: #999;
+    color: #333;
+  }
+
+  .main-content {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .generated-section {
+    background: white;
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+
+  .generated-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .generated-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+  }
+
+  .chapter-title {
+    flex: 1;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .actions button {
+    font-size: 0.85rem;
+    padding: 6px 12px;
+    background: white;
+  }
+
+  .actions button:hover {
+    background: #f0f0f0;
+  }
+</style>
