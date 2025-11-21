@@ -30,12 +30,26 @@ export type VoiceId =
   | 'bm_daniel'
   | 'bm_fable'
 
+export type DeviceType = 'wasm' | 'webgpu' | 'cpu' | 'auto'
+
 export type GenerateParams = {
   text: string
   voice?: VoiceId
   speed?: number
   model?: string
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+  device?: DeviceType
+}
+
+/**
+ * Detect if WebGPU is available in the current browser
+ */
+export function isWebGPUAvailable(): boolean {
+  try {
+    return typeof navigator !== 'undefined' && 'gpu' in navigator && navigator.gpu !== undefined
+  } catch {
+    return false
+  }
 }
 
 // Helper to detect thenable/promise-like objects (cross-realm Promise instances too)
@@ -115,7 +129,7 @@ function createFetchWithCache(originalFetch: typeof fetch) {
 async function getKokoroInstance(
   modelId: string = 'onnx-community/Kokoro-82M-v1.0-ONNX',
   dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8',
-  device: 'wasm' | 'webgpu' = 'wasm',
+  device: 'wasm' | 'webgpu' | 'cpu' = 'wasm',
   onProgress?: (status: string) => void
 ): Promise<KokoroTTS> {
   // In test environments, do not reuse the cached instance to avoid leaking mocked
@@ -261,10 +275,21 @@ export async function generateVoiceSegments(
     speed = 1.0,
     model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
     dtype = 'q8',
+    device = 'auto',
   } = params
 
   try {
-    const tts = await getKokoroInstance(model, dtype, 'wasm', onProgress)
+    // Auto-detect device if set to 'auto'
+    let actualDevice: 'wasm' | 'webgpu' | 'cpu' = 'wasm'
+    if (device === 'auto') {
+      actualDevice = isWebGPUAvailable() ? 'webgpu' : 'wasm'
+      console.log(`[Kokoro] Auto-detected device: ${actualDevice}`)
+    } else {
+      actualDevice = device as 'wasm' | 'webgpu' | 'cpu'
+      console.log(`[Kokoro] Using specified device: ${actualDevice}`)
+    }
+
+    const tts = await getKokoroInstance(model, dtype, actualDevice, onProgress)
     if (onProgress) onProgress('Generating speech...')
 
     const MAX_CHUNK_SIZE = 1000
@@ -392,10 +417,21 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
     speed = 1.0,
     model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
     dtype = 'q8',
+    device = 'auto',
   } = params
 
   try {
-    const tts = await getKokoroInstance(model, dtype)
+    // Auto-detect device if set to 'auto'
+    let actualDevice: 'wasm' | 'webgpu' | 'cpu' = 'wasm'
+    if (device === 'auto') {
+      actualDevice = isWebGPUAvailable() ? 'webgpu' : 'wasm'
+      console.log(`[Kokoro] Auto-detected device: ${actualDevice}`)
+    } else {
+      actualDevice = device as 'wasm' | 'webgpu' | 'cpu'
+      console.log(`[Kokoro] Using specified device: ${actualDevice}`)
+    }
+
+    const tts = await getKokoroInstance(model, dtype, actualDevice)
 
     // Stream generates audio sentence-by-sentence
     for await (const chunk of tts.stream(text, { voice, speed } as unknown as Parameters<

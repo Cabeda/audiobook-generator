@@ -13,6 +13,7 @@ export interface TTSGenerateParams {
   // Kokoro-specific
   model?: string
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+  device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
 }
 
 export interface TTSEngine {
@@ -46,6 +47,7 @@ export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> 
               speed: params.speed,
               model: params.model,
               dtype: params.dtype,
+              device: params.device,
             },
             onChunkProgress,
             onProgress
@@ -59,6 +61,7 @@ export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> 
               speed: params.speed,
               model: params.model,
               dtype: params.dtype,
+              device: params.device,
             },
             onChunkProgress,
             onProgress

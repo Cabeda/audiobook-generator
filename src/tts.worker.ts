@@ -17,6 +17,7 @@ type WorkerRequest = {
   // Kokoro-specific
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   model?: string
+  device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
 }
 
 type ChunkProgress = {
@@ -44,10 +45,24 @@ type WorkerResponse = {
 
 // Handle messages from main thread
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
-  const { id, type, text, modelType = 'kokoro', voice, speed, pitch, model, dtype } = event.data
+  const {
+    id,
+    type,
+    text,
+    modelType = 'kokoro',
+    voice,
+    speed,
+    pitch,
+    model,
+    dtype,
+    device = 'auto',
+  } = event.data
 
   if (type === 'generate') {
     try {
+      // Log device selection
+      console.log(`[Worker] Generating with device: ${device}`)
+
       // Send progress update
       self.postMessage({
         id,
@@ -67,6 +82,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           pitch,
           model,
           dtype,
+          device,
         },
         (current, total) => {
           // Send chunk progress update
@@ -123,6 +139,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           pitch,
           model,
           dtype,
+          device,
         },
         (current, total) => {
           self.postMessage({

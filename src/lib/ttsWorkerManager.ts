@@ -16,6 +16,7 @@ type WorkerRequest = {
   // Kokoro-specific
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   model?: string
+  device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
 }
 
 type WorkerResponse =
@@ -143,6 +144,7 @@ export class TTSWorkerManager {
     onChunkProgress?: (current: number, total: number) => void
     dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     model?: string
+    device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
   }): Promise<Blob> {
     await this.readyPromise
     if (!this.worker) throw new Error('Worker not initialized')
@@ -168,6 +170,7 @@ export class TTSWorkerManager {
         pitch: options.pitch,
         dtype: options.dtype,
         model: options.model,
+        device: options.device,
       }
 
       this.worker!.postMessage(request)
@@ -184,6 +187,7 @@ export class TTSWorkerManager {
     onChunkProgress?: (current: number, total: number) => void
     dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     model?: string
+    device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
   }): Promise<{ text: string; blob: Blob }[]> {
     await this.readyPromise
     if (!this.worker) throw new Error('Worker not initialized')
@@ -209,6 +213,7 @@ export class TTSWorkerManager {
         pitch: options.pitch,
         dtype: options.dtype,
         model: options.model,
+        device: options.device,
       }
 
       this.worker!.postMessage(request)

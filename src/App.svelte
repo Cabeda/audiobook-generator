@@ -16,11 +16,13 @@
   // TTS options (lifted from GeneratePanel for sharing with BookInspector)
   let selectedVoice: string = 'af_heart'
   let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
+  let selectedDevice: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
 
   // Load TTS options from localStorage on mount
   import { onMount } from 'svelte'
   const QUANT_KEY = 'audiobook_quantization'
   const VOICE_KEY = 'audiobook_voice'
+  const DEVICE_KEY = 'audiobook_device'
 
   onMount(() => {
     try {
@@ -29,6 +31,9 @@
 
       const savedQuant = localStorage.getItem(QUANT_KEY)
       if (savedQuant) selectedQuantization = savedQuant as typeof selectedQuantization
+
+      const savedDevice = localStorage.getItem(DEVICE_KEY)
+      if (savedDevice) selectedDevice = savedDevice as typeof selectedDevice
     } catch (e) {
       // ignore (e.g., SSR or privacy mode)
     }
@@ -108,6 +113,15 @@
       // ignore
     }
   }
+
+  function onDeviceChanged(e: CustomEvent) {
+    selectedDevice = e.detail.device
+    try {
+      localStorage.setItem(DEVICE_KEY, selectedDevice)
+    } catch (e) {
+      // ignore
+    }
+  }
 </script>
 
 <main>
@@ -128,9 +142,11 @@
           {selectedMap}
           {selectedVoice}
           {selectedQuantization}
+          {selectedDevice}
           on:generated={onGenerated}
           on:voicechanged={onVoiceChanged}
           on:quantizationchanged={onQuantizationChanged}
+          on:devicechanged={onDeviceChanged}
         />
         <BookInspector
           {book}

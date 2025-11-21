@@ -1,7 +1,11 @@
 <script lang="ts">
   import type { EPubBook, Chapter } from '../lib/epubParser'
   import { getTTSWorker } from '../lib/ttsWorkerManager'
-  import { listVoices as listKokoroVoices, type VoiceId } from '../lib/kokoro/kokoroClient'
+  import {
+    listVoices as listKokoroVoices,
+    type VoiceId,
+    isWebGPUAvailable,
+  } from '../lib/kokoro/kokoroClient'
   import type { TTSModelType } from '../lib/tts/ttsModels'
   import {
     concatenateAudioChapters,
@@ -18,6 +22,7 @@
   export let selectedMap: Map<string, boolean>
   export let selectedVoice: string
   export let selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+  export let selectedDevice: 'auto' | 'wasm' | 'webgpu' | 'cpu'
 
   const dispatch = createEventDispatcher()
   let running = false
@@ -75,6 +80,10 @@
   let currentChunk = 0
   let totalChunks = 0
   let overallProgress = 0
+
+  // Check WebGPU availability
+  let webgpuAvailable = false
+  $: webgpuAvailable = isWebGPUAvailable()
 
   function getSelectedChapters(): Chapter[] {
     return book.chapters.filter((ch) => selectedMap.get(ch.id))
@@ -136,6 +145,7 @@
             overallProgress = Math.round(completedProgress + currentChapterProgress)
           },
           dtype: effectiveModel === 'kokoro' ? selectedQuantization : undefined,
+          device: selectedDevice,
         })
 
         if (canceled) break
@@ -266,6 +276,7 @@
           modelType: selectedModel,
           voice: selectedVoice,
           dtype: selectedModel === 'kokoro' ? selectedQuantization : undefined,
+          device: selectedDevice,
           onProgress: (msg) => {
             progressText = `Chapter ${currentChapter}/${totalChapters}: ${msg}`
           },
@@ -429,6 +440,22 @@
             <option value="q4f16">q4f16 (balanced)</option>
             <option value="fp16">fp16 (higher precision)</option>
             <option value="fp32">fp32 (full precision)</option>
+          </select>
+        </label>
+
+        <label>
+          <span class="label-text">⚙️ Device</span>
+          <select
+            bind:value={selectedDevice}
+            disabled={running || concatenating}
+            on:change={() => dispatch('devicechanged', { device: selectedDevice })}
+          >
+            <option value="auto">Auto {webgpuAvailable ? '(WebGPU detected ✅)' : '(WASM)'}</option>
+            <option value="webgpu" disabled={!webgpuAvailable}
+              >WebGPU {!webgpuAvailable ? '(unavailable ⚠️)' : '(fastest)'}</option
+            >
+            <option value="wasm">WASM (compatible)</option>
+            <option value="cpu">CPU (fallback)</option>
           </select>
         </label>
 
