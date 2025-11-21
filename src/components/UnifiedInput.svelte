@@ -263,6 +263,16 @@
     gap: 8px;
   }
 
+  @media (max-width: 480px) {
+    .url-input-group {
+      flex-direction: column;
+    }
+
+    .url-input-group button {
+      width: 100%;
+    }
+  }
+
   .url-input-group input {
     flex: 1;
     padding: 10px 12px;
