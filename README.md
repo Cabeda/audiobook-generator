@@ -8,11 +8,12 @@ A modern, browser-based audiobook generator that converts EPUB books into high-q
 
 ### 🎯 Core Functionality
 
-- 📚 **EPUB Support** - Upload any EPUB file and parse chapters automatically
-- 🎤 **High-Quality TTS** - 27 voices (American & British English) using Kokoro-82M
-- 🎵 **Multiple Formats** - Export as MP3, M4B (audiobook), or WAV
+- 📚 **Multi-Format Support** - Upload EPUB, PDF, HTML, or TXT files
+- 🔗 **URL to Audiobook** - Paste any article URL to convert it to audio
+- 📖 **EPUB3 Export** - Generate EPUBs with Media Overlays (synchronized text highlighting)
+- 🎤 **High-Quality TTS** - 27 voices (Kokoro-82M) + Edge TTS integration
+- 🎵 **Multiple Formats** - Export as MP3, M4B, WAV, or EPUB3
 - 🎚️ **Quality Control** - Choose bitrate (128-320 kbps) for compressed formats
-- 📖 **Chapter Selection** - Generate full audiobook or specific chapters
 - 🔄 **Audio Concatenation** - Automatically combine chapters into single file
 - 💾 **Smart Caching** - Model loads once, instant generation after
 - 🌐 **100% Browser-Based** - No server required, works offline after first load
@@ -60,20 +61,23 @@ Open http://localhost:5173 to use the app.
 
 ### Basic Workflow
 
-1. **Upload EPUB**: Click or drag-and-drop your EPUB file
+1. **Import Content**:
+   - **Upload**: Drag & drop EPUB, PDF, HTML, or TXT files
+   - **URL**: Paste an article URL to fetch content automatically
 2. **Select Chapters**: Choose which chapters to convert (or select all)
-3. **Choose Format**: Select output format (MP3, M4B, or WAV)
+3. **Choose Format**: Select output format (MP3, M4B, WAV, or EPUB3)
 4. **Select Quality**: Pick bitrate for MP3/M4B (128-320 kbps)
-5. **Generate**: Click "Generate & Download Audiobook"
-6. **Download**: Your audiobook downloads automatically
+5. **Generate**: Click "Generate & Download"
+6. **Download**: Your file downloads automatically
 
 ### Format Comparison
 
-| Format  | File Size (1hr)  | Quality   | Best For                                     |
-| ------- | ---------------- | --------- | -------------------------------------------- |
-| **MP3** | ~90 MB @ 192kbps | Very Good | ⭐ **Recommended** - Universal compatibility |
-| **M4B** | ~90 MB @ 192kbps | Very Good | Audiobook apps, chapter markers              |
-| **WAV** | ~600 MB          | Lossless  | Archival, further processing                 |
+| Format    | File Size (1hr)  | Quality     | Best For                                       |
+| --------- | ---------------- | ----------- | ---------------------------------------------- |
+| **MP3**   | ~90 MB @ 192kbps | Very Good   | ⭐ **Recommended** - Universal compatibility   |
+| **M4B**   | ~90 MB @ 192kbps | Very Good   | Audiobook apps, chapter markers                |
+| **EPUB3** | ~90 MB + Text    | Interactive | **Read Aloud** - Syncs text & audio in readers |
+| **WAV**   | ~600 MB          | Lossless    | Archival, further processing                   |
 
 ### Voice Selection
 
@@ -168,11 +172,10 @@ npm run test:e2e
 
 - **Frontend**: Svelte 4 + TypeScript
 - **Build Tool**: Vite 5
-- **TTS Model**: Kokoro-82M (StyleTTS2 + ISTFTNet)
+- **TTS Models**: Kokoro-82M (ONNX)
 - **Runtime**: ONNX Runtime Web (WASM/WebGPU)
-- **Audio Processing**: Web Audio API
-- **MP3 Encoding**: lamejs
-- **EPUB Parsing**: JSZip + DOMParser
+- **Audio Processing**: Web Audio API + ffmpeg.wasm
+- **Document Parsing**: pdfjs-dist (PDF), readability (HTML), jszip (EPUB)
 - **Testing**: Vitest + Playwright
 
 ### Data Flow
@@ -250,14 +253,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
-- [ ] Voice selection UI dropdown
-- [ ] Speed control slider (0.5x - 2.0x)
-- [ ] Chapter markers in M4B files
-- [ ] Cover art embedding
-- [ ] Batch processing multiple EPUBs
+- [x] Voice selection UI dropdown
+- [x] Chapter markers in M4B files
+- [x] Cover art embedding (via EPUB export)
+- [x] PDF, HTML, and TXT support
+- [x] URL to Audiobook conversion
+- [ ] Batch processing multiple files
 - [ ] Cloud storage integration
 - [ ] Mobile app (React Native)
-- [ ] Additional languages support
 
 ## 📧 Contact
 
