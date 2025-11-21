@@ -7,7 +7,7 @@ import type { TTSModelType } from './tts/ttsModels'
 
 type WorkerRequest = {
   id: string
-  type: 'generate'
+  type: 'generate' | 'generate-segments'
   text: string
   modelType?: TTSModelType
   voice?: string
@@ -21,12 +21,15 @@ type WorkerRequest = {
 type WorkerResponse =
   | { id: string; type: 'ready' }
   | { id: string; type: 'success'; data: ArrayBuffer }
+  | { id: string; type: 'complete'; blob: Blob }
+  | { id: string; type: 'complete-segments'; segments: { text: string; blob: Blob }[] }
   | { id: string; type: 'error'; error?: string }
   | { id: string; type: 'progress'; message?: string }
   | { id: string; type: 'chunk-progress'; chunkProgress: { current: number; total: number } }
 
 type PendingRequest = {
-  resolve: (blob: Blob) => void
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  resolve: (result: any) => void
   reject: (err: Error) => void
   onProgress?: (message: string) => void
   onChunkProgress?: (current: number, total: number) => void
@@ -66,17 +69,20 @@ export class TTSWorkerManager {
           switch (type) {
             case 'success': {
               const resp = data as Extract<WorkerResponse, { type: 'success' }>
-              try {
-                if (resp.data instanceof ArrayBuffer) {
-                  console.log(`[TTSWorker] success: data Size=${resp.data.byteLength} bytes`)
-                } else {
-                  console.log('[TTSWorker] success: data type:', typeof resp.data, resp.data)
-                }
-              } catch (e) {
-                console.warn('[TTSWorker] Failed to inspect success data', e)
-              }
               const blob = new Blob([resp.data], { type: 'audio/wav' })
               pending.resolve(blob)
+              this.pendingRequests.delete(id)
+              break
+            }
+            case 'complete': {
+              const resp = data as Extract<WorkerResponse, { type: 'complete' }>
+              pending.resolve(resp.blob)
+              this.pendingRequests.delete(id)
+              break
+            }
+            case 'complete-segments': {
+              const resp = data as Extract<WorkerResponse, { type: 'complete-segments' }>
+              pending.resolve(resp.segments)
               this.pendingRequests.delete(id)
               break
             }
@@ -84,17 +90,14 @@ export class TTSWorkerManager {
               const resp = data as Extract<WorkerResponse, { type: 'error' }>
               console.error('[TTSWorker] error from worker:', resp.error)
               const err = new Error(resp.error || 'Unknown worker error')
-              // If worker provided a stack in message, attach it for debugging
-              // (the worker posts its stack as `message` when available). We attach
-              // it to the `stack` property so it appears in console logs.
               const respAny = resp as unknown as { message?: string }
               if (respAny.message) {
                 try {
                   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                  // @ts-ignore - assign stack for enhanced debugging
+                  // @ts-ignore
                   err.stack = respAny.message
-                } catch {
-                  // ignore if we cannot assign stack
+                } catch (e) {
+                  alert(e)
                 }
               }
               pending.reject(err)
@@ -121,7 +124,6 @@ export class TTSWorkerManager {
           console.error('TTS worker error', err)
         }
 
-        // Safety timeout in case worker doesn't send ready
         setTimeout(() => {
           if (!this.ready) reject(new Error('Worker initialization timeout'))
         }, 30_000)
@@ -139,12 +141,10 @@ export class TTSWorkerManager {
     pitch?: number
     onProgress?: (message: string) => void
     onChunkProgress?: (current: number, total: number) => void
-    // Kokoro-specific
     dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     model?: string
   }): Promise<Blob> {
     await this.readyPromise
-
     if (!this.worker) throw new Error('Worker not initialized')
 
     const id = `req_${++this.requestCounter}`
@@ -156,7 +156,6 @@ export class TTSWorkerManager {
         onProgress: options.onProgress,
         onChunkProgress: options.onChunkProgress,
       })
-      // Default to 'edge' model type for generation unless otherwise specified
       const modelType = options.modelType || 'edge'
 
       const request: WorkerRequest = {
@@ -171,7 +170,47 @@ export class TTSWorkerManager {
         model: options.model,
       }
 
-      // Post the request; worker will return an ArrayBuffer which we convert to Blob in onmessage
+      this.worker!.postMessage(request)
+    })
+  }
+
+  async generateSegments(options: {
+    text: string
+    modelType?: TTSModelType
+    voice?: string
+    speed?: number
+    pitch?: number
+    onProgress?: (message: string) => void
+    onChunkProgress?: (current: number, total: number) => void
+    dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+    model?: string
+  }): Promise<{ text: string; blob: Blob }[]> {
+    await this.readyPromise
+    if (!this.worker) throw new Error('Worker not initialized')
+
+    const id = `req_${++this.requestCounter}`
+
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(id, {
+        resolve,
+        reject,
+        onProgress: options.onProgress,
+        onChunkProgress: options.onChunkProgress,
+      })
+      const modelType = options.modelType || 'edge'
+
+      const request: WorkerRequest = {
+        id,
+        type: 'generate-segments',
+        text: options.text,
+        modelType: modelType,
+        voice: options.voice,
+        speed: options.speed,
+        pitch: options.pitch,
+        dtype: options.dtype,
+        model: options.model,
+      }
+
       this.worker!.postMessage(request)
     })
   }

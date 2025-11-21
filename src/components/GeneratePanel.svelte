@@ -6,11 +6,13 @@
   import {
     concatenateAudioChapters,
     downloadAudioFile,
+    audioLikeToBlob,
     type AudioChapter,
     type ConcatenationProgress,
     type AudioFormat,
   } from '../lib/audioConcat'
   import { createEventDispatcher } from 'svelte'
+  import { EpubGenerator, type EpubMetadata } from '../lib/epub/epubGenerator'
 
   export let book: EPubBook
   export let selectedMap: Map<string, boolean>
@@ -24,7 +26,7 @@
   let generatedChapters: Map<string, Blob> = new Map()
   let concatenating = false
   let concatenationProgress = ''
-  let selectedFormat: AudioFormat = 'mp3'
+  let selectedFormat: AudioFormat | 'epub' = 'mp3'
   let selectedBitrate = 192
   let selectedModel: TTSModelType = 'kokoro'
   let showAdvanced = false
@@ -108,9 +110,6 @@
 
       try {
         // Use worker for TTS generation (non-blocking)
-        // Note: The app now uses Edge or Kokoro for generation. Edge is a Node-backed
-        // deterministic TTS client (no audible browser playback). Kokoro remains
-        // available for high-quality neural generation.
         const effectiveModel: TTSModelType = selectedModel
         // If Kokoro is selected ensure the voice is valid for Kokoro
         if (effectiveModel === 'kokoro' && !kokoroVoices.includes(selectedVoice as VoiceId)) {
@@ -165,6 +164,11 @@
   }
 
   async function generateAndConcatenate() {
+    if (selectedFormat === 'epub') {
+      await exportEpub()
+      return
+    }
+
     await generate()
 
     if (!canceled && generatedChapters.size > 0) {
@@ -194,7 +198,7 @@
       const combinedBlob = await concatenateAudioChapters(
         audioChapters,
         {
-          format: selectedFormat,
+          format: selectedFormat === 'epub' ? 'mp3' : selectedFormat,
           bitrate: selectedBitrate,
           bookTitle: book.title,
           bookAuthor: book.author,
@@ -221,6 +225,152 @@
       alert('Failed to concatenate audio chapters')
       concatenating = false
       concatenationProgress = ''
+    }
+  }
+
+  async function exportEpub() {
+    const chapters = getSelectedChapters()
+    if (chapters.length === 0) {
+      alert('No chapters selected')
+      return
+    }
+
+    running = true
+    canceled = false
+    progressText = 'Initializing EPUB generator...'
+    overallProgress = 0
+
+    try {
+      const worker = getTTSWorker()
+      const metadata: EpubMetadata = {
+        title: book.title,
+        author: book.author,
+        language: 'en', // Could be inferred or selected
+        identifier: `urn:uuid:${crypto.randomUUID()}`,
+        cover: book.cover,
+      }
+
+      const epub = new EpubGenerator(metadata)
+
+      totalChapters = chapters.length
+
+      for (let i = 0; i < chapters.length; i++) {
+        if (canceled) break
+        const ch = chapters[i]
+        currentChapter = i + 1
+        progressText = `Generating Chapter ${currentChapter}/${totalChapters}: ${ch.title}`
+
+        // Generate segments
+        const segments = await worker.generateSegments({
+          text: ch.content,
+          modelType: selectedModel,
+          voice: selectedVoice,
+          dtype: selectedModel === 'kokoro' ? selectedQuantization : undefined,
+          onProgress: (msg) => {
+            progressText = `Chapter ${currentChapter}/${totalChapters}: ${msg}`
+          },
+          onChunkProgress: (current, total) => {
+            currentChunk = current
+            // Estimate progress
+            const completedProgress = (i / totalChapters) * 100
+            const currentChapterProgress = total > 0 ? (current / total) * (100 / totalChapters) : 0
+            overallProgress = Math.round(completedProgress + currentChapterProgress)
+          },
+        })
+
+        // Calculate SMIL data and concatenate audio
+        let currentTime = 0
+        const smilPars = []
+        const audioBlobs = []
+
+        for (let j = 0; j < segments.length; j++) {
+          const seg = segments[j]
+          // Ensure blob is a Blob
+          let blob = seg.blob
+          if (!(blob instanceof Blob)) {
+            blob = await audioLikeToBlob(blob)
+          }
+
+          // Calculate duration (approximate for now based on size)
+          // Kokoro: 24kHz, 1 channel, float32 (4 bytes) -> 96000 bytes/sec
+          // WAV header is 44 bytes
+          const dataSize = blob.size - 44
+          const duration = Math.max(0, dataSize / (24000 * 1 * 4))
+
+          const clipBegin = currentTime
+          const clipEnd = currentTime + duration
+          currentTime = clipEnd
+
+          // Add paragraph to SMIL
+          // Note: SMIL files are in OEBPS/smil/, so we need ../ to reach OEBPS/ root
+          smilPars.push({
+            textSrc: `../${ch.id}.xhtml#p${j + 1}`,
+            audioSrc: `../audio/${ch.id}.mp3`,
+            clipBegin,
+            clipEnd,
+          })
+
+          audioBlobs.push({
+            id: `seg-${j}`,
+            title: `Segment ${j}`,
+            blob,
+          })
+        }
+
+        // Concatenate audio
+        progressText = `Concatenating audio for Chapter ${currentChapter}...`
+        // Use MP3 for better EPUB3 compatibility (WAV is not a core media type)
+        const combinedBlob = await concatenateAudioChapters(audioBlobs, {
+          format: 'mp3',
+          bitrate: 128,
+        })
+
+        // Generate XHTML with IDs
+        const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>${ch.title}</title></head>
+<body>
+  <h1>${ch.title}</h1>
+  ${segments.map((s, idx) => `<p id="p${idx + 1}">${s.text}</p>`).join('\n')}
+</body>
+</html>`
+
+        epub.addChapter({
+          id: ch.id,
+          title: ch.title,
+          content: xhtmlContent,
+          audioBlob: combinedBlob,
+          smilData: {
+            id: `${ch.id}-smil`,
+            duration: currentTime,
+            pars: smilPars,
+          },
+        })
+      }
+
+      if (!canceled) {
+        progressText = 'Packaging EPUB...'
+        const epubBlob = await epub.generate()
+        const filename = `${book.title.replace(/[^a-z0-9]/gi, '_')}.epub`
+
+        // Download
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(epubBlob)
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(a.href)
+
+        dispatch('done')
+      }
+    } catch (err) {
+      console.error('EPUB Export failed', err)
+      alert('EPUB Export failed: ' + (err instanceof Error ? err.message : String(err)))
+    } finally {
+      running = false
+      progressText = ''
+      overallProgress = 0
     }
   }
 
@@ -288,6 +438,7 @@
             <option value="mp3">MP3 (Recommended)</option>
             <option value="m4b">M4B (Audiobook)</option>
             <option value="wav">WAV (Uncompressed)</option>
+            <option value="epub">EPUB3 (Media Overlays)</option>
           </select>
         </label>
 
@@ -529,6 +680,7 @@
   button.secondary:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+    background: #f5f5f5;
   }
 
   .download-section {

@@ -79,10 +79,7 @@
   }
 
   function copyChapterContent(ch: Chapter) {
-    navigator.clipboard
-      ?.writeText(ch.content)
-      .then(() => alert('Copied to clipboard'))
-      .catch(() => alert('Clipboard not available'))
+    navigator.clipboard?.writeText(ch.content).catch(() => alert('Clipboard not available'))
   }
 
   function getPreviewText(content: string, maxChars = 500): string {

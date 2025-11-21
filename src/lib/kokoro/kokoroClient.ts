@@ -246,246 +246,92 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
  * @param params - Generation parameters
  * @returns WAV audio blob
  */
-export async function generateVoice(
+/**
+ * Generate speech segments (text + audio blob) without concatenation
+ * Useful for creating synchronized media (SMIL)
+ */
+export async function generateVoiceSegments(
   params: GenerateParams,
   onChunkProgress?: (current: number, total: number) => void,
   onProgress?: (status: string) => void
-): Promise<Blob> {
+): Promise<{ text: string; blob: Blob }[]> {
   const {
     text,
-    voice = 'af_heart' as VoiceId, // Default voice: Heart (high-quality female American English)
+    voice = 'af_heart' as VoiceId,
     speed = 1.0,
     model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
     dtype = 'q8',
   } = params
 
   try {
-    // Get or initialize the TTS instance
     const tts = await getKokoroInstance(model, dtype, 'wasm', onProgress)
-
     if (onProgress) onProgress('Generating speech...')
 
-    // For very long text, use streaming to avoid TTS limitations
-    // Most TTS models have token/character limits
-    const MAX_CHUNK_SIZE = 1000 // characters per chunk
+    const MAX_CHUNK_SIZE = 1000
 
     if (text.length > MAX_CHUNK_SIZE) {
       console.log(`Long text detected (${text.length} chars), using streaming approach...`)
-
-      // Split text into chunks first to get accurate count
       const chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE)
-      console.log(
-        `Split into ${chunks.length} chunks (Kokoro may generate more based on sentences)`
-      )
+      console.log(`Split into ${chunks.length} chunks`)
 
-      // Import TextSplitterStream from kokoro-js
       const { TextSplitterStream } = await import('kokoro-js')
-
-      // Set up the stream
       const splitter = new TextSplitterStream()
       const stream = tts.stream(splitter, { voice, speed } as unknown as Parameters<
         typeof tts.stream
       >[1])
 
-      // Collect audio blobs from the stream
-      const audioBlobs: Blob[] = []
+      const segments: { text: string; blob: Blob }[] = []
       let chunkCount = 0
 
-      // Process stream in parallel with feeding text
       const streamPromise = (async () => {
-        for await (const { text: chunkText, phonemes: _phonemes, audio } of stream) {
+        for await (const { text: chunkText, audio } of stream) {
           chunkCount++
-          console.log(`Generated chunk ${chunkCount}: ${chunkText.substring(0, 50)}...`)
-          // Diagnostic: capture the exact type/shape of the audio object (may be a Blob, JSHandle, or other wrapper)
-          try {
-            const props = [] as string[]
-            try {
-              props.push(...Object.getOwnPropertyNames(audio))
-            } catch (e) {
-              // Some host-provided wrappers can throw on property access (e.g., Playwright JSHandle)
-              props.push(`uninspectable (${String(e)})`)
-            }
-            console.log(
-              `Chunk ${chunkCount} audio object: typeof=${typeof audio}; constructor=${audio?.constructor?.name}; hasToBlob=${typeof (audio as any)?.toBlob === 'function'}; props=${props.slice(0, 10).join(',')}`
-            )
-          } catch (e) {
-            console.warn(`Failed to inspect audio object for chunk ${chunkCount}:`, e)
-          }
-          // audio may be some object with a toBlob method; toBlob can be
-          // synchronous or asynchronous. Wrap in try/catch to surface errors
-          // from chunk conversion and log helpful context.
-          try {
-            const maybeBlob = (audio as any).toBlob()
-            // Log the type of the return value to detect wrapper types like JSHandle
-            try {
-              const maybeProps = [] as string[]
-              try {
-                maybeProps.push(...Object.getOwnPropertyNames(maybeBlob))
-              } catch (_e) {
-                maybeProps.push('uninspectable')
-              }
-              const maybeString =
-                typeof maybeBlob === 'object'
-                  ? String((maybeBlob as any)?.toString?.())
-                  : String(maybeBlob)
-              const isJSHandle =
-                maybeString.includes('JSHandle') ||
-                (maybeBlob?.constructor?.name || '').includes('JSHandle')
-              if (isJSHandle) {
-                console.warn(`Chunk ${chunkCount} maybeBlob looks like a JSHandle: ${maybeString}`)
-              }
-              const isMaybeThenable = isThenable(maybeBlob)
-              console.log(
-                `Chunk ${chunkCount} maybeBlob: typeof=${typeof maybeBlob}; constructor=${maybeBlob?.constructor?.name}; isThenable=${isMaybeThenable}; props=${maybeProps.slice(0, 10).join(',')}`
-              )
-            } catch {
-              // swallow logging errors
-            }
-
-            const blob = isThenable(maybeBlob) ? await maybeBlob : maybeBlob
-            // Post-conversion: log Blob-like characteristics
-            try {
-              console.log(
-                `Chunk ${chunkCount} converted blob: instanceofBlob=${blob instanceof Blob}; constructor=${blob?.constructor?.name}; type=${blob?.type}; size=${blob?.size}`
-              )
-            } catch (e) {
-              console.log(`Chunk ${chunkCount} converted blob: cannot introspect blob:`, e)
-            }
-            audioBlobs.push(blob)
-          } catch (e) {
-            console.error(
-              `Failed to convert chunk ${chunkCount} to Blob. chunkText: ${chunkText.substring(0, 60)}...`,
-              e
-            )
-            // Re-throw so the outer catch handler can surface this as a failure.
-            throw e
+          // Convert audio to Blob
+          const toBlobFn = (audio as { toBlob?: unknown }).toBlob
+          let blob: Blob
+          if (typeof toBlobFn === 'function') {
+            const maybe = toBlobFn.call(audio)
+            blob = isThenable(maybe) ? await maybe : maybe
+          } else {
+            // Fallback
+            const { audioLikeToBlob } = await import('../audioConcat.ts')
+            blob = await audioLikeToBlob(audio)
           }
 
-          // Report chunk progress - we don't know total chunks since Kokoro splits by sentences
-          // Just report current chunk count
-          if (onChunkProgress) {
-            onChunkProgress(chunkCount, 0) // 0 means unknown total
-          }
+          segments.push({ text: chunkText, blob })
+          if (onChunkProgress) onChunkProgress(chunkCount, 0)
         }
       })()
 
-      // Feed text to the stream in chunks
       for (const chunk of chunks) {
         splitter.push(chunk)
-        // Small delay between chunks to prevent overwhelming the system
         await new Promise((resolve) => setTimeout(resolve, 10))
       }
-
-      // Close the stream to signal that no more text will be added
       splitter.close()
-
-      // Wait for all audio to be generated
       await streamPromise
 
-      // If only one chunk, return it directly
-      if (audioBlobs.length === 1) {
-        return audioBlobs[0]
+      return segments
+    } else {
+      // Short text
+      const audio = await tts.generate(text, { voice, speed } as unknown as Parameters<
+        typeof tts.generate
+      >[1])
+
+      const toBlobFn = (audio as { toBlob?: unknown }).toBlob
+      let blob: Blob
+      if (typeof toBlobFn === 'function') {
+        const maybe = toBlobFn.call(audio)
+        blob = isThenable(maybe) ? await maybe : maybe
+      } else {
+        const { audioLikeToBlob } = await import('../audioConcat.ts')
+        blob = await audioLikeToBlob(audio)
       }
 
-      // For multiple chunks, we need to properly concatenate the audio
-      // Import concatenation utility
-      const { concatenateAudioChapters, audioLikeToBlob } = await import('../audioConcat.ts')
-      const audioChapters = audioBlobs.map((blob, i) => ({
-        id: `chunk-${i}`,
-        title: `Chunk ${i + 1}`,
-        blob,
-      }))
-
-      console.log(`Concatenating ${audioBlobs.length} audio chunks...`)
-
-      // Log blob details for debugging: type and length
-      try {
-        for (let i = 0; i < audioBlobs.length; i++) {
-          const blob = audioBlobs[i]
-          try {
-            const arr = await blob.arrayBuffer()
-            console.log(`Chunk ${i + 1} blob type: ${blob.type}; size: ${arr.byteLength}`)
-          } catch (e) {
-            console.warn(`Failed to read chunk ${i + 1} blob:`, e)
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to inspect audio blob info:', e)
-      }
-
-      try {
-        // Run a final pass to ensure all audio blobs are real Blobs by converting
-        // anything that isn't a Blob into a WAV Blob using audioLikeToBlob
-        for (let i = 0; i < audioChapters.length; i++) {
-          try {
-            if (!(audioChapters[i].blob instanceof Blob)) {
-              audioChapters[i].blob = await audioLikeToBlob(audioChapters[i].blob as unknown)
-            }
-          } catch (e) {
-            console.warn(`Falling back conversion of chunk ${i} failed:`, e)
-            throw e
-          }
-        }
-        return await concatenateAudioChapters(audioChapters, { format: 'wav' })
-      } catch (error) {
-        // Enrich logged error with stack/message when available
-        if (error instanceof Error) {
-          console.error('Concatenation error stack:', error.stack)
-        } else {
-          try {
-            console.error('Concatenation error:', JSON.stringify(error))
-          } catch (_e) {
-            console.error('Concatenation error:', error)
-          }
-        }
-        throw error
-      }
+      return [{ text, blob }]
     }
-
-    // For short text, generate directly
-    // Generate audio using the real Kokoro model
-    // This handles:
-    // - Text normalization (numbers, currencies, abbreviations)
-    // - Grapheme-to-phoneme conversion (using espeak-ng)
-    // - IPA phoneme tokenization
-    // - StyleTTS2 inference with ISTFTNet decoder
-    // - 24kHz audio generation
-    const audio = await tts.generate(text, { voice, speed } as unknown as Parameters<
-      typeof tts.generate
-    >[1])
-
-    // Convert RawAudio to Blob
-    const toBlobFn = (audio as unknown as { toBlob?: () => unknown })?.toBlob
-    if (typeof toBlobFn !== 'function') {
-      throw new Error('Generated audio object does not expose toBlob()')
-    }
-    const maybe = toBlobFn.call(audio)
-    const blob = isThenable(maybe) ? await maybe : maybe
-    try {
-      const maybeString =
-        typeof maybe === 'object'
-          ? String((maybe as unknown as { toString?: () => string })?.toString?.())
-          : String(maybe)
-      const ctorName = (maybe as unknown as { constructor?: { name?: string } })?.constructor?.name
-      console.log(
-        `[kokoroClient] generate() toBlob result: typeof=${typeof maybe}; constructor=${ctorName}; repr=${maybeString}`
-      )
-    } catch {
-      // ignore logging errors
-    }
-    if (blob instanceof Blob) {
-      return blob
-    }
-    // Fallback: convert non-Blob audio-like into Blob using audioLikeToBlob
-    const { audioLikeToBlob } = await import('../audioConcat.ts')
-    return await audioLikeToBlob(blob as unknown)
   } catch (error) {
     console.error('Kokoro TTS generation failed:', error)
-    // Reset cached TTS instance when generation fails due to unexpected wrapper
-    // to avoid repeated failures when using test mocks that replace kokoro-js
     try {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore - clear cached module for subsequent test runs
       ttsInstance = null
     } catch {
       // ignore
@@ -494,6 +340,40 @@ export async function generateVoice(
       `Failed to generate speech: ${error instanceof Error ? error.message : String(error)}`
     )
   }
+}
+
+/**
+ * Generate speech from text using Kokoro TTS
+ * For long texts, automatically splits into chunks and concatenates using streaming
+ */
+export async function generateVoice(
+  params: GenerateParams,
+  onChunkProgress?: (current: number, total: number) => void,
+  onProgress?: (status: string) => void
+): Promise<Blob> {
+  const segments = await generateVoiceSegments(params, onChunkProgress, onProgress)
+
+  if (segments.length === 1) {
+    return segments[0].blob
+  }
+
+  // Concatenate
+  const { concatenateAudioChapters, audioLikeToBlob } = await import('../audioConcat.ts')
+  const audioChapters = []
+
+  for (let i = 0; i < segments.length; i++) {
+    let blob = segments[i].blob
+    if (!(blob instanceof Blob)) {
+      blob = await audioLikeToBlob(blob)
+    }
+    audioChapters.push({
+      id: `chunk-${i}`,
+      title: `Chunk ${i + 1}`,
+      blob,
+    })
+  }
+
+  return await concatenateAudioChapters(audioChapters, { format: 'wav' })
 }
 
 /**
@@ -529,7 +409,7 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
           const props = [] as string[]
           try {
             props.push(...Object.getOwnPropertyNames(audio))
-          } catch (e) {
+          } catch {
             props.push('uninspectable')
           }
           const hasToBlob = typeof (audio as unknown as { toBlob?: unknown })?.toBlob === 'function'
