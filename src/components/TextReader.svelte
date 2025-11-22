@@ -8,12 +8,14 @@
     voice,
     quantization,
     device = 'auto',
+    selectedModel = 'kokoro',
     onClose,
   } = $props<{
     chapter: Chapter
     voice: string
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+    selectedModel?: 'kokoro' | 'piper'
     onClose: () => void
   }>()
 
@@ -65,9 +67,9 @@
       const worker = getTTSWorker()
       const blob = await worker.generateVoice({
         text: segment.text,
-        modelType: 'kokoro',
+        modelType: selectedModel,
         voice: voice,
-        dtype: quantization,
+        dtype: selectedModel === 'kokoro' ? quantization : undefined,
         device: device,
       })
 

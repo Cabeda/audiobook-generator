@@ -6,7 +6,8 @@
     type VoiceId,
     isWebGPUAvailable,
   } from '../lib/kokoro/kokoroClient'
-  import type { TTSModelType } from '../lib/tts/ttsModels'
+  import { piperClient } from '../lib/piper/piperClient'
+  import { type TTSModelType, TTS_MODELS } from '../lib/tts/ttsModels'
   import {
     concatenateAudioChapters,
     downloadAudioFile,
@@ -37,6 +38,11 @@
   let selectedBitrate = $state(192)
   let selectedModel = $state<TTSModelType>('kokoro')
   let showAdvanced = $state(false)
+
+  // Dispatch model change event
+  $effect(() => {
+    dispatch('modelchanged', { model: selectedModel })
+  })
 
   // Voice metadata for better UI labels (for Kokoro voices)
   const voiceLabels: Record<string, string> = {
@@ -71,10 +77,45 @@
 
   // Voice lists
   let kokoroVoices = listKokoroVoices()
-  let availableVoices: Array<{ id: string; label: string }> = kokoroVoices.map((v) => ({
-    id: v,
-    label: voiceLabels[v] || v,
-  }))
+  let availableVoices = $state<Array<{ id: string; label: string }>>([])
+
+  // Update voices when model changes
+  $effect(() => {
+    if (selectedModel === 'kokoro') {
+      availableVoices = kokoroVoices.map((v) => ({
+        id: v,
+        label: voiceLabels[v] || v,
+      }))
+      if (!kokoroVoices.includes(selectedVoice as VoiceId)) {
+        selectedVoice = 'af_heart'
+        // Notify parent of voice change
+        dispatch('voicechanged', { voice: selectedVoice })
+      }
+    } else if (selectedModel === 'piper') {
+      // Load Piper voices
+      piperClient.getVoices().then((voices) => {
+        availableVoices = voices.map((v) => ({
+          id: v.key,
+          label: `${v.name} (${v.language}) - ${v.quality}`,
+        }))
+        // Set default if current selection is invalid or empty
+        // We need to check against the NEW availableVoices list
+        const currentVoiceExists = availableVoices.find((v) => v.id === selectedVoice)
+        if (!currentVoiceExists) {
+          // Default to a known good voice or the first one
+          const defaultVoice =
+            availableVoices.find((v) => v.id === 'en_US-hfc_female-medium') || availableVoices[0]
+          if (defaultVoice) {
+            selectedVoice = defaultVoice.id
+            // Notify parent of voice change
+            dispatch('voicechanged', { voice: selectedVoice })
+          }
+        }
+      })
+    } else {
+      availableVoices = []
+    }
+  })
 
   // Detailed progress tracking
   let currentChapter = $state(0)
@@ -406,6 +447,14 @@
   <!-- Essential Options -->
   <div class="option-group">
     <label>
+      <span class="label-text">🧠 Model</span>
+      <select bind:value={selectedModel} disabled={running || concatenating}>
+        {#each TTS_MODELS as model}
+          <option value={model.id}>{model.name}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
       <span class="label-text">🎤 Voice</span>
       <select
         bind:value={selectedVoice}
@@ -428,36 +477,41 @@
   {#if showAdvanced}
     <div class="advanced-options">
       <div class="option-group">
-        <label>
-          <span class="label-text">🧮 Quantization</span>
-          <select
-            bind:value={selectedQuantization}
-            disabled={running || concatenating}
-            onchange={() => dispatch('quantizationchanged', { quantization: selectedQuantization })}
-          >
-            <option value="q8">q8 (default — faster)</option>
-            <option value="q4">q4 (smaller)</option>
-            <option value="q4f16">q4f16 (balanced)</option>
-            <option value="fp16">fp16 (higher precision)</option>
-            <option value="fp32">fp32 (full precision)</option>
-          </select>
-        </label>
-
-        <label>
-          <span class="label-text">⚙️ Device</span>
-          <select
-            bind:value={selectedDevice}
-            disabled={running || concatenating}
-            onchange={() => dispatch('devicechanged', { device: selectedDevice })}
-          >
-            <option value="auto">Auto {webgpuAvailable ? '(WebGPU detected ✅)' : '(WASM)'}</option>
-            <option value="webgpu" disabled={!webgpuAvailable}
-              >WebGPU {!webgpuAvailable ? '(unavailable ⚠️)' : '(fastest)'}</option
+        {#if selectedModel === 'kokoro'}
+          <label>
+            <span class="label-text">🧮 Quantization</span>
+            <select
+              bind:value={selectedQuantization}
+              disabled={running || concatenating}
+              onchange={() =>
+                dispatch('quantizationchanged', { quantization: selectedQuantization })}
             >
-            <option value="wasm">WASM (compatible)</option>
-            <option value="cpu">CPU (fallback)</option>
-          </select>
-        </label>
+              <option value="q8">q8 (default — faster)</option>
+              <option value="q4">q4 (smaller)</option>
+              <option value="q4f16">q4f16 (balanced)</option>
+              <option value="fp16">fp16 (higher precision)</option>
+              <option value="fp32">fp32 (full precision)</option>
+            </select>
+          </label>
+
+          <label>
+            <span class="label-text">⚙️ Device</span>
+            <select
+              bind:value={selectedDevice}
+              disabled={running || concatenating}
+              onchange={() => dispatch('devicechanged', { device: selectedDevice })}
+            >
+              <option value="auto"
+                >Auto {webgpuAvailable ? '(WebGPU detected ✅)' : '(WASM)'}</option
+              >
+              <option value="webgpu" disabled={!webgpuAvailable}
+                >WebGPU {!webgpuAvailable ? '(unavailable ⚠️)' : '(fastest)'}</option
+              >
+              <option value="wasm">WASM (compatible)</option>
+              <option value="cpu">CPU (fallback)</option>
+            </select>
+          </label>
+        {/if}
 
         <label>
           <span class="label-text">📦 Format</span>

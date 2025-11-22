@@ -9,11 +9,13 @@
     selectedVoice,
     selectedQuantization,
     selectedDevice = 'auto',
+    selectedModel = 'kokoro',
   } = $props<{
     book: Book
     selectedVoice: string
     selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     selectedDevice?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+    selectedModel?: 'kokoro' | 'piper'
   }>()
 
   const dispatch = createEventDispatcher()
@@ -143,7 +145,7 @@
       stopPreview()
 
       // Check cache first
-      const cacheKey = `${ch.id}:${selectedVoice}:${selectedQuantization}`
+      const cacheKey = `${ch.id}:${selectedModel}:${selectedVoice}:${selectedQuantization}`
       let url = previewCache.get(cacheKey)
 
       if (!url) {
@@ -157,9 +159,10 @@
         const worker = getTTSWorker()
         const blob = await worker.generateVoice({
           text: previewText,
-          modelType: 'kokoro',
+          modelType: selectedModel,
           voice: selectedVoice,
-          dtype: selectedQuantization,
+          dtype: selectedModel === 'kokoro' ? selectedQuantization : undefined,
+          device: selectedDevice,
         })
 
         // Clear loading state
@@ -297,6 +300,7 @@
         voice={selectedVoice}
         quantization={selectedQuantization}
         device={selectedDevice}
+        {selectedModel}
         onClose={closeReader}
       />
     {/if}
