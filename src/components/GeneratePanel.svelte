@@ -19,12 +19,20 @@
   import { createEventDispatcher } from 'svelte'
   import { EpubGenerator, type EpubMetadata } from '../lib/epub/epubGenerator'
 
-  let { book, selectedMap, selectedVoice, selectedQuantization, selectedDevice } = $props<{
+  let {
+    book,
+    selectedMap,
+    selectedVoice,
+    selectedQuantization,
+    selectedDevice,
+    selectedModel = 'kokoro',
+  } = $props<{
     book: EPubBook
     selectedMap: Map<string, boolean>
     selectedVoice: string
     selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     selectedDevice: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+    selectedModel?: TTSModelType
   }>()
 
   const dispatch = createEventDispatcher()
@@ -36,12 +44,15 @@
   let concatenationProgress = $state('')
   let selectedFormat = $state<AudioFormat | 'epub'>('mp3')
   let selectedBitrate = $state(192)
-  let selectedModel = $state<TTSModelType>('kokoro')
   let showAdvanced = $state(false)
 
-  // Dispatch model change event
+  // Notify parent when model changes via UI
+  let lastEmittedModel = $state<TTSModelType | null>(null)
   $effect(() => {
-    dispatch('modelchanged', { model: selectedModel })
+    if (selectedModel && selectedModel !== lastEmittedModel) {
+      lastEmittedModel = selectedModel
+      dispatch('modelchanged', { model: selectedModel })
+    }
   })
 
   // Voice metadata for better UI labels (for Kokoro voices)

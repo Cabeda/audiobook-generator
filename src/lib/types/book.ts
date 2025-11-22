@@ -7,6 +7,7 @@ export interface Book {
   cover?: string // Object URL or data URL
   chapters: Chapter[]
   format?: string // Original format (epub, pdf, txt, etc.)
+  language?: string // ISO 639-1 language code (e.g., 'en', 'es', 'fr')
 }
 
 export interface Chapter {

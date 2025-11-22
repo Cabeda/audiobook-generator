@@ -3,6 +3,8 @@
   import GeneratePanel from './components/GeneratePanel.svelte'
   import LandingPage from './components/LandingPage.svelte'
   import type { Book } from './lib/types/book'
+  import { piperClient } from './lib/piper/piperClient'
+  import { listVoices as listKokoroVoices, type VoiceId } from './lib/kokoro/kokoroClient'
 
   let book = $state<Book | null>(null)
 
@@ -44,13 +46,63 @@
   })
 
   // Unified handler for both file uploads and URL imports
-  function onBookLoaded(event: CustomEvent<{ book: Book }>) {
+  async function onBookLoaded(event: CustomEvent<{ book: Book }>) {
     const providedBook = event.detail.book
     if (providedBook) {
       book = providedBook
       // initialize selected map
       selectedMap = new Map(book.chapters.map((c) => [c.id, true]))
       generated.clear()
+
+      // Auto-adapt voice if book language differs from current voice language
+      if (book.language) {
+        const bookLang = book.language.toLowerCase().substring(0, 2) // Get ISO 639-1 code
+        await adaptVoiceToLanguage(bookLang)
+      }
+    }
+  }
+
+  // Auto-select voice based on book language
+  async function adaptVoiceToLanguage(bookLang: string) {
+    // Get language of current voice
+    const currentVoiceLang = getVoiceLanguage(selectedVoice, selectedModel)
+
+    // If languages match, no need to change
+    if (currentVoiceLang === bookLang) return
+
+    console.log(
+      `Book language (${bookLang}) differs from current voice language (${currentVoiceLang}), adapting...`
+    )
+
+    // Find a matching voice in the current model
+    if (selectedModel === 'piper') {
+      const voices = await piperClient.getVoices()
+      const matchingVoice = voices.find((v) => v.key.toLowerCase().startsWith(bookLang))
+      if (matchingVoice) {
+        selectedVoice = matchingVoice.key
+        try {
+          localStorage.setItem(VOICE_KEY, selectedVoice)
+        } catch (e) {
+          // ignore
+        }
+        console.log(`Auto-selected Piper voice: ${selectedVoice}`)
+      }
+    } else if (selectedModel === 'kokoro') {
+      // Kokoro only has English voices
+      if (bookLang !== 'en') {
+        console.log(`Book is not English, but Kokoro only supports English. Keeping current voice.`)
+      }
+    }
+  }
+
+  // Helper to extract language from voice ID
+  function getVoiceLanguage(voice: string, model: 'kokoro' | 'piper'): string {
+    if (model === 'kokoro') {
+      return 'en' // All Kokoro voices are English
+    } else {
+      // Piper voice IDs start with language code (e.g., 'en_US-...', 'es_ES-...')
+      const match = voice.match(/^([a-z]{2})_/i)
+      return match ? match[1].toLowerCase() : 'en'
     }
   }
 
@@ -154,6 +206,7 @@
           {selectedVoice}
           {selectedQuantization}
           {selectedDevice}
+          {selectedModel}
           on:generated={onGenerated}
           on:voicechanged={onVoiceChanged}
           on:quantizationchanged={onQuantizationChanged}

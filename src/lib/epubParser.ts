@@ -99,6 +99,13 @@ export async function parseEpubFile(file: File): Promise<EPubBook> {
       ?.textContent ||
     'Unknown'
 
+  // Extract language (ISO 639-1 code like 'en', 'es', etc.)
+  const language =
+    contentDoc.querySelector('language')?.textContent ||
+    contentDoc.getElementsByTagNameNS('http://purl.org/dc/elements/1.1/', 'language')[0]
+      ?.textContent ||
+    undefined
+
   const coverImageId =
     contentDoc.querySelector("meta[name='cover']")?.getAttribute('content') || 'cover-image'
   const items = Array.from(contentDoc.querySelectorAll('item') || []) as Element[]
@@ -158,6 +165,7 @@ export async function parseEpubFile(file: File): Promise<EPubBook> {
     cover: coverUrl,
     chapters,
     format: 'epub',
+    language,
   }
 }
 
