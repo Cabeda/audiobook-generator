@@ -221,53 +221,68 @@
     <img class="cover" src={book.cover} alt="cover" />
   {/if}
 
-  <div class="controls">
-    <button onclick={selectAll}>Select all</button>
-    <button onclick={deselectAll}>Deselect all</button>
-    <button onclick={exportSelected}>Export selected</button>
-    <div style="margin-left:auto">
-      Selected: {Array.from(selected.values()).filter(Boolean).length} / {book.chapters.length}
+  <div class="controls-bar">
+    <div class="left-controls">
+      <button class="text-btn" onclick={selectAll}>Select all</button>
+      <span class="separator">•</span>
+      <button class="text-btn" onclick={deselectAll}>Deselect all</button>
+    </div>
+
+    <div class="right-controls">
+      <span class="selection-count">
+        <strong>{Array.from(selected.values()).filter(Boolean).length}</strong> selected
+      </span>
+      <button class="primary-btn" onclick={exportSelected}> Export Selected </button>
     </div>
   </div>
 
-  <h3>Chapters</h3>
-  <div>
+  <div class="chapter-list">
     {#each book.chapters as ch}
-      <div class="chapter">
-        <div style="width:28px">
-          <input
-            type="checkbox"
-            checked={selected.get(ch.id)}
-            onchange={() => toggleChapter(ch.id)}
-          />
+      <div class="chapter-card" class:selected={selected.get(ch.id)}>
+        <div class="card-content">
+          <label class="chapter-header">
+            <input
+              type="checkbox"
+              class="chapter-checkbox"
+              checked={selected.get(ch.id)}
+              onchange={() => toggleChapter(ch.id)}
+            />
+            <span class="chapter-title">{ch.title}</span>
+          </label>
+          <p class="chapter-preview">
+            {ch.content.slice(0, 180)}{ch.content.length > 180 ? '…' : ''}
+          </p>
         </div>
-        <div style="flex:1">
-          <div class="chapter-title">{ch.title}</div>
-          <div style="font-size:0.9em;color:#444">
-            {ch.content.slice(0, 300)}{ch.content.length > 300 ? '…' : ''}
-          </div>
-        </div>
-        <div style="width:180px; text-align:right; display:flex; gap:4px; justify-content:flex-end">
+
+        <div class="card-actions">
           <button
-            class="preview-button"
+            class="action-btn preview-btn"
             class:loading={loadingChapterId === ch.id}
             class:playing={playingChapterId === ch.id}
             onclick={() => previewChapter(ch)}
             disabled={loadingChapterId === ch.id}
-            title={playingChapterId === ch.id
-              ? 'Stop preview'
-              : 'Preview with current TTS settings'}
+            title={playingChapterId === ch.id ? 'Stop preview' : 'Preview audio'}
           >
             {#if loadingChapterId === ch.id}
-              ⏳
+              <span class="icon spin">⏳</span>
             {:else if playingChapterId === ch.id}
-              ⏹️
+              <span class="icon">⏹️</span> Stop
             {:else}
-              🔊
+              <span class="icon">🔊</span> Preview
             {/if}
           </button>
-          <button onclick={() => openReader(ch)} title="Read full text with TTS">📖 Read</button>
-          <button onclick={() => copyChapterContent(ch)}>Copy</button>
+
+          <button class="action-btn" onclick={() => openReader(ch)}>
+            <span class="icon">📖</span> Read
+          </button>
+
+          <button
+            class="action-btn icon-only"
+            onclick={() => copyChapterContent(ch)}
+            title="Copy text"
+          >
+            📋
+          </button>
         </div>
       </div>
     {/each}
@@ -290,89 +305,269 @@
 
 <style>
   .cover {
-    max-width: 200px;
+    max-width: 120px;
     border-radius: 8px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
-  .chapter {
-    padding: 8px;
-    border-bottom: 1px solid #eee;
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-  }
-  .chapter-title {
-    font-weight: 600;
-  }
-  .controls {
-    margin: 12px 0;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
+
   .book-meta {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
     flex-wrap: wrap;
+    margin-bottom: 16px;
   }
+
   .book-meta h2 {
     margin: 0;
+    font-size: 1.5rem;
+    color: #1a1a1a;
   }
+
   .format-badge {
     display: inline-block;
-    padding: 4px 10px;
+    padding: 4px 8px;
     background: #e3f2fd;
-    color: #1976d2;
+    color: #1565c0;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+
+  /* Controls Bar */
+  .controls-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 0;
+    margin-bottom: 16px;
+    border-bottom: 1px solid #eee;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .left-controls,
+  .right-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .text-btn {
+    background: none;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 4px 8px;
     border-radius: 4px;
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
   }
 
-  /* Preview button animations */
-  .preview-button {
+  .text-btn:hover {
+    background: #f5f5f5;
+    color: #333;
+  }
+
+  .separator {
+    color: #ddd;
+  }
+
+  .primary-btn {
+    background: #2196f3;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .primary-btn:hover {
+    background: #1976d2;
+  }
+
+  .selection-count {
+    font-size: 0.9rem;
+    color: #666;
+  }
+
+  /* Chapter List */
+  .chapter-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .chapter-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
     transition: all 0.2s ease;
-    position: relative;
   }
 
-  .preview-button:hover:not(:disabled) {
-    transform: scale(1.1);
-    filter: brightness(1.1);
+  .chapter-card:hover {
+    border-color: #bdbdbd;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   }
 
-  .preview-button:active:not(:disabled) {
-    transform: scale(0.95);
+  .chapter-card.selected {
+    background: #f5faff;
+    border-color: #90caf9;
   }
 
-  .preview-button.loading {
-    animation: pulse 1.5s ease-in-out infinite;
+  .card-content {
+    flex: 1;
+    min-width: 0;
   }
 
-  .preview-button.playing {
-    animation: playing-pulse 2s ease-in-out infinite;
-    box-shadow: 0 0 0 0 rgba(25, 118, 210, 0.4);
+  .chapter-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    margin-bottom: 6px;
   }
 
-  @keyframes pulse {
-    0%,
-    100% {
-      opacity: 1;
-      transform: scale(1);
+  .chapter-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+  }
+
+  .chapter-title {
+    font-weight: 600;
+    font-size: 1.05rem;
+    color: #333;
+    line-height: 1.4;
+  }
+
+  .chapter-preview {
+    margin: 0;
+    font-size: 0.9rem;
+    color: #666;
+    line-height: 1.5;
+    padding-left: 30px; /* Align with title text */
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    color: #555;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .action-btn:hover:not(:disabled) {
+    background: #f5f5f5;
+    border-color: #ccc;
+    color: #333;
+  }
+
+  .action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .action-btn.icon-only {
+    padding: 8px;
+  }
+
+  .action-btn .icon {
+    font-size: 1.1em;
+  }
+
+  /* Preview Button States */
+  .preview-btn.playing {
+    background: #e3f2fd;
+    border-color: #2196f3;
+    color: #1976d2;
+    animation: playing-pulse 2s infinite;
+  }
+
+  .icon.spin {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
     }
-    50% {
-      opacity: 0.7;
-      transform: scale(1.05);
+    to {
+      transform: rotate(360deg);
     }
   }
 
   @keyframes playing-pulse {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 rgba(25, 118, 210, 0.4);
+    0% {
+      box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.4);
     }
-    50% {
-      box-shadow: 0 0 0 8px rgba(25, 118, 210, 0);
+    70% {
+      box-shadow: 0 0 0 6px rgba(33, 150, 243, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(33, 150, 243, 0);
+    }
+  }
+
+  /* Mobile Responsive */
+  @media (max-width: 640px) {
+    .controls-bar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 16px;
+    }
+
+    .left-controls,
+    .right-controls {
+      justify-content: space-between;
+    }
+
+    .chapter-card {
+      flex-direction: column;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .chapter-preview {
+      padding-left: 0;
+      margin-top: 8px;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .card-actions {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid #f0f0f0;
+    }
+
+    .action-btn {
+      justify-content: center;
     }
   }
 </style>
