@@ -16,12 +16,14 @@
   let selectedVoice = $state('af_heart')
   let selectedQuantization = $state<'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'>('q8')
   let selectedDevice = $state<'auto' | 'wasm' | 'webgpu' | 'cpu'>('auto')
+  let selectedModel = $state<'kokoro' | 'piper'>('kokoro')
 
   // Load TTS options from localStorage on mount
   import { onMount } from 'svelte'
   const QUANT_KEY = 'audiobook_quantization'
   const VOICE_KEY = 'audiobook_voice'
   const DEVICE_KEY = 'audiobook_device'
+  const MODEL_KEY = 'audiobook_model'
 
   onMount(() => {
     try {
@@ -33,6 +35,9 @@
 
       const savedDevice = localStorage.getItem(DEVICE_KEY)
       if (savedDevice) selectedDevice = savedDevice as typeof selectedDevice
+
+      const savedModel = localStorage.getItem(MODEL_KEY)
+      if (savedModel) selectedModel = savedModel as typeof selectedModel
     } catch (e) {
       // ignore (e.g., SSR or privacy mode)
     }
@@ -121,6 +126,15 @@
       // ignore
     }
   }
+
+  function onModelChanged(e: CustomEvent) {
+    selectedModel = e.detail.model
+    try {
+      localStorage.setItem(MODEL_KEY, selectedModel)
+    } catch (e) {
+      // ignore
+    }
+  }
 </script>
 
 <main>
@@ -144,12 +158,14 @@
           on:voicechanged={onVoiceChanged}
           on:quantizationchanged={onQuantizationChanged}
           on:devicechanged={onDeviceChanged}
+          on:modelchanged={onModelChanged}
         />
         <BookInspector
           {book}
           {selectedVoice}
           {selectedQuantization}
           {selectedDevice}
+          {selectedModel}
           on:selectionchanged={onSelectionChanged}
         />
 

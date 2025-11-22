@@ -3,7 +3,7 @@
  * Provides a unified interface for different TTS engines
  */
 
-export type TTSModelType = 'kokoro' | 'edge'
+export type TTSModelType = 'kokoro' | 'piper'
 
 export interface TTSGenerateParams {
   text: string
@@ -69,6 +69,22 @@ export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> 
         },
       }
     }
+    case 'piper': {
+      const { generateVoice } = await import('../piper/piperClient')
+      return {
+        generateVoice: async (params, onChunkProgress, onProgress) => {
+          return generateVoice(
+            {
+              text: params.text,
+              voice: params.voice,
+              speed: params.speed,
+            },
+            onChunkProgress,
+            onProgress
+          )
+        },
+      }
+    }
     default:
       throw new Error(`Unknown TTS model type: ${modelType}`)
   }
@@ -90,6 +106,13 @@ export const TTS_MODELS: TTSModelInfo[] = [
     id: 'kokoro',
     name: 'Kokoro TTS',
     description: 'High-quality neural TTS (requires model download)',
+    requiresDownload: true,
+    supportsOffline: true,
+  },
+  {
+    id: 'piper',
+    name: 'Piper TTS',
+    description: 'Fast, local neural TTS running in the browser.',
     requiresDownload: true,
     supportsOffline: true,
   },
