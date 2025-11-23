@@ -120,6 +120,11 @@
           bufferedSegments[index] = true // Trigger fine-grained reactivity
           return // Success
         } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err)
+          if (errorMsg.includes('Cancelled')) {
+            throw err // Don't retry if cancelled
+          }
+
           console.warn(
             `Failed to generate segment ${index} (attempt ${attempt}/${MAX_RETRIES}):`,
             err
@@ -151,19 +156,18 @@
     isGenerating = true
 
     try {
+      const promises: Promise<void>[] = []
       for (let i = 0; i < count; i++) {
         const index = startIndex + i
         if (index >= segments.length) break
         if (audioSegments.has(index)) continue // Skip already generated
 
-        // Generate sequentially to avoid flooding the main thread
-        await generateSegment(index)
+        // Generate in parallel (pipeline requests to worker)
+        promises.push(generateSegment(index))
+      }
 
-        // Yield to let UI update and prevent staggering
-        await new Promise((resolve) => setTimeout(resolve, 50))
-
-        // If we stopped playing or closed, stop buffering
-        if (!isPlaying && currentSegmentIndex === -1) break
+      if (promises.length > 0) {
+        await Promise.all(promises)
       }
     } finally {
       isGenerating = false
@@ -204,6 +208,11 @@
       audio.pause()
       audio = null
     }
+
+    // Cancel any pending generation to prioritize this jump
+    const worker = getTTSWorker()
+    worker.cancelAll()
+    pendingGenerations.clear()
 
     currentSegmentIndex = index
     isPlaying = true
