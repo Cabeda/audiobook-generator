@@ -187,6 +187,35 @@
       // ignore
     }
   }
+  // Global Theme
+  const APP_THEME_KEY = 'app_theme'
+  let appTheme = $state<'light' | 'dark'>('light')
+
+  onMount(() => {
+    try {
+      const savedTheme = localStorage.getItem(APP_THEME_KEY)
+      if (savedTheme === 'dark' || savedTheme === 'light') {
+        appTheme = savedTheme
+      } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        appTheme = 'dark'
+      }
+    } catch (e) {
+      // ignore
+    }
+  })
+
+  $effect(() => {
+    document.body.setAttribute('data-theme', appTheme)
+    try {
+      localStorage.setItem(APP_THEME_KEY, appTheme)
+    } catch (e) {
+      // ignore
+    }
+  })
+
+  function toggleTheme() {
+    appTheme = appTheme === 'light' ? 'dark' : 'light'
+  }
 </script>
 
 <main>
@@ -196,13 +225,22 @@
     <div class="app-container">
       <div class="header">
         <h1>Audiobook Generator</h1>
-        <button
-          class="back-button"
-          onclick={() => window.location.reload()}
-          aria-label="Start over with a new book"
-        >
-          ← Start Over
-        </button>
+        <div class="header-controls">
+          <button
+            class="theme-toggle"
+            onclick={toggleTheme}
+            aria-label={`Switch to ${appTheme === 'light' ? 'dark' : 'light'} mode`}
+          >
+            {appTheme === 'light' ? '🌙' : '☀️'}
+          </button>
+          <button
+            class="back-button"
+            onclick={() => window.location.reload()}
+            aria-label="Start over with a new book"
+          >
+            ← Start Over
+          </button>
+        </div>
       </div>
 
       <div class="main-content">
@@ -279,18 +317,42 @@
     font-weight: 600;
   }
 
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .theme-toggle {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 1.2rem;
+    transition: all 0.2s;
+  }
+
+  .theme-toggle:hover {
+    background: var(--surface-color);
+    border-color: var(--text-color);
+  }
+
   .back-button {
     background: transparent;
-    border: 1px solid #ddd;
-    color: #666;
+    border: 1px solid var(--border-color);
+    color: var(--secondary-text);
     cursor: pointer;
+    padding: 8px 16px;
+    border-radius: 6px;
     transition: all 0.2s;
   }
 
   .back-button:hover {
-    background: #fff;
-    border-color: #999;
-    color: #333;
+    background: var(--surface-color);
+    border-color: var(--text-color);
+    color: var(--text-color);
   }
 
   .main-content {

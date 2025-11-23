@@ -615,31 +615,34 @@
 
 <style>
   .panel {
-    border: 1px solid #e0e0e0;
+    border: 1px solid var(--border-color);
     padding: 20px;
     border-radius: 12px;
     margin-top: 16px;
-    background: white;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    background: var(--surface-color);
+    box-shadow: 0 2px 8px var(--shadow-color);
+    transition:
+      background-color 0.3s,
+      border-color 0.3s;
   }
 
   .panel h3 {
     margin: 0 0 16px 0;
-    color: #333;
+    color: var(--text-color);
     font-size: 20px;
   }
 
   .summary {
     margin-bottom: 16px;
     padding: 12px;
-    background: #f5f5f5;
+    background: var(--bg-color);
     border-radius: 8px;
   }
 
   .chapter-count {
     font-size: 14px;
     font-weight: 500;
-    color: #555;
+    color: var(--secondary-text);
   }
 
   .option-group {
@@ -655,7 +658,7 @@
     display: block;
     font-size: 14px;
     font-weight: 500;
-    color: #333;
+    color: var(--text-color);
     margin-bottom: 6px;
   }
 
@@ -663,39 +666,40 @@
     width: 100%;
     padding: 10px 12px;
     border-radius: 6px;
-    border: 1px solid #ddd;
-    background: white;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--text-color);
     font-size: 14px;
     cursor: pointer;
     transition: border-color 0.2s;
   }
 
   select:hover:not(:disabled) {
-    border-color: #4caf50;
+    border-color: var(--primary-color);
   }
 
   select:focus {
     outline: none;
-    border-color: #4caf50;
+    border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
   }
 
   select:disabled {
     opacity: 0.6;
     cursor: not-allowed;
-    background: #f5f5f5;
+    background: var(--bg-color);
   }
 
   .advanced-toggle {
     width: 100%;
     padding: 10px;
     margin-bottom: 12px;
-    background: #f8f8f8;
-    border: 1px solid #e0e0e0;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     font-size: 14px;
     font-weight: 500;
-    color: #666;
+    color: var(--secondary-text);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -704,8 +708,9 @@
   }
 
   .advanced-toggle:hover {
-    background: #f0f0f0;
-    border-color: #d0d0d0;
+    background: var(--surface-color);
+    border-color: var(--text-color);
+    color: var(--text-color);
   }
 
   .toggle-icon {
@@ -715,8 +720,8 @@
 
   .advanced-options {
     padding: 16px;
-    background: #fafafa;
-    border: 1px solid #e0e0e0;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     margin-bottom: 16px;
     animation: slideDown 0.2s ease-out;
@@ -751,7 +756,7 @@
 
   button.primary {
     flex: 1;
-    background: linear-gradient(135deg, #4caf50, #45a049);
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
     color: white;
     box-shadow: 0 2px 6px rgba(76, 175, 80, 0.3);
   }
@@ -772,26 +777,27 @@
   }
 
   button.secondary {
-    background: white;
-    color: #666;
-    border: 1px solid #ddd;
+    background: var(--surface-color);
+    color: var(--secondary-text);
+    border: 1px solid var(--input-border);
   }
 
   button.secondary:hover:not(:disabled) {
-    background: #f5f5f5;
-    border-color: #ccc;
+    background: var(--bg-color);
+    border-color: var(--text-color);
+    color: var(--text-color);
   }
 
   button.secondary:disabled {
     opacity: 0.6;
     cursor: not-allowed;
-    background: #f5f5f5;
+    background: var(--bg-color);
   }
 
   .download-section {
     margin-top: 16px;
     padding-top: 16px;
-    border-top: 1px solid #e0e0e0;
+    border-top: 1px solid var(--border-color);
   }
 
   .download-section button {

@@ -73,25 +73,29 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    background: var(--landing-bg);
     padding: 20px;
     font-family:
       'Inter',
       system-ui,
       -apple-system,
       sans-serif;
+    transition: background 0.3s;
   }
 
   .hero {
     width: 100%;
     max-width: 800px;
     text-align: center;
-    background: rgba(255, 255, 255, 0.8);
+    background: var(--hero-bg);
     backdrop-filter: blur(10px);
     border-radius: 24px;
     padding: 60px 40px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 20px 40px var(--shadow-color);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition:
+      background-color 0.3s,
+      box-shadow 0.3s;
   }
 
   .title {
@@ -107,7 +111,7 @@
 
   .subtitle {
     font-size: 1.25rem;
-    color: #555;
+    color: var(--secondary-text);
     line-height: 1.6;
     margin-bottom: 48px;
     font-weight: 400;
@@ -135,12 +139,12 @@
     align-items: center;
     gap: 8px;
     font-size: 0.95rem;
-    color: #666;
+    color: var(--secondary-text);
     font-weight: 500;
-    background: rgba(255, 255, 255, 0.5);
+    background: var(--feature-bg);
     padding: 8px 16px;
     border-radius: 100px;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    border: 1px solid var(--shadow-color);
   }
 
   .icon {
@@ -169,22 +173,22 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    color: #666;
+    color: var(--secondary-text);
     text-decoration: none;
     font-weight: 500;
     font-size: 0.95rem;
     padding: 10px 20px;
-    background: rgba(255, 255, 255, 0.5);
+    background: var(--feature-bg);
     border-radius: 100px;
     transition: all 0.2s ease;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    border: 1px solid var(--shadow-color);
   }
 
   .github-link:hover {
-    background: white;
-    color: #333;
+    background: var(--surface-color);
+    color: var(--text-color);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 12px var(--shadow-color);
   }
 
   .github-icon {

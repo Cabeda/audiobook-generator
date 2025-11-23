@@ -334,14 +334,14 @@
   .book-meta h2 {
     margin: 0;
     font-size: 1.5rem;
-    color: #1a1a1a;
+    color: var(--text-color);
   }
 
   .format-badge {
     display: inline-block;
     padding: 4px 8px;
-    background: #e3f2fd;
-    color: #1565c0;
+    background: var(--selected-bg);
+    color: var(--primary-hover);
     border-radius: 6px;
     font-size: 0.75rem;
     font-weight: 700;
@@ -355,7 +355,7 @@
     justify-content: space-between;
     padding: 16px 0;
     margin-bottom: 16px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-color);
     flex-wrap: wrap;
     gap: 12px;
   }
@@ -370,7 +370,7 @@
   .text-btn {
     background: none;
     border: none;
-    color: #666;
+    color: var(--secondary-text);
     cursor: pointer;
     font-size: 0.9rem;
     padding: 4px 8px;
@@ -378,16 +378,16 @@
   }
 
   .text-btn:hover {
-    background: #f5f5f5;
-    color: #333;
+    background: var(--bg-color);
+    color: var(--text-color);
   }
 
   .separator {
-    color: #ddd;
+    color: var(--border-color);
   }
 
   .primary-btn {
-    background: #2196f3;
+    background: var(--primary-color);
     color: white;
     border: none;
     padding: 8px 16px;
@@ -398,12 +398,12 @@
   }
 
   .primary-btn:hover {
-    background: #1976d2;
+    background: var(--primary-hover);
   }
 
   .selection-count {
     font-size: 0.9rem;
-    color: #666;
+    color: var(--secondary-text);
   }
 
   /* Chapter List */
@@ -414,8 +414,8 @@
   }
 
   .chapter-card {
-    background: white;
-    border: 1px solid #e0e0e0;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
     border-radius: 10px;
     padding: 16px;
     display: flex;
@@ -425,13 +425,13 @@
   }
 
   .chapter-card:hover {
-    border-color: #bdbdbd;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border-color: var(--secondary-text);
+    box-shadow: 0 2px 8px var(--shadow-color);
   }
 
   .chapter-card.selected {
-    background: #f5faff;
-    border-color: #90caf9;
+    background: var(--selected-bg);
+    border-color: var(--selected-border);
   }
 
   .card-content {
@@ -456,14 +456,14 @@
   .chapter-title {
     font-weight: 600;
     font-size: 1.05rem;
-    color: #333;
+    color: var(--text-color);
     line-height: 1.4;
   }
 
   .chapter-preview {
     margin: 0;
     font-size: 0.9rem;
-    color: #666;
+    color: var(--secondary-text);
     line-height: 1.5;
     padding-left: 30px; /* Align with title text */
   }
@@ -479,19 +479,19 @@
     align-items: center;
     gap: 6px;
     padding: 8px 12px;
-    border: 1px solid #ddd;
-    background: white;
+    border: 1px solid var(--input-border);
+    background: var(--surface-color);
     border-radius: 6px;
     font-size: 0.9rem;
-    color: #555;
+    color: var(--secondary-text);
     cursor: pointer;
     transition: all 0.2s;
   }
 
   .action-btn:hover:not(:disabled) {
-    background: #f5f5f5;
-    border-color: #ccc;
-    color: #333;
+    background: var(--bg-color);
+    border-color: var(--text-color);
+    color: var(--text-color);
   }
 
   .action-btn:disabled {
@@ -509,9 +509,9 @@
 
   /* Preview Button States */
   .preview-btn.playing {
-    background: #e3f2fd;
-    border-color: #2196f3;
-    color: #1976d2;
+    background: var(--selected-bg);
+    border-color: var(--primary-color);
+    color: var(--primary-hover);
     animation: playing-pulse 2s infinite;
   }
 
@@ -576,7 +576,7 @@
       grid-template-columns: 1fr 1fr auto;
       gap: 8px;
       padding-top: 12px;
-      border-top: 1px solid #f0f0f0;
+      border-top: 1px solid var(--border-color);
     }
 
     .action-btn {
