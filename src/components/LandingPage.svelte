@@ -1,11 +1,53 @@
 <script lang="ts">
   import UnifiedInput from './UnifiedInput.svelte'
+  import LibraryView from './LibraryView.svelte'
   import { createEventDispatcher } from 'svelte'
+  import { getBook, updateLastAccessed } from '../lib/libraryDB'
+  import { libraryBooks } from '../stores/libraryStore'
+  import { book } from '../stores/bookStore'
 
   const dispatch = createEventDispatcher()
 
+  let currentView = $state<'upload' | 'library'>('upload')
+
   function onBookLoaded(event: CustomEvent) {
     dispatch('bookloaded', event.detail)
+  }
+
+  async function handleLibraryBookSelected(bookId: number) {
+    try {
+      // Load book from library
+      const libraryBook = await getBook(bookId)
+      if (libraryBook) {
+        // Update last accessed time
+        await updateLastAccessed(bookId)
+
+        // Dispatch book loaded event with library book data
+        dispatch('bookloaded', {
+          book: {
+            title: libraryBook.title,
+            author: libraryBook.author,
+            cover: libraryBook.cover,
+            chapters: libraryBook.chapters,
+            format: libraryBook.format,
+            language: libraryBook.language,
+          },
+          fromLibrary: true,
+          libraryId: bookId,
+        })
+      }
+    } catch (err) {
+      console.error('Failed to load book from library:', err)
+      alert('Failed to load book from library')
+    }
+  }
+
+  function switchToUpload() {
+    currentView = 'upload'
+  }
+
+  function switchToLibrary() {
+    currentView = 'library'
   }
 </script>
 
@@ -19,24 +61,44 @@
         Private, local, and free.
       </p>
 
-      <div class="input-wrapper">
-        <UnifiedInput on:bookloaded={onBookLoaded} />
+      <!-- Tab Navigation -->
+      <div class="tabs">
+        <button class="tab" class:active={currentView === 'upload'} onclick={switchToUpload}>
+          📤 Upload New
+        </button>
+        <button class="tab" class:active={currentView === 'library'} onclick={switchToLibrary}>
+          📚 My Library
+          {#if $libraryBooks.length > 0}
+            <span class="library-count">{$libraryBooks.length}</span>
+          {/if}
+        </button>
       </div>
 
-      <div class="features">
-        <div class="feature-item">
-          <span class="icon">🔒</span>
-          <span>100% Local Processing</span>
+      <!-- Content based on selected tab -->
+      {#if currentView === 'upload'}
+        <div class="input-wrapper">
+          <UnifiedInput on:bookloaded={onBookLoaded} />
         </div>
-        <div class="feature-item">
-          <span class="icon">⚡</span>
-          <span>Instant Generation</span>
+
+        <div class="features">
+          <div class="feature-item">
+            <span class="icon">🔒</span>
+            <span>100% Local Processing</span>
+          </div>
+          <div class="feature-item">
+            <span class="icon">⚡</span>
+            <span>Instant Generation</span>
+          </div>
+          <div class="feature-item">
+            <span class="icon">🎙️</span>
+            <span>Powered by Kokoro AI</span>
+          </div>
         </div>
-        <div class="feature-item">
-          <span class="icon">🎙️</span>
-          <span>Powered by Kokoro AI</span>
+      {:else}
+        <div class="library-wrapper">
+          <LibraryView onbookselected={handleLibraryBookSelected} />
         </div>
-      </div>
+      {/if}
     </div>
   </div>
 
@@ -113,8 +175,59 @@
     font-size: 1.25rem;
     color: var(--secondary-text);
     line-height: 1.6;
-    margin-bottom: 48px;
+    margin-bottom: 32px;
     font-weight: 400;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 32px;
+    justify-content: center;
+  }
+
+  .tab {
+    padding: 12px 24px;
+    border: 2px solid var(--shadow-color);
+    background: var(--feature-bg);
+    color: var(--secondary-text);
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .tab:hover {
+    background: var(--surface-color);
+    color: var(--text-color);
+    transform: translateY(-2px);
+  }
+
+  .tab.active {
+    background: linear-gradient(135deg, #2196f3 0%, #9c27b0 100%);
+    color: white;
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+  }
+
+  .library-count {
+    background: rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 700;
+  }
+
+  .library-wrapper {
+    margin-top: 24px;
+    max-height: 600px;
+    overflow-y: auto;
+    border-radius: 16px;
   }
 
   .input-wrapper {

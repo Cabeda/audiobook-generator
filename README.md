@@ -17,6 +17,7 @@ A modern, browser-based audiobook generator that converts EPUB books into high-q
 - 🔄 **Audio Concatenation** - Automatically combine chapters into single file
 - 💾 **Smart Caching** - Model loads once, instant generation after
 - 🌐 **100% Browser-Based** - No server required, works offline after first load
+- 📖 **Local Library** - Books automatically saved and accessible across sessions
 
 ### 🎨 User Experience
 
@@ -26,6 +27,8 @@ A modern, browser-based audiobook generator that converts EPUB books into high-q
 - 🎭 **Voice Selection** - Choose from 27 high-quality voices
 - 📱 **Responsive Design** - Works on desktop and mobile
 - 🚫 **Cancellation** - Stop generation at any time
+- 🗂️ **Library Management** - Search, sort, and organize your saved books
+- 💾 **Storage Tracking** - Monitor browser storage usage
 
 ### 🧪 Quality Assurance
 
@@ -64,11 +67,29 @@ Open http://localhost:5173 to use the app.
 1. **Import Content**:
    - **Upload**: Drag & drop EPUB, PDF, HTML, or TXT files
    - **URL**: Paste an article URL to fetch content automatically
+   - **Library**: Access previously uploaded books from "My Library" tab
 2. **Select Chapters**: Choose which chapters to convert (or select all)
 3. **Choose Format**: Select output format (MP3, M4B, WAV, or EPUB3)
 4. **Select Quality**: Pick bitrate for MP3/M4B (128-320 kbps)
 5. **Generate**: Click "Generate & Download"
 6. **Download**: Your file downloads automatically
+
+### Library Management
+
+All uploaded books are automatically saved to your local library using IndexedDB:
+
+- **Access Library**: Click the "📚 My Library" tab on the landing page
+- **Search Books**: Use the search bar to filter by title or author
+- **Sort Options**: Recently accessed, title A-Z, or author A-Z
+- **Delete Books**: Hover over a book card and click the 🗑️ icon
+- **Storage Info**: Check usage indicator in the top-right of library view
+- **Reload Books**: Click any book card to instantly load it
+
+**Storage:**
+
+- Books persist across browser sessions
+- Typical storage limit: 50MB-1GB (browser-dependent)
+- Clear browser data to reset library
 
 ### Format Comparison
 
@@ -113,15 +134,22 @@ pnpm run test:e2e:headed  # Run E2E with visible browser
 audiobook-generator/
 ├── src/
 │   ├── components/          # Svelte components
-│   │   ├── UploadArea.svelte
+│   │   ├── LandingPage.svelte
+│   │   ├── LibraryView.svelte
+│   │   ├── BookCard.svelte
 │   │   ├── BookInspector.svelte
 │   │   └── GeneratePanel.svelte
 │   ├── lib/
+│   │   ├── libraryDB.ts     # IndexedDB storage
 │   │   ├── epubParser.ts    # EPUB parsing logic
 │   │   ├── audioConcat.ts   # Audio concatenation
 │   │   ├── kokoro/          # TTS integration
 │   │   │   └── kokoroClient.ts
 │   │   └── onnx/            # ONNX runtime
+│   ├── stores/              # Svelte stores
+│   │   ├── libraryStore.ts  # Library state
+│   │   ├── bookStore.ts     # Book state
+│   │   └── ttsStore.ts      # TTS settings
 │   └── App.svelte           # Main app
 ├── e2e/                     # E2E tests
 ├── docs/                    # Documentation
@@ -176,6 +204,7 @@ pnpm run test:e2e
 - **Runtime**: ONNX Runtime Web (WASM/WebGPU)
 - **Audio Processing**: Web Audio API + ffmpeg.wasm
 - **Document Parsing**: pdfjs-dist (PDF), readability (HTML), jszip (EPUB)
+- **Storage**: IndexedDB (local library)
 - **Testing**: Vitest + Playwright
 
 ### Data Flow
@@ -258,6 +287,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] Cover art embedding (via EPUB export)
 - [x] PDF, HTML, and TXT support
 - [x] URL to Audiobook conversion
+- [x] Local library with persistent storage
+- [ ] Export/import library backup
+- [ ] Reading progress tracking
 - [ ] Batch processing multiple files
 - [ ] Cloud storage integration
 - [ ] Mobile app (React Native)

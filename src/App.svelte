@@ -14,21 +14,68 @@
     selectedModel,
   } from './stores/ttsStore'
   import { appTheme, toggleTheme } from './stores/themeStore'
+  import { currentLibraryBookId } from './stores/libraryStore'
+
+  // Import library functions
+  import { addBook, findBookByTitleAuthor } from './lib/libraryDB'
 
   // Unified handler for both file uploads and URL imports
-  async function onBookLoaded(event: CustomEvent<{ book: Book }>) {
+  async function onBookLoaded(
+    event: CustomEvent<{
+      book: Book
+      fromLibrary?: boolean
+      libraryId?: number
+      sourceFile?: File
+      sourceUrl?: string
+    }>
+  ) {
     const providedBook = event.detail.book
+    const fromLibrary = event.detail.fromLibrary || false
+    const libraryId = event.detail.libraryId
+    const sourceFile = event.detail.sourceFile
+    const sourceUrl = event.detail.sourceUrl
+
     if (providedBook) {
       $book = providedBook
       // initialize selected map
       $selectedChapters = new Map(providedBook.chapters.map((c) => [c.id, true]))
       $generatedAudio = new Map()
 
+      // If loaded from library, track the library book ID
+      if (fromLibrary && libraryId !== undefined) {
+        $currentLibraryBookId = libraryId
+      } else {
+        // Not from library, save it to library
+        await saveBookToLibrary(providedBook, sourceFile, sourceUrl)
+        $currentLibraryBookId = null
+      }
+
       // Auto-adapt voice if book language differs from current voice language
       if (providedBook.language) {
         const bookLang = providedBook.language.toLowerCase().substring(0, 2) // Get ISO 639-1 code
         await adaptVoiceToLanguage(bookLang)
       }
+    }
+  }
+
+  // Save book to library if not already present
+  async function saveBookToLibrary(book: Book, sourceFile?: File, sourceUrl?: string) {
+    try {
+      // Check if book already exists
+      const existing = await findBookByTitleAuthor(book.title, book.author)
+      if (existing) {
+        console.log(`Book "${book.title}" already in library`)
+        $currentLibraryBookId = existing.id
+        return
+      }
+
+      // Add new book to library
+      const libraryId = await addBook(book, sourceFile, sourceUrl)
+      $currentLibraryBookId = libraryId
+      console.log(`Added book "${book.title}" to library with ID ${libraryId}`)
+    } catch (err) {
+      console.error('Failed to save book to library:', err)
+      // Don't block the user if saving fails
     }
   }
 

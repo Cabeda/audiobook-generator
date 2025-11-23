@@ -55,7 +55,7 @@
     try {
       const { loadBook } = await import('../lib/bookLoader')
       const book = await loadBook(f)
-      dispatch('bookloaded', { book })
+      dispatch('bookloaded', { book, sourceFile: f })
     } catch (err) {
       console.error('Failed to parse book:', err)
       error = err instanceof Error ? err.message : 'Unknown error parsing file'
@@ -115,7 +115,7 @@
         ],
       }
 
-      dispatch('bookloaded', { book })
+      dispatch('bookloaded', { book, sourceUrl: url })
       url = '' // Clear input on success
     } catch (err) {
       console.error('Error fetching article:', err)
