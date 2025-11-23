@@ -142,7 +142,8 @@
   }
 
   function handleClose() {
-    audioService.stop()
+    // Don't stop the audio; keep playback running and minimize the persistent player
+    audioPlayerStore.minimize()
     onBack()
   }
 

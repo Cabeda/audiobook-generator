@@ -313,6 +313,42 @@ test.describe('Audiobook Generation E2E', () => {
     await expect(readerPlayPause).toHaveAttribute('aria-label', 'Pause')
   })
 
+  test('should keep playing when clicking Back from reader', async ({ page }) => {
+    // Load book and open reader
+    const epubPath = SHORT_EPUB
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles(epubPath)
+    await page.waitForSelector('text=Short Test Book')
+
+    // Ensure first chapter is selected and open reader
+    await page.locator('button:has-text("Deselect all")').click()
+    const firstCheckbox = page.locator('input[type="checkbox"]').first()
+    await firstCheckbox.check()
+    const firstReadButton = page.locator('button:has-text("Read")').first()
+    await firstReadButton.click()
+
+    // Wait for reader to show and be playing
+    await page.waitForSelector('#chapter-title', { timeout: 10000 })
+    const readerPlayPause = page.locator('.reader-page .control-btn.play-pause')
+    await expect(readerPlayPause).toHaveAttribute('aria-label', 'Pause')
+
+    // Click back to book
+    const backButton = page.locator('.reader-header .back-button')
+    await backButton.click()
+
+    // The persistent player should still be visible and playing
+    const persistentPlayer = page.locator('.persistent-player')
+    await expect(persistentPlayer).toBeVisible({ timeout: 10000 })
+    const persistControl = persistentPlayer.locator('.control-btn.play-pause')
+    await expect(persistControl).toHaveAttribute('aria-label', 'Pause')
+
+    // Pause then resume via persistent player to confirm it toggles (not restart)
+    await persistControl.click()
+    await expect(persistControl).toHaveAttribute('aria-label', 'Play')
+    await persistControl.click()
+    await expect(persistControl).toHaveAttribute('aria-label', 'Pause')
+  })
+
   test('should generate two chapters as MP3', async ({ page }) => {
     test.setTimeout(240000) // 4 minutes for two chapters
 
