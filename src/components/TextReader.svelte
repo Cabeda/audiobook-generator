@@ -34,6 +34,7 @@
   let audio: HTMLAudioElement | null = null
   let bufferTarget = 5 // Number of segments to buffer ahead
   let bufferStatus = $state({ ready: 0, total: 0 })
+  let playbackSpeed = $state(1.0)
 
   // Split text into segments (sentences)
   function splitIntoSegments(text: string): TextSegment[] {
@@ -53,6 +54,13 @@
       segments = newSegments
       bufferedSegments = new Array(newSegments.length).fill(false)
       untrack(() => cleanup())
+    }
+  })
+
+  // Update playback speed when changed
+  $effect(() => {
+    if (audio) {
+      audio.playbackRate = playbackSpeed
     }
   })
 
@@ -174,6 +182,7 @@
     }
 
     audio = new Audio(url)
+    audio.playbackRate = playbackSpeed
 
     audio.onended = () => {
       // Move to next segment
@@ -269,13 +278,17 @@
     if (isPlaying) {
       pause()
     } else {
-      if (currentSegmentIndex < 0) {
-        // Start from beginning
-        playFromSegment(0)
-      } else {
-        // Resume from current position
+      if (audio && audio.paused && !audio.ended) {
+        // Resume existing audio
+        isPlaying = true
+        audio.play().catch(console.error)
+      } else if (currentSegmentIndex >= 0) {
+        // Restart current segment (or start if not created)
         isPlaying = true
         playCurrentSegment()
+      } else {
+        // Start from beginning
+        playFromSegment(0)
       }
     }
   }
@@ -333,6 +346,18 @@
         {isPlaying ? '⏸️ Pause' : '▶️ Play'}
       </button>
       <button onclick={stop} disabled={currentSegmentIndex < 0}>⏹️ Stop</button>
+
+      <div class="speed-control">
+        <label for="speed">Speed:</label>
+        <select id="speed" bind:value={playbackSpeed}>
+          <option value={0.5}>0.5x</option>
+          <option value={0.75}>0.75x</option>
+          <option value={1.0}>1.0x</option>
+          <option value={1.25}>1.25x</option>
+          <option value={1.5}>1.5x</option>
+          <option value={2.0}>2.0x</option>
+        </select>
+      </div>
 
       <div class="status">
         {#if isGenerating}
@@ -465,6 +490,7 @@
     padding: 16px 24px;
     border-bottom: 1px solid #e0e0e0;
     background: #f8f8f8;
+    flex-wrap: wrap;
   }
 
   .controls button {
@@ -486,6 +512,22 @@
   .controls button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .speed-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #333;
+  }
+
+  .speed-control select {
+    padding: 6px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    background: white;
+    font-size: 14px;
   }
 
   .status {
