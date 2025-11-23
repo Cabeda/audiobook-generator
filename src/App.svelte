@@ -4,59 +4,29 @@
   import LandingPage from './components/LandingPage.svelte'
   import type { Book } from './lib/types/book'
   import { piperClient } from './lib/piper/piperClient'
-  import { listVoices as listKokoroVoices, type VoiceId } from './lib/kokoro/kokoroClient'
 
-  let book = $state<Book | null>(null)
-
-  // Map of chapter id -> boolean (selected)
-  let selectedMap = $state(new Map<string, boolean>())
-
-  // generated audio map: chapter id -> { url, blob }
-  let generated = $state(new Map<string, { url: string; blob: Blob }>())
-
-  // TTS options (lifted from GeneratePanel for sharing with BookInspector)
-  let selectedVoice = $state('af_heart')
-  let selectedQuantization = $state<'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'>('q8')
-  let selectedDevice = $state<'auto' | 'wasm' | 'webgpu' | 'cpu'>('auto')
-  let selectedModel = $state<'kokoro' | 'piper'>('kokoro')
-
-  // Load TTS options from localStorage on mount
-  import { onMount } from 'svelte'
-  const QUANT_KEY = 'audiobook_quantization'
-  const VOICE_KEY = 'audiobook_voice'
-  const DEVICE_KEY = 'audiobook_device'
-  const MODEL_KEY = 'audiobook_model'
-
-  onMount(() => {
-    try {
-      const savedVoice = localStorage.getItem(VOICE_KEY)
-      if (savedVoice) selectedVoice = savedVoice
-
-      const savedQuant = localStorage.getItem(QUANT_KEY)
-      if (savedQuant) selectedQuantization = savedQuant as typeof selectedQuantization
-
-      const savedDevice = localStorage.getItem(DEVICE_KEY)
-      if (savedDevice) selectedDevice = savedDevice as typeof selectedDevice
-
-      const savedModel = localStorage.getItem(MODEL_KEY)
-      if (savedModel) selectedModel = savedModel as typeof selectedModel
-    } catch (e) {
-      // ignore (e.g., SSR or privacy mode)
-    }
-  })
+  // Import stores
+  import { book, selectedChapters, generatedAudio } from './stores/bookStore'
+  import {
+    selectedVoice,
+    selectedQuantization,
+    selectedDevice,
+    selectedModel,
+  } from './stores/ttsStore'
+  import { appTheme, toggleTheme } from './stores/themeStore'
 
   // Unified handler for both file uploads and URL imports
   async function onBookLoaded(event: CustomEvent<{ book: Book }>) {
     const providedBook = event.detail.book
     if (providedBook) {
-      book = providedBook
+      $book = providedBook
       // initialize selected map
-      selectedMap = new Map(book.chapters.map((c) => [c.id, true]))
-      generated.clear()
+      $selectedChapters = new Map(providedBook.chapters.map((c) => [c.id, true]))
+      $generatedAudio = new Map()
 
       // Auto-adapt voice if book language differs from current voice language
-      if (book.language) {
-        const bookLang = book.language.toLowerCase().substring(0, 2) // Get ISO 639-1 code
+      if (providedBook.language) {
+        const bookLang = providedBook.language.toLowerCase().substring(0, 2) // Get ISO 639-1 code
         await adaptVoiceToLanguage(bookLang)
       }
     }
@@ -65,7 +35,7 @@
   // Auto-select voice based on book language
   async function adaptVoiceToLanguage(bookLang: string) {
     // Get language of current voice
-    const currentVoiceLang = getVoiceLanguage(selectedVoice, selectedModel)
+    const currentVoiceLang = getVoiceLanguage($selectedVoice, $selectedModel)
 
     // If languages match, no need to change
     if (currentVoiceLang === bookLang) return
@@ -75,19 +45,14 @@
     )
 
     // Find a matching voice in the current model
-    if (selectedModel === 'piper') {
+    if ($selectedModel === 'piper') {
       const voices = await piperClient.getVoices()
       const matchingVoice = voices.find((v) => v.key.toLowerCase().startsWith(bookLang))
       if (matchingVoice) {
-        selectedVoice = matchingVoice.key
-        try {
-          localStorage.setItem(VOICE_KEY, selectedVoice)
-        } catch (e) {
-          // ignore
-        }
-        console.log(`Auto-selected Piper voice: ${selectedVoice}`)
+        $selectedVoice = matchingVoice.key
+        console.log(`Auto-selected Piper voice: ${$selectedVoice}`)
       }
-    } else if (selectedModel === 'kokoro') {
+    } else if ($selectedModel === 'kokoro') {
       // Kokoro only has English voices
       if (bookLang !== 'en') {
         console.log(`Book is not English, but Kokoro only supports English. Keeping current voice.`)
@@ -108,19 +73,19 @@
 
   function onSelectionChanged(e: CustomEvent) {
     const entries: [string, boolean][] = e.detail.selected || []
-    selectedMap = new Map(entries)
+    $selectedChapters = new Map(entries)
   }
 
   function onGenerated(e: CustomEvent) {
     const { id, blob } = e.detail
     const url = URL.createObjectURL(blob)
-    generated.set(id, { url, blob })
-    // trigger reactivity - NOT NEEDED in Svelte 5 with $state(Map)
-    // generated = new Map(generated)
+    $generatedAudio.set(id, { url, blob })
+    // Trigger reactivity for Map
+    $generatedAudio = new Map($generatedAudio)
   }
 
   function downloadBlob(id: string) {
-    const rec = generated.get(id)
+    const rec = $generatedAudio.get(id)
     if (!rec) return
     const a = document.createElement('a')
     a.href = rec.url
@@ -131,7 +96,7 @@
   }
 
   async function downloadBlobAsMp3(id: string) {
-    const rec = generated.get(id)
+    const rec = $generatedAudio.get(id)
     if (!rec) return
 
     try {
@@ -146,80 +111,14 @@
 
   // Get chapter title from ID
   function getChapterTitle(id: string): string {
-    if (!book) return id
-    const chapter = book.chapters.find((c) => c.id === id)
+    if (!$book) return id
+    const chapter = $book.chapters.find((c) => c.id === id)
     return chapter?.title || id
-  }
-
-  // Handle TTS option changes from GeneratePanel
-  function onVoiceChanged(e: CustomEvent) {
-    selectedVoice = e.detail.voice
-    try {
-      localStorage.setItem(VOICE_KEY, selectedVoice)
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  function onQuantizationChanged(e: CustomEvent) {
-    selectedQuantization = e.detail.quantization
-    try {
-      localStorage.setItem(QUANT_KEY, selectedQuantization)
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  function onDeviceChanged(e: CustomEvent) {
-    selectedDevice = e.detail.device
-    try {
-      localStorage.setItem(DEVICE_KEY, selectedDevice)
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  function onModelChanged(e: CustomEvent) {
-    selectedModel = e.detail.model
-    try {
-      localStorage.setItem(MODEL_KEY, selectedModel)
-    } catch (e) {
-      // ignore
-    }
-  }
-  // Global Theme
-  const APP_THEME_KEY = 'app_theme'
-  let appTheme = $state<'light' | 'dark'>('light')
-
-  onMount(() => {
-    try {
-      const savedTheme = localStorage.getItem(APP_THEME_KEY)
-      if (savedTheme === 'dark' || savedTheme === 'light') {
-        appTheme = savedTheme
-      } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        appTheme = 'dark'
-      }
-    } catch (e) {
-      // ignore
-    }
-  })
-
-  $effect(() => {
-    document.body.setAttribute('data-theme', appTheme)
-    try {
-      localStorage.setItem(APP_THEME_KEY, appTheme)
-    } catch (e) {
-      // ignore
-    }
-  })
-
-  function toggleTheme() {
-    appTheme = appTheme === 'light' ? 'dark' : 'light'
   }
 </script>
 
 <main>
-  {#if !book}
+  {#if !$book}
     <LandingPage on:bookloaded={onBookLoaded} />
   {:else}
     <div class="app-container">
@@ -229,9 +128,9 @@
           <button
             class="theme-toggle"
             onclick={toggleTheme}
-            aria-label={`Switch to ${appTheme === 'light' ? 'dark' : 'light'} mode`}
+            aria-label={`Switch to ${$appTheme === 'light' ? 'dark' : 'light'} mode`}
           >
-            {appTheme === 'light' ? '🌙' : '☀️'}
+            {$appTheme === 'light' ? '🌙' : '☀️'}
           </button>
           <button
             class="back-button"
@@ -245,32 +144,32 @@
 
       <div class="main-content">
         <GeneratePanel
-          {book}
-          {selectedMap}
-          {selectedVoice}
-          {selectedQuantization}
-          {selectedDevice}
-          {selectedModel}
+          book={$book}
+          selectedMap={$selectedChapters}
+          selectedVoice={$selectedVoice}
+          selectedQuantization={$selectedQuantization}
+          selectedDevice={$selectedDevice}
+          selectedModel={$selectedModel}
           on:generated={onGenerated}
-          on:voicechanged={onVoiceChanged}
-          on:quantizationchanged={onQuantizationChanged}
-          on:devicechanged={onDeviceChanged}
-          on:modelchanged={onModelChanged}
+          on:voicechanged={(e) => ($selectedVoice = e.detail.voice)}
+          on:quantizationchanged={(e) => ($selectedQuantization = e.detail.quantization)}
+          on:devicechanged={(e) => ($selectedDevice = e.detail.device)}
+          on:modelchanged={(e) => ($selectedModel = e.detail.model)}
         />
         <BookInspector
-          {book}
-          {selectedVoice}
-          {selectedQuantization}
-          {selectedDevice}
-          {selectedModel}
+          book={$book}
+          selectedVoice={$selectedVoice}
+          selectedQuantization={$selectedQuantization}
+          selectedDevice={$selectedDevice}
+          selectedModel={$selectedModel}
           on:selectionchanged={onSelectionChanged}
         />
 
-        {#if generated.size > 0}
+        {#if $generatedAudio.size > 0}
           <div class="generated-section" role="region" aria-labelledby="generated-heading">
             <h3 id="generated-heading">Generated Audio</h3>
             <div class="generated-list">
-              {#each Array.from(generated.entries()) as [id, rec]}
+              {#each Array.from($generatedAudio.entries()) as [id, rec]}
                 <div class="generated-item">
                   <audio controls src={rec.url} aria-label={`Audio for ${getChapterTitle(id)}`}
                   ></audio>
