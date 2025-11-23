@@ -44,6 +44,22 @@ export class PiperClient {
     const voiceId = options.voiceId || 'en_US-hfc_female-medium'
     console.log('Piper generate called with voiceId:', voiceId)
 
+    // Attempt to configure global ORT if present (common source of iOS crashes)
+    try {
+      // @ts-expect-error: accessing self.ort for iOS shim
+      if (typeof self !== 'undefined' && self.ort && self.ort.env) {
+        console.log('Configuring ORT for iOS stability...')
+        // @ts-expect-error: accessing self.ort for iOS shim
+        self.ort.env.wasm.numThreads = 1
+        // @ts-expect-error: accessing self.ort for iOS shim
+        self.ort.env.wasm.simd = false
+        // @ts-expect-error: accessing self.ort for iOS shim
+        self.ort.env.wasm.proxy = false
+      }
+    } catch (e) {
+      console.warn('Failed to configure ORT:', e)
+    }
+
     // Check if model is stored
     const storedModels = await tts.stored()
     console.log('Piper stored models:', storedModels)

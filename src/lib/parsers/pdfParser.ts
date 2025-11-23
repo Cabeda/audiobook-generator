@@ -1,6 +1,5 @@
 import * as pdfjsLib from 'pdfjs-dist'
 import type { Book, BookParser, Chapter } from '../types/book'
-import { readFileAsText } from '../fileUtils'
 
 // Configure PDF.js worker
 // In browser, this should point to the worker file from pdfjs-dist

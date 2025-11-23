@@ -29,13 +29,7 @@ test.describe('Audiobook Generation E2E', () => {
     // Upload EPUB
     const epubPath = SHORT_EPUB
 
-    const epubBuffer = await readFile(epubPath)
-
     const fileInput = page.locator('input[type="file"]')
-    const fileInputsCount = await page.evaluate(
-      () => document.querySelectorAll('input[type="file"]').length
-    )
-
     // Use direct path upload to ensure Playwright sets the exact file on the browser
     await fileInput.setInputFiles(epubPath)
 
@@ -123,13 +117,6 @@ test.describe('Audiobook Generation E2E', () => {
       name: 'Robinson_Crusoe.epub',
       mimeType: 'application/epub+zip',
       buffer: epubBuffer,
-    })
-
-    // Debug: inspect the file input's first file name and size in the page context
-    const fileInfo = await page.evaluate(() => {
-      const input = document.querySelector('input[type="file"]') as HTMLInputElement
-      const f = input?.files?.[0]
-      return f ? { name: f.name, size: f.size } : null
     })
 
     // Wait for parsing to complete

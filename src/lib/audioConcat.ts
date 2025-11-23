@@ -315,7 +315,7 @@ export async function audioLikeToBlob(
       const arr = await audio.arrayBuffer()
       const t = (audio as any).type as string | undefined
       return new Blob([arr], { type: t || 'audio/wav' })
-    } catch (e) {
+    } catch {
       // fall through
     }
   }
@@ -325,7 +325,7 @@ export async function audioLikeToBlob(
     try {
       // Use internal converter
       return audioBufferToWav(audio as AudioBuffer)
-    } catch (e) {
+    } catch {
       // fall through
     }
   }
@@ -370,7 +370,7 @@ export async function audioLikeToBlob(
         const resolved = typeof (cand as any)?.then === 'function' ? await cand : cand
         const maybe = await audioLikeToBlob(resolved, _seen, _depth + 1)
         return maybe
-      } catch (e) {
+      } catch {
         // try next candidate
       }
     }

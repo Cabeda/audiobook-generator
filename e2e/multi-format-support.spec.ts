@@ -21,10 +21,10 @@ test.describe('Multi-Format eBook Support', () => {
     expect(uploadText).toContain('HTML')
   })
 
-  test.skip('should show format badge after EPUB upload', async ({ page }) => {
-    // Skipped: requires specific EPUB file
-    // This functionality is tested manually and in other existing E2E tests
-  })
+  // test.skip('should show format badge after EPUB upload', async ({ page }) => {
+  //   // Skipped: requires specific EPUB file
+  //   // This functionality is tested manually and in other existing E2E tests
+  // })
 
   test('should successfully upload and parse TXT file', async ({ page }) => {
     const fileInput = page.locator('input[type="file"]')

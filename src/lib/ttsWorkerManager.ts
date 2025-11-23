@@ -95,7 +95,7 @@ export class TTSWorkerManager {
               if (respAny.message) {
                 try {
                   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                  // @ts-ignore
+                  // @ts-expect-error
                   err.stack = respAny.message
                 } catch (e) {
                   alert(e)

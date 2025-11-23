@@ -3,6 +3,7 @@
  * This worker handles TTS generation off the main thread
  */
 
+import './worker-setup.ts'
 import { getTTSEngine, type TTSModelType } from './lib/tts/ttsModels.ts'
 
 // Message types

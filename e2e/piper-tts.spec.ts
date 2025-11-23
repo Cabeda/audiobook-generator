@@ -78,7 +78,7 @@ test.describe('Piper TTS E2E', () => {
     // Note: The exact text might vary, but we expect some progress indication
     try {
       await expect(page.locator('text=/Downloading voice model/i')).toBeVisible({ timeout: 30000 })
-    } catch (e) {
+    } catch {
       console.log('Model might have been cached or download was too fast to catch')
     }
 
