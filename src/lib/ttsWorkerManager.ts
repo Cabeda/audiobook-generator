@@ -146,35 +146,64 @@ export class TTSWorkerManager {
     model?: string
     device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
   }): Promise<Blob> {
-    await this.readyPromise
-    if (!this.worker) throw new Error('Worker not initialized')
+    // Helper to execute the request
+    const execute = async () => {
+      await this.readyPromise
+      if (!this.worker) throw new Error('Worker not initialized')
 
-    const id = `req_${++this.requestCounter}`
+      const id = `req_${++this.requestCounter}`
 
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, {
-        resolve,
-        reject,
-        onProgress: options.onProgress,
-        onChunkProgress: options.onChunkProgress,
+      return new Promise<Blob>((resolve, reject) => {
+        this.pendingRequests.set(id, {
+          resolve,
+          reject,
+          onProgress: options.onProgress,
+          onChunkProgress: options.onChunkProgress,
+        })
+        const modelType = options.modelType
+
+        const request: WorkerRequest = {
+          id,
+          type: 'generate',
+          text: options.text,
+          modelType: modelType,
+          voice: options.voice,
+          speed: options.speed,
+          pitch: options.pitch,
+          dtype: options.dtype,
+          model: options.model,
+          device: options.device,
+        }
+
+        this.worker!.postMessage(request)
       })
-      const modelType = options.modelType || 'edge'
+    }
 
-      const request: WorkerRequest = {
-        id,
-        type: 'generate',
-        text: options.text,
-        modelType: modelType,
-        voice: options.voice,
-        speed: options.speed,
-        pitch: options.pitch,
-        dtype: options.dtype,
-        model: options.model,
-        device: options.device,
+    try {
+      return await execute()
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      // Check for memory allocation errors, session creation errors, or WASM aborts
+      if (
+        errorMsg.includes('failed to allocate') ||
+        errorMsg.includes("Can't create a session") ||
+        errorMsg.includes('Out of memory') ||
+        errorMsg.includes('Aborted()')
+      ) {
+        console.warn(
+          '[TTSWorkerManager] Critical worker error detected, restarting worker and retrying...',
+          err
+        )
+
+        // Terminate and re-init
+        this.terminate()
+        this.readyPromise = this.initWorker()
+
+        // Retry once
+        return await execute()
       }
-
-      this.worker!.postMessage(request)
-    })
+      throw err
+    }
   }
 
   async generateSegments(options: {
@@ -201,7 +230,7 @@ export class TTSWorkerManager {
         onProgress: options.onProgress,
         onChunkProgress: options.onChunkProgress,
       })
-      const modelType = options.modelType || 'edge'
+      const modelType = options.modelType
 
       const request: WorkerRequest = {
         id,

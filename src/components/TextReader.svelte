@@ -34,7 +34,19 @@
   let audio: HTMLAudioElement | null = null
   let bufferTarget = 5 // Number of segments to buffer ahead
   let bufferStatus = $state({ ready: 0, total: 0 })
-  let playbackSpeed = $state(1.0)
+  const SPEED_KEY = 'text_reader_speed'
+
+  // Initialize from localStorage if available
+  let initialSpeed = 1.0
+  try {
+    const saved = localStorage.getItem(SPEED_KEY)
+    if (saved) initialSpeed = parseFloat(saved)
+  } catch (e) {
+    // ignore
+  }
+
+  let playbackSpeed = $state(initialSpeed)
+  let pendingGenerations = new Map<number, Promise<void>>()
 
   // Split text into segments (sentences)
   function splitIntoSegments(text: string): TextSegment[] {
@@ -62,31 +74,75 @@
     if (audio) {
       audio.playbackRate = playbackSpeed
     }
+    try {
+      localStorage.setItem(SPEED_KEY, playbackSpeed.toString())
+    } catch (e) {
+      // ignore
+    }
   })
+
+  const MAX_RETRIES = 3
+  const RETRY_DELAY_MS = 1000
 
   // Generate audio for a specific segment
   async function generateSegment(index: number): Promise<void> {
     if (audioSegments.has(index)) return // Already generated
 
+    // Return existing promise if already generating
+    if (pendingGenerations.has(index)) {
+      return pendingGenerations.get(index)
+    }
+
     const segment = segments[index]
-    if (!segment) return
+    if (!segment) {
+      console.error(
+        `generateSegment: Segment ${index} not found in segments array (length ${segments.length})`
+      )
+      return
+    }
+
+    const promise = (async () => {
+      let lastError: unknown
+
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const worker = getTTSWorker()
+          const blob = await worker.generateVoice({
+            text: segment.text,
+            modelType: selectedModel,
+            voice: voice,
+            dtype: selectedModel === 'kokoro' ? quantization : undefined,
+            device: device,
+          })
+
+          const url = URL.createObjectURL(blob)
+          audioSegments.set(index, url)
+          bufferedSegments[index] = true // Trigger fine-grained reactivity
+          return // Success
+        } catch (err) {
+          console.warn(
+            `Failed to generate segment ${index} (attempt ${attempt}/${MAX_RETRIES}):`,
+            err
+          )
+          lastError = err
+
+          if (attempt < MAX_RETRIES) {
+            // Wait before retrying with exponential backoff
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt))
+          }
+        }
+      }
+
+      console.error(`Failed to generate segment ${index} after ${MAX_RETRIES} attempts`)
+      throw lastError
+    })()
+
+    pendingGenerations.set(index, promise)
 
     try {
-      const worker = getTTSWorker()
-      const blob = await worker.generateVoice({
-        text: segment.text,
-        modelType: selectedModel,
-        voice: voice,
-        dtype: selectedModel === 'kokoro' ? quantization : undefined,
-        device: device,
-      })
-
-      const url = URL.createObjectURL(blob)
-      audioSegments.set(index, url)
-      bufferedSegments[index] = true // Trigger fine-grained reactivity
-    } catch (err) {
-      console.error(`Failed to generate segment ${index}:`, err)
-      throw err
+      await promise
+    } finally {
+      pendingGenerations.delete(index)
     }
   }
 
@@ -158,10 +214,16 @@
         await generateSegment(index)
       } catch (err) {
         console.error('Failed to generate segment:', err)
-        isPlaying = false
+        // Only stop if we are still trying to play this segment
+        if (currentSegmentIndex === index) {
+          isPlaying = false
+        }
         return
       }
     }
+
+    // Check if user switched segment while generating
+    if (currentSegmentIndex !== index) return
 
     // Start buffering ahead
     bufferSegments(index + 1, bufferTarget).catch(console.error)
@@ -173,12 +235,36 @@
     scrollToSegment(index)
   }
 
-  function playCurrentSegment() {
-    const url = audioSegments.get(currentSegmentIndex)
+  async function playCurrentSegment() {
+    const index = currentSegmentIndex
+    let url = audioSegments.get(index)
+
+    // If audio is missing (buffer underrun), generate it now
     if (!url) {
-      console.error('No audio for current segment')
-      isPlaying = false
-      return
+      console.log(`Buffer underrun for segment ${index}, generating...`)
+      isGenerating = true
+      try {
+        await generateSegment(index)
+
+        // Check if user switched segment or stopped while generating
+        if (currentSegmentIndex !== index || !isPlaying) {
+          isGenerating = false
+          return
+        }
+
+        url = audioSegments.get(index)
+        if (!url) throw new Error('Generation finished but no URL found')
+      } catch (err) {
+        console.error('Failed to recover segment:', err)
+        // Only stop if we are still on the same segment
+        if (currentSegmentIndex === index) {
+          isPlaying = false
+        }
+        isGenerating = false
+        return
+      } finally {
+        isGenerating = false
+      }
     }
 
     audio = new Audio(url)
@@ -211,14 +297,20 @@
 
     audio.onerror = (err) => {
       console.error('Audio playback error:', err)
-      isPlaying = false
-      audio = null
+      // Try to recover from playback error by regenerating
+      if (currentSegmentIndex === index) {
+        console.log('Attempting to recover from playback error...')
+        audioSegments.delete(index)
+        playCurrentSegment()
+      }
     }
 
     audio.play().catch((err) => {
       console.error('Failed to play audio:', err)
-      isPlaying = false
-      audio = null
+      if (currentSegmentIndex === index) {
+        isPlaying = false
+        audio = null
+      }
     })
 
     // Use requestAnimationFrame to batch DOM updates
@@ -391,13 +483,13 @@
           class="segment"
           class:reading={currentSegmentIndex === segment.index}
           class:buffered={bufferedSegments[segment.index]}
-          class:clickable={!isGenerating}
-          onclick={() => !isGenerating && playFromSegment(segment.index)}
+          class:clickable={true}
+          onclick={() => playFromSegment(segment.index)}
           role="button"
           tabindex="0"
           aria-current={currentSegmentIndex === segment.index ? 'true' : undefined}
           onkeypress={(e) => {
-            if (e.key === 'Enter' && !isGenerating) playFromSegment(segment.index)
+            if (e.key === 'Enter') playFromSegment(segment.index)
           }}
         >
           {segment.text}
