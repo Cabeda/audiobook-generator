@@ -39,7 +39,7 @@ A modern, browser-based audiobook generator that converts EPUB books into high-q
 ### Prerequisites
 
 - Node.js 20.x or higher
-- npm or yarn
+- pnpm (install globally: `npm install -g pnpm`)
 
 ### Installation
 
@@ -49,10 +49,10 @@ git clone https://github.com/Cabeda/audiobook-generator.git
 cd audiobook-generator
 
 # Install dependencies
-npm install
+pnpm install
 
 # Start development server
-npm run dev
+pnpm run dev
 ```
 
 Open http://localhost:5173 to use the app.
@@ -95,16 +95,16 @@ See [docs/KOKORO_INTEGRATION.md](docs/KOKORO_INTEGRATION.md) for all 27 voices.
 
 ```bash
 # Development
-npm run dev          # Start dev server
-npm run build        # Build for production
-npm run preview      # Preview production build
+pnpm run dev          # Start dev server
+pnpm run build        # Build for production
+pnpm run preview      # Preview production build
 
 # Testing
-npm test             # Run unit tests
-npm run test:ui      # Run tests with UI
-npm run test:e2e     # Run E2E tests
-npm run test:e2e:ui  # Run E2E tests with UI
-npm run test:e2e:headed  # Run E2E with visible browser
+pnpm test             # Run unit tests
+pnpm run test:ui      # Run tests with UI
+pnpm run test:e2e     # Run E2E tests
+pnpm run test:e2e:ui  # Run E2E tests with UI
+pnpm run test:e2e:headed  # Run E2E with visible browser
 ```
 
 ### Project Structure
@@ -142,7 +142,7 @@ audiobook-generator/
 ### Unit Tests (27 tests)
 
 ```bash
-npm test
+pnpm test
 ```
 
 **Coverage:**
@@ -154,7 +154,7 @@ npm test
 ### E2E Tests (9 tests)
 
 ```bash
-npm run test:e2e
+pnpm run test:e2e
 ```
 
 **Coverage:**
@@ -222,7 +222,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Run tests (`npm test && npm run test:e2e`)
+4. Run tests (`pnpm test && pnpm run test:e2e`)
 5. Commit your changes (`git commit -m 'Add amazing feature'`)
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
