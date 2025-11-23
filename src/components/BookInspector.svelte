@@ -2,7 +2,6 @@
   import { createEventDispatcher } from 'svelte'
   import type { Book, Chapter } from '../lib/types/book'
   import { getTTSWorker } from '../lib/ttsWorkerManager'
-  import TextReader from './TextReader.svelte'
 
   let {
     book,
@@ -31,9 +30,6 @@
   // Cache for preview URLs: key -> blob URL
   // Key format: `${chapterId}:${voice}:${quantization}`
   let previewCache = new Map<string, string>()
-
-  // Track which chapter reader is open
-  let openReaderId = $state<string | null>(null)
 
   // initialize selections when book changes
   $effect(() => {
@@ -204,11 +200,8 @@
   function openReader(ch: Chapter) {
     // Stop any preview that might be playing
     stopPreview()
-    openReaderId = ch.id
-  }
-
-  function closeReader() {
-    openReaderId = null
+    // Dispatch event to navigate to reader view
+    dispatch('readchapter', { chapter: ch })
   }
 </script>
 
@@ -299,21 +292,6 @@
       </div>
     {/each}
   </div>
-
-  <!-- TextReader modal -->
-  {#if openReaderId}
-    {@const readerChapter = book.chapters.find((ch: Chapter) => ch.id === openReaderId)}
-    {#if readerChapter}
-      <TextReader
-        chapter={readerChapter}
-        voice={selectedVoice}
-        quantization={selectedQuantization}
-        device={selectedDevice}
-        {selectedModel}
-        onClose={closeReader}
-      />
-    {/if}
-  {/if}
 </div>
 
 <style>

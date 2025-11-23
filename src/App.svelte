@@ -3,6 +3,8 @@
   import GeneratePanel from './components/GeneratePanel.svelte'
   import LandingPage from './components/LandingPage.svelte'
   import Toast from './components/Toast.svelte'
+  import PersistentPlayer from './components/PersistentPlayer.svelte'
+  import TextReader from './components/TextReader.svelte'
   import type { Book } from './lib/types/book'
   import { piperClient } from './lib/piper/piperClient'
 
@@ -16,9 +18,50 @@
   } from './stores/ttsStore'
   import { appTheme, toggleTheme } from './stores/themeStore'
   import { currentLibraryBookId } from './stores/libraryStore'
+  import { audioPlayerStore, isPlayerActive, isPlayerMinimized } from './stores/audioPlayerStore'
 
   // Import library functions
   import { addBook, findBookByTitleAuthor } from './lib/libraryDB'
+  import type { Chapter } from './lib/types/book'
+
+  // View state management
+  type ViewType = 'landing' | 'book' | 'reader'
+  let currentView = $state<ViewType>('landing')
+  let currentChapter = $state<Chapter | null>(null)
+
+  // Navigation handlers
+  function navigateToReader(chapter: Chapter) {
+    currentChapter = chapter
+    currentView = 'reader'
+
+    // Maximize player to hide persistent bar when in reader
+    if ($isPlayerActive) {
+      audioPlayerStore.maximize()
+    }
+  }
+
+  function navigateToBook() {
+    currentView = 'book'
+    // Minimize player if it's active
+    if ($isPlayerActive) {
+      audioPlayerStore.minimize()
+    }
+  }
+
+  function navigateToLanding() {
+    currentView = 'landing'
+    currentChapter = null
+    // Stop playback when leaving book
+    audioPlayerStore.stop()
+  }
+
+  // Handle maximize from persistent player
+  function handlePlayerMaximize() {
+    if (currentChapter) {
+      currentView = 'reader'
+      audioPlayerStore.maximize()
+    }
+  }
 
   // Unified handler for both file uploads and URL imports
   async function onBookLoaded(
@@ -56,6 +99,9 @@
         const bookLang = providedBook.language.toLowerCase().substring(0, 2) // Get ISO 639-1 code
         await adaptVoiceToLanguage(bookLang)
       }
+
+      // Navigate to book view
+      currentView = 'book'
     }
   }
 
@@ -167,9 +213,10 @@
 
 <main>
   <Toast />
-  {#if !$book}
+
+  {#if currentView === 'landing'}
     <LandingPage on:bookloaded={onBookLoaded} />
-  {:else}
+  {:else if currentView === 'book' && $book}
     <div class="app-container">
       <div class="header">
         <h1>Audiobook Generator</h1>
@@ -183,8 +230,8 @@
           </button>
           <button
             class="back-button"
-            onclick={() => window.location.reload()}
-            aria-label="Start over with a new book"
+            onclick={navigateToLanding}
+            aria-label="Return to landing page"
           >
             ← Start Over
           </button>
@@ -212,6 +259,7 @@
           selectedDevice={$selectedDevice}
           selectedModel={$selectedModel}
           on:selectionchanged={onSelectionChanged}
+          on:readchapter={(e) => navigateToReader(e.detail.chapter)}
         />
 
         {#if $generatedAudio.size > 0}
@@ -242,8 +290,27 @@
         {/if}
       </div>
     </div>
+  {:else if currentView === 'reader' && currentChapter && $book}
+    <TextReader
+      chapter={currentChapter}
+      bookId={$currentLibraryBookId}
+      bookTitle={$book.title}
+      voice={$selectedVoice}
+      quantization={$selectedQuantization}
+      device={$selectedDevice}
+      selectedModel={$selectedModel}
+      onBack={navigateToBook}
+      onChapterChange={(chapter) => {
+        currentChapter = chapter
+      }}
+    />
   {/if}
 </main>
+
+<!-- Persistent Audio Player -->
+{#if $isPlayerActive && $isPlayerMinimized}
+  <PersistentPlayer onMaximize={handlePlayerMaximize} />
+{/if}
 
 <style>
   .app-container {
