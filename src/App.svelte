@@ -34,22 +34,28 @@
   function navigateToReader(chapter: Chapter) {
     currentChapter = chapter
     currentView = 'reader'
+    // Only initialize a new audio session if the audio player isn't already
+    // playing the same chapter with the same settings. This prevents a
+    // full restart when users click 'Read' while already listening in the
+    // persistent player.
+    const store = $audioPlayerStore
+    const sameChapter = store.chapterId === chapter.id && store.bookId === $currentLibraryBookId
 
-    // Initialize audio in the reader and start playback immediately to ensure
-    // the reader UI is active when playing. Use current selected settings.
-    try {
-      audioService.initialize($currentLibraryBookId, $book?.title || '', chapter, {
-        voice: $selectedVoice,
-        quantization: $selectedQuantization,
-        device: $selectedDevice,
-        selectedModel: $selectedModel,
-        playbackSpeed: audioService.playbackSpeed,
-      })
-      audioService
-        .play()
-        .catch((err) => console.debug('Auto-play failed from navigateToReader:', err))
-    } catch (err) {
-      console.error('Failed to initialize audio service from navigateToReader:', err)
+    if (!sameChapter) {
+      try {
+        audioService.initialize($currentLibraryBookId, $book?.title || '', chapter, {
+          voice: $selectedVoice,
+          quantization: $selectedQuantization,
+          device: $selectedDevice,
+          selectedModel: $selectedModel,
+          playbackSpeed: audioService.playbackSpeed,
+        })
+        audioService
+          .play()
+          .catch((err) => console.debug('Auto-play failed from navigateToReader:', err))
+      } catch (err) {
+        console.error('Failed to initialize audio service from navigateToReader:', err)
+      }
     }
 
     // Maximize player to hide persistent bar when in reader

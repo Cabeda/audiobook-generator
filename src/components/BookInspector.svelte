@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
   import type { Book, Chapter } from '../lib/types/book'
-  import { getTTSWorker } from '../lib/ttsWorkerManager'
+  // TTS worker is used by other UI components (GeneratePanel, Audio service).
+  // BookInspector no longer needs to import it since preview was removed.
 
   let {
     book,
@@ -22,14 +23,8 @@
   // Map of chapter id -> selected
   let selected = $state(new Map<string, boolean>())
 
-  // Preview playback state
-  let playingChapterId = $state<string | null>(null)
-  let loadingChapterId = $state<string | null>(null)
-  let previewAudio: HTMLAudioElement | null = null
-
-  // Cache for preview URLs: key -> blob URL
-  // Key format: `${chapterId}:${voice}:${quantization}`
-  let previewCache = new Map<string, string>()
+  // No preview playback state here anymore; preview removed to avoid
+  // duplicate controls and keep UI simple.
 
   // initialize selections when book changes
   $effect(() => {
@@ -51,11 +46,7 @@
       }
       selected = newMap
 
-      // Clear cache and revoke URLs when book changes
-      for (const url of previewCache.values()) {
-        URL.revokeObjectURL(url)
-      }
-      previewCache.clear()
+      // Nothing else to clear here
     }
   })
 
@@ -104,102 +95,10 @@
     navigator.clipboard?.writeText(ch.content).catch(() => alert('Clipboard not available'))
   }
 
-  function getPreviewText(content: string, maxChars = 500): string {
-    // Split by paragraphs
-    const paragraphs = content.split(/\n\n+/).filter((p) => p.trim())
-
-    // Take first 2 paragraphs
-    let preview = paragraphs.slice(0, 2).join('\n\n')
-
-    // Limit to maxChars
-    if (preview.length > maxChars) {
-      preview = preview.slice(0, maxChars).trim() + '...'
-    }
-
-    return preview || content.slice(0, maxChars)
-  }
-
-  function stopPreview() {
-    if (previewAudio) {
-      previewAudio.pause()
-      // Don't revoke URL here as we want to cache it
-      previewAudio = null
-    }
-    playingChapterId = null
-    loadingChapterId = null
-  }
-
-  async function previewChapter(ch: Chapter) {
-    // If this chapter is currently playing, stop it
-    if (playingChapterId === ch.id) {
-      stopPreview()
-      return
-    }
-
-    try {
-      // Stop any currently playing preview
-      stopPreview()
-
-      // Check cache first
-      const cacheKey = `${ch.id}:${selectedModel}:${selectedVoice}:${selectedQuantization}`
-      let url = previewCache.get(cacheKey)
-
-      if (!url) {
-        // Set loading state only if we need to generate
-        loadingChapterId = ch.id
-
-        // Get preview text (first 500 chars or 2 paragraphs)
-        const previewText = getPreviewText(ch.content)
-
-        // Generate TTS preview using selected options
-        const worker = getTTSWorker()
-        const blob = await worker.generateVoice({
-          text: previewText,
-          modelType: selectedModel,
-          voice: selectedVoice,
-          dtype: selectedModel === 'kokoro' ? selectedQuantization : undefined,
-          device: selectedDevice,
-        })
-
-        // Clear loading state
-        loadingChapterId = null
-
-        // Create URL and cache it
-        url = URL.createObjectURL(blob)
-        previewCache.set(cacheKey, url)
-      }
-
-      // Create and play audio
-      if (url) {
-        previewAudio = new Audio(url)
-        playingChapterId = ch.id
-
-        // Clear playing state when audio ends
-        previewAudio.onended = () => {
-          playingChapterId = null
-          previewAudio = null
-        }
-
-        // Handle errors
-        previewAudio.onerror = () => {
-          playingChapterId = null
-          loadingChapterId = null
-          alert('Failed to play preview audio')
-        }
-
-        await previewAudio.play()
-      }
-    } catch (err) {
-      playingChapterId = null
-      loadingChapterId = null
-      console.error('Preview generation error:', err)
-      alert('Failed to generate preview: ' + (err instanceof Error ? err.message : 'Unknown error'))
-    }
-  }
+  // Preview functionality removed: the Read button is the single play entry point
+  // and the persistent player / TextReader handle playback.
 
   function openReader(ch: Chapter) {
-    // Stop any preview that might be playing
-    stopPreview()
     // Dispatch event to navigate to reader view
     dispatch('readchapter', { chapter: ch })
   }
@@ -252,26 +151,7 @@
         </div>
 
         <div class="card-actions">
-          <button
-            class="action-btn preview-btn"
-            class:loading={loadingChapterId === ch.id}
-            class:playing={playingChapterId === ch.id}
-            onclick={() => previewChapter(ch)}
-            disabled={loadingChapterId === ch.id}
-            title={playingChapterId === ch.id ? 'Stop preview' : 'Preview audio'}
-            aria-label={playingChapterId === ch.id
-              ? `Stop preview for ${ch.title}`
-              : `Preview audio for ${ch.title}`}
-          >
-            {#if loadingChapterId === ch.id}
-              <span class="icon spin" aria-hidden="true">⏳</span>
-            {:else if playingChapterId === ch.id}
-              <span class="icon" aria-hidden="true">⏹️</span> Stop
-            {:else}
-              <span class="icon" aria-hidden="true">🔊</span> Preview
-            {/if}
-          </button>
-
+          <!-- Preview button removed; Read starts playback in reader and persistent player -->
           <button
             class="action-btn"
             onclick={() => openReader(ch)}
@@ -319,10 +199,6 @@
     display: inline-block;
     padding: 4px 8px;
     background: var(--selected-bg);
-    color: var(--primary-hover);
-    border-radius: 6px;
-    font-size: 0.75rem;
-    font-weight: 700;
     letter-spacing: 0.5px;
   }
 
@@ -334,17 +210,8 @@
     padding: 16px 0;
     margin-bottom: 16px;
     border-bottom: 1px solid var(--border-color);
-    flex-wrap: wrap;
-    gap: 12px;
   }
-
-  .left-controls,
-  .right-controls {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
+  /* Cleaned up preview styles; spin keyframes kept for other components. */
   .text-btn {
     background: none;
     border: none;
@@ -485,18 +352,7 @@
     font-size: 1.1em;
   }
 
-  /* Preview Button States */
-  .preview-btn.playing {
-    background: var(--selected-bg);
-    border-color: var(--primary-color);
-    color: var(--primary-hover);
-    animation: playing-pulse 2s infinite;
-  }
-
-  .icon.spin {
-    display: inline-block;
-    animation: spin 1s linear infinite;
-  }
+  /* Preview Button States removed */
 
   @keyframes spin {
     from {
@@ -507,17 +363,7 @@
     }
   }
 
-  @keyframes playing-pulse {
-    0% {
-      box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.4);
-    }
-    70% {
-      box-shadow: 0 0 0 6px rgba(33, 150, 243, 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 rgba(33, 150, 243, 0);
-    }
-  }
+  /* playing-pulse animation removed */
 
   /* Mobile Responsive */
   @media (max-width: 640px) {
