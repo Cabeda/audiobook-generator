@@ -18,16 +18,26 @@
   let { onbookselected }: Props = $props()
 
   let searchQuery = $state('')
+  let debouncedSearchQuery = $state('')
   let sortBy = $state<'recent' | 'title' | 'author'>('recent')
   let storageInfo = $state<{ usage: number; quota: number; percentage: number } | null>(null)
+
+  // Debounce search to avoid filtering on every keystroke
+  $effect(() => {
+    const timeout = setTimeout(() => {
+      debouncedSearchQuery = searchQuery
+    }, 300)
+
+    return () => clearTimeout(timeout)
+  })
 
   // Computed filtered and sorted books
   let filteredBooks = $derived.by(() => {
     let books = $libraryBooks
 
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
+    // Filter by debounced search query
+    if (debouncedSearchQuery.trim()) {
+      const query = debouncedSearchQuery.toLowerCase()
       books = books.filter(
         (book) =>
           book.title.toLowerCase().includes(query) || book.author.toLowerCase().includes(query)

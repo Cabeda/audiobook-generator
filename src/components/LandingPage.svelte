@@ -91,7 +91,7 @@
           </div>
           <div class="feature-item">
             <span class="icon">🎙️</span>
-            <span>Powered by Kokoro AI</span>
+            <span>Support Kokoro and Piper AI models</span>
           </div>
         </div>
       {:else}

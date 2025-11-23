@@ -526,7 +526,7 @@
     <!-- Text content -->
     <div class="text-content" role="feed" aria-label="Chapter content">
       {#each segments as segment (segment.index)}
-        <p
+        <span
           id="segment-{segment.index}"
           class="segment"
           class:reading={currentSegmentIndex === segment.index}
@@ -536,12 +536,15 @@
           role="button"
           tabindex="0"
           aria-current={currentSegmentIndex === segment.index ? 'true' : undefined}
-          onkeypress={(e) => {
-            if (e.key === 'Enter') playFromSegment(segment.index)
+          onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              playFromSegment(segment.index)
+            }
           }}
         >
           {segment.text}
-        </p>
+        </span>
       {/each}
     </div>
   </div>

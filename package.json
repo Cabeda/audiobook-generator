@@ -38,6 +38,7 @@
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-svelte": "^3.13.0",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^16.5.0",
     "husky": "^9.1.7",
     "jsdom": "^27.2.0",

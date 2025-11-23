@@ -54,12 +54,25 @@
       }
     }
   }
+
+  function handleKeydown(e: KeyboardEvent) {
+    // Load book on Enter or Space
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handleLoad()
+    }
+    // Delete book on Delete key
+    if (e.key === 'Delete') {
+      e.preventDefault()
+      handleDelete(e as unknown as MouseEvent)
+    }
+  }
 </script>
 
-<div class="book-card" onclick={handleLoad} role="button" tabindex="0">
+<div class="book-card" onclick={handleLoad} onkeydown={handleKeydown} role="button" tabindex="0">
   <div class="book-cover">
     {#if book.cover}
-      <img src={book.cover} alt={`Cover of ${book.title}`} />
+      <img src={book.cover} alt={`Cover of ${book.title}`} loading="lazy" decoding="async" />
     {:else}
       <div class="no-cover">
         <span class="book-icon">📚</span>

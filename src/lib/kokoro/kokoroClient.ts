@@ -323,6 +323,17 @@ export async function generateVoiceSegments(
             blob = await audioLikeToBlob(audio)
           }
 
+          // Validate blob
+          if (
+            blob &&
+            typeof blob === 'object' &&
+            'toString' in blob &&
+            String(blob).includes('JSHandle')
+          ) {
+            console.warn('Generated blob looks like JSHandle:', String(blob))
+            throw new Error('Generated audio is a JSHandle, not a Blob')
+          }
+
           segments.push({ text: chunkText, blob })
           if (onChunkProgress) onChunkProgress(chunkCount, 0)
         }
@@ -350,6 +361,17 @@ export async function generateVoiceSegments(
       } else {
         const { audioLikeToBlob } = await import('../audioConcat.ts')
         blob = await audioLikeToBlob(audio)
+      }
+
+      // Validate blob
+      if (
+        blob &&
+        typeof blob === 'object' &&
+        'toString' in blob &&
+        String(blob).includes('JSHandle')
+      ) {
+        console.warn('Generated blob looks like JSHandle:', String(blob))
+        throw new Error('Generated audio is a JSHandle, not a Blob')
       }
 
       return [{ text, blob }]

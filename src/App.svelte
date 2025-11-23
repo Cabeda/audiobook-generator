@@ -2,6 +2,7 @@
   import BookInspector from './components/BookInspector.svelte'
   import GeneratePanel from './components/GeneratePanel.svelte'
   import LandingPage from './components/LandingPage.svelte'
+  import Toast from './components/Toast.svelte'
   import type { Book } from './lib/types/book'
   import { piperClient } from './lib/piper/piperClient'
 
@@ -165,6 +166,7 @@
 </script>
 
 <main>
+  <Toast />
   {#if !$book}
     <LandingPage on:bookloaded={onBookLoaded} />
   {:else}
