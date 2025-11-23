@@ -19,6 +19,7 @@
   import { appTheme, toggleTheme } from './stores/themeStore'
   import { currentLibraryBookId } from './stores/libraryStore'
   import { audioPlayerStore, isPlayerActive, isPlayerMinimized } from './stores/audioPlayerStore'
+  import { audioService } from './lib/audioPlaybackService.svelte'
 
   // Import library functions
   import { addBook, findBookByTitleAuthor } from './lib/libraryDB'
@@ -33,6 +34,23 @@
   function navigateToReader(chapter: Chapter) {
     currentChapter = chapter
     currentView = 'reader'
+
+    // Initialize audio in the reader and start playback immediately to ensure
+    // the reader UI is active when playing. Use current selected settings.
+    try {
+      audioService.initialize($currentLibraryBookId, $book?.title || '', chapter, {
+        voice: $selectedVoice,
+        quantization: $selectedQuantization,
+        device: $selectedDevice,
+        selectedModel: $selectedModel,
+        playbackSpeed: audioService.playbackSpeed,
+      })
+      audioService
+        .play()
+        .catch((err) => console.debug('Auto-play failed from navigateToReader:', err))
+    } catch (err) {
+      console.error('Failed to initialize audio service from navigateToReader:', err)
+    }
 
     // Maximize player to hide persistent bar when in reader
     if ($isPlayerActive) {

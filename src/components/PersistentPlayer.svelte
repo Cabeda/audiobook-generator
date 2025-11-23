@@ -33,7 +33,9 @@
   }
 
   function handleClose() {
+    // Stop playback and clear the player state so the persistent player hides
     audioService.stop()
+    audioPlayerStore.stop()
   }
 
   function handleBarClick(e: MouseEvent) {

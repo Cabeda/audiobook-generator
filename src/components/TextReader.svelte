@@ -80,8 +80,10 @@
           selectedModel,
           playbackSpeed: initialSpeed,
         })
-        // Auto-play when opening a new chapter
-        audioService.play()
+        // Auto-play when opening a new chapter (async without blocking effect)
+        audioService.play().catch((err) => {
+          console.error('Auto-play failed:', err)
+        })
       }
     }
   })
@@ -321,14 +323,14 @@
 
 <style>
   :global(:root) {
-    --bg-color: #fdf6e3;
-    --text-color: #333;
+    --bg-color: #ffffff;
+    --text-color: #000000;
     --active-bg: #ffe0b2;
     --active-text: #000;
-    --header-bg: #fdf6e3;
+    --header-bg: #ffffff;
     --border-color: #e0e0e0;
-    --surface-color: #eee8d5;
-    --unprocessed-text: #7c9cbf;
+    --surface-color: #f5f5f5;
+    --unprocessed-text: #000000;
     --hover-bg: rgba(255, 183, 77, 0.15);
   }
 
@@ -340,8 +342,8 @@
     --header-bg: #1a1a1a;
     --border-color: #333;
     --surface-color: #2a2a2a;
-    --unprocessed-text: #64b5f6;
-    --hover-bg: rgba(100, 181, 246, 0.12);
+    --unprocessed-text: #ffffff;
+    --hover-bg: rgba(255, 255, 255, 0.08);
   }
 
   [data-theme='sepia'] {
