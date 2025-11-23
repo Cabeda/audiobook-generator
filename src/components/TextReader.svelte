@@ -34,7 +34,18 @@
   let audio: HTMLAudioElement | null = null
   let bufferTarget = 5 // Number of segments to buffer ahead
   let bufferStatus = $state({ ready: 0, total: 0 })
-  let playbackSpeed = $state(1.0)
+  const SPEED_KEY = 'text_reader_speed'
+
+  // Initialize from localStorage if available
+  let initialSpeed = 1.0
+  try {
+    const saved = localStorage.getItem(SPEED_KEY)
+    if (saved) initialSpeed = parseFloat(saved)
+  } catch (e) {
+    // ignore
+  }
+
+  let playbackSpeed = $state(initialSpeed)
 
   // Split text into segments (sentences)
   function splitIntoSegments(text: string): TextSegment[] {
@@ -62,7 +73,15 @@
     if (audio) {
       audio.playbackRate = playbackSpeed
     }
+    try {
+      localStorage.setItem(SPEED_KEY, playbackSpeed.toString())
+    } catch (e) {
+      // ignore
+    }
   })
+
+  const MAX_RETRIES = 3
+  const RETRY_DELAY_MS = 1000
 
   // Generate audio for a specific segment
   async function generateSegment(index: number): Promise<void> {
@@ -71,23 +90,39 @@
     const segment = segments[index]
     if (!segment) return
 
-    try {
-      const worker = getTTSWorker()
-      const blob = await worker.generateVoice({
-        text: segment.text,
-        modelType: selectedModel,
-        voice: voice,
-        dtype: selectedModel === 'kokoro' ? quantization : undefined,
-        device: device,
-      })
+    let lastError: unknown
 
-      const url = URL.createObjectURL(blob)
-      audioSegments.set(index, url)
-      bufferedSegments[index] = true // Trigger fine-grained reactivity
-    } catch (err) {
-      console.error(`Failed to generate segment ${index}:`, err)
-      throw err
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const worker = getTTSWorker()
+        const blob = await worker.generateVoice({
+          text: segment.text,
+          modelType: selectedModel,
+          voice: voice,
+          dtype: selectedModel === 'kokoro' ? quantization : undefined,
+          device: device,
+        })
+
+        const url = URL.createObjectURL(blob)
+        audioSegments.set(index, url)
+        bufferedSegments[index] = true // Trigger fine-grained reactivity
+        return // Success
+      } catch (err) {
+        console.warn(
+          `Failed to generate segment ${index} (attempt ${attempt}/${MAX_RETRIES}):`,
+          err
+        )
+        lastError = err
+
+        if (attempt < MAX_RETRIES) {
+          // Wait before retrying with exponential backoff
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt))
+        }
+      }
     }
+
+    console.error(`Failed to generate segment ${index} after ${MAX_RETRIES} attempts`)
+    throw lastError
   }
 
   // Generate multiple segments (for buffering)
@@ -158,10 +193,16 @@
         await generateSegment(index)
       } catch (err) {
         console.error('Failed to generate segment:', err)
-        isPlaying = false
+        // Only stop if we are still trying to play this segment
+        if (currentSegmentIndex === index) {
+          isPlaying = false
+        }
         return
       }
     }
+
+    // Check if user switched segment while generating
+    if (currentSegmentIndex !== index) return
 
     // Start buffering ahead
     bufferSegments(index + 1, bufferTarget).catch(console.error)
@@ -385,12 +426,12 @@
           class="segment"
           class:reading={currentSegmentIndex === segment.index}
           class:buffered={bufferedSegments[segment.index]}
-          class:clickable={!isGenerating}
-          onclick={() => !isGenerating && playFromSegment(segment.index)}
+          class:clickable={true}
+          onclick={() => playFromSegment(segment.index)}
           role="button"
           tabindex="0"
           onkeypress={(e) => {
-            if (e.key === 'Enter' && !isGenerating) playFromSegment(segment.index)
+            if (e.key === 'Enter') playFromSegment(segment.index)
           }}
         >
           {segment.text}
