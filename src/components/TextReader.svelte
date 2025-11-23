@@ -515,12 +515,13 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.85);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
     animation: fadeIn 0.2s ease-out;
+    backdrop-filter: blur(4px);
   }
 
   @keyframes fadeIn {
@@ -533,15 +534,17 @@
   }
 
   .reader-container {
-    background: white;
+    background: #1a1a1a;
+    color: #e0e0e0;
     border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     max-width: 800px;
     width: 90%;
-    max-height: 90vh;
+    height: 90vh;
     display: flex;
     flex-direction: column;
     animation: slideUp 0.3s ease-out;
+    border: 1px solid #333;
   }
 
   @keyframes slideUp {
@@ -559,22 +562,26 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 24px;
-    border-bottom: 1px solid #e0e0e0;
+    padding: 20px 32px;
+    border-bottom: 1px solid #333;
+    background: #1a1a1a;
+    border-radius: 12px 12px 0 0;
   }
 
   .reader-header h2 {
     margin: 0;
-    font-size: 22px;
-    color: #333;
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
     flex: 1;
+    letter-spacing: -0.01em;
   }
 
   .close-button {
     background: none;
     border: none;
-    font-size: 28px;
-    color: #666;
+    font-size: 24px;
+    color: #888;
     cursor: pointer;
     padding: 0;
     width: 32px;
@@ -587,34 +594,36 @@
   }
 
   .close-button:hover {
-    background: #f0f0f0;
-    color: #333;
+    background: #333;
+    color: #fff;
   }
 
   .controls {
     display: flex;
-    gap: 12px;
+    gap: 16px;
     align-items: center;
-    padding: 16px 24px;
-    border-bottom: 1px solid #e0e0e0;
-    background: #f8f8f8;
+    padding: 16px 32px;
+    border-bottom: 1px solid #333;
+    background: #222;
     flex-wrap: wrap;
   }
 
   .controls button {
-    padding: 10px 20px;
+    padding: 8px 16px;
     border-radius: 6px;
-    border: 1px solid #ddd;
-    background: white;
-    font-size: 14px;
+    border: 1px solid #444;
+    background: #333;
+    color: #e0e0e0;
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
   }
 
   .controls button:hover:not(:disabled) {
-    background: #f0f0f0;
-    border-color: #ccc;
+    background: #444;
+    border-color: #555;
+    color: #fff;
   }
 
   .controls button:disabled {
@@ -626,23 +635,30 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 14px;
-    color: #333;
+    font-size: 13px;
+    color: #aaa;
   }
 
   .speed-control select {
-    padding: 6px;
+    padding: 6px 10px;
     border-radius: 4px;
-    border: 1px solid #ddd;
-    background: white;
-    font-size: 14px;
+    border: 1px solid #444;
+    background: #333;
+    color: #e0e0e0;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .speed-control select:focus {
+    outline: none;
+    border-color: #666;
   }
 
   .status {
     margin-left: auto;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
-    color: #666;
+    color: #888;
   }
 
   .status .playing {
@@ -654,37 +670,51 @@
   }
 
   .buffer-status {
-    padding: 6px 12px;
-    background: #e8f5e9;
-    color: #2e7d32;
+    padding: 4px 8px;
+    background: #1e3a20;
+    color: #81c784;
     border-radius: 4px;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
+    border: 1px solid #2e7d32;
   }
 
   .buffer-status.low {
-    background: #fff3e0;
-    color: #e65100;
+    background: #3e2723;
+    color: #ffcc80;
+    border-color: #e65100;
   }
 
   .text-content {
     flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 40px 60px;
     line-height: 1.8;
+    font-family:
+      'Inter',
+      system-ui,
+      -apple-system,
+      sans-serif;
+    font-size: 18px;
+    color: #d0d0d0;
   }
 
   .segment {
-    margin: 0 0 16px 0;
-    padding: 12px;
-    padding-left: 8px; /* Fixed padding to match reading state */
-    border-left: 4px solid transparent; /* Pre-allocate border space */
-    border-radius: 6px;
+    margin: 0;
+    padding: 2px 4px;
+    border-radius: 4px;
     transition:
       background-color 0.2s,
-      border-color 0.2s,
-      box-shadow 0.2s;
+      color 0.2s;
     cursor: default;
+    display: inline; /* Make text flow continuously */
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  /* Add spacing between segments to let them breathe, but keep flow */
+  .segment::after {
+    content: ' ';
   }
 
   .segment.clickable {
@@ -692,34 +722,54 @@
   }
 
   .segment.clickable:hover {
-    background: #f5f5f5;
-  }
-
-  .segment.buffered {
-    border-left-color: #e0e0e0;
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
   }
 
   .segment.reading {
-    background: #fff9c4;
-    border-left-color: #fbc02d;
-    box-shadow: 0 2px 8px rgba(251, 192, 45, 0.2);
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
   }
 
-  /* Scrollbar styling */
+  /* Subtle indicator for buffered segments */
+  .segment.buffered:not(.reading) {
+    color: #fff;
+  }
+
+  /* Scrollbar styling for dark mode */
   .text-content::-webkit-scrollbar {
-    width: 8px;
+    width: 10px;
   }
 
   .text-content::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: #1a1a1a;
+    border-left: 1px solid #333;
   }
 
   .text-content::-webkit-scrollbar-thumb {
-    background: #888;
-    border-radius: 4px;
+    background: #444;
+    border-radius: 5px;
+    border: 2px solid #1a1a1a;
   }
 
   .text-content::-webkit-scrollbar-thumb:hover {
     background: #555;
+  }
+
+  @media (max-width: 640px) {
+    .text-content {
+      padding: 24px;
+      font-size: 16px;
+    }
+
+    .reader-header {
+      padding: 16px;
+    }
+
+    .controls {
+      padding: 12px 16px;
+      gap: 12px;
+    }
   }
 </style>
