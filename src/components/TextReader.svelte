@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte'
+  import { onDestroy, untrack, onMount } from 'svelte'
   import type { Chapter } from '../lib/types/book'
   import { getTTSWorker } from '../lib/ttsWorkerManager'
 
@@ -428,13 +428,38 @@
     updateBufferStatus()
   }
 
+  // Theme support
+  type Theme = 'light' | 'dark' | 'sepia'
+  const THEME_KEY = 'text_reader_theme'
+  let currentTheme = $state<Theme>('dark')
+
+  onMount(() => {
+    try {
+      const savedTheme = localStorage.getItem(THEME_KEY)
+      if (savedTheme && ['light', 'dark', 'sepia'].includes(savedTheme)) {
+        currentTheme = savedTheme as Theme
+      }
+    } catch (e) {
+      // ignore
+    }
+  })
+
+  function changeTheme(theme: Theme) {
+    currentTheme = theme
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch (e) {
+      // ignore
+    }
+  }
+
   onDestroy(() => {
     cleanup()
   })
 </script>
 
 <div class="reader-overlay" role="dialog" aria-modal="true" aria-labelledby="chapter-title">
-  <div class="reader-container">
+  <div class="reader-container" data-theme={currentTheme}>
     <!-- Header -->
     <div class="reader-header">
       <h2 id="chapter-title">{chapter.title}</h2>
@@ -454,7 +479,7 @@
         >⏹️ Stop</button
       >
 
-      <div class="speed-control">
+      <div class="control-group">
         <label for="speed">Speed:</label>
         <select id="speed" bind:value={playbackSpeed} aria-label="Playback speed">
           <option value={0.5}>0.5x</option>
@@ -463,6 +488,20 @@
           <option value={1.25}>1.25x</option>
           <option value={1.5}>1.5x</option>
           <option value={2.0}>2.0x</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="theme">Theme:</label>
+        <select
+          id="theme"
+          value={currentTheme}
+          onchange={(e) => changeTheme(e.currentTarget.value as Theme)}
+          aria-label="Color theme"
+        >
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="sepia">Sepia</option>
         </select>
       </div>
 
@@ -509,18 +548,80 @@
 </div>
 
 <style>
+  /* Theme Variables */
+  .reader-container {
+    --bg-color: #ffffff;
+    --text-color: #333333;
+    --header-bg: #ffffff;
+    --control-bg: #f8f8f8;
+    --border-color: #e0e0e0;
+    --button-bg: #ffffff;
+    --button-border: #dddddd;
+    --button-hover: #f0f0f0;
+    --button-text: #333333;
+    --highlight-bg: #fff9c4;
+    --highlight-border: #fbc02d;
+    --highlight-text: #000000;
+    --buffered-text: #666666;
+    --scrollbar-track: #f1f1f1;
+    --scrollbar-thumb: #888888;
+    --scrollbar-thumb-hover: #555555;
+    --overlay-bg: rgba(0, 0, 0, 0.5);
+  }
+
+  .reader-container[data-theme='dark'] {
+    --bg-color: #1a1a1a;
+    --text-color: #e0e0e0;
+    --header-bg: #1a1a1a;
+    --control-bg: #222222;
+    --border-color: #333333;
+    --button-bg: #333333;
+    --button-border: #444444;
+    --button-hover: #444444;
+    --button-text: #e0e0e0;
+    --highlight-bg: rgba(255, 255, 255, 0.15);
+    --highlight-border: rgba(255, 255, 255, 0.1);
+    --highlight-text: #ffffff;
+    --buffered-text: #ffffff;
+    --scrollbar-track: #1a1a1a;
+    --scrollbar-thumb: #444444;
+    --scrollbar-thumb-hover: #555555;
+    --overlay-bg: rgba(0, 0, 0, 0.85);
+  }
+
+  .reader-container[data-theme='sepia'] {
+    --bg-color: #f4ecd8;
+    --text-color: #5b4636;
+    --header-bg: #f4ecd8;
+    --control-bg: #e9e0c9;
+    --border-color: #d7cbb1;
+    --button-bg: #f4ecd8;
+    --button-border: #d7cbb1;
+    --button-hover: #e9e0c9;
+    --button-text: #5b4636;
+    --highlight-bg: #e6dcb8;
+    --highlight-border: #d7cbb1;
+    --highlight-text: #2c1e16;
+    --buffered-text: #8b6b52;
+    --scrollbar-track: #e9e0c9;
+    --scrollbar-thumb: #d7cbb1;
+    --scrollbar-thumb-hover: #bfae8f;
+    --overlay-bg: rgba(60, 50, 40, 0.7);
+  }
+
   .reader-overlay {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--overlay-bg);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
     animation: fadeIn 0.2s ease-out;
+    backdrop-filter: blur(4px);
   }
 
   @keyframes fadeIn {
@@ -533,15 +634,20 @@
   }
 
   .reader-container {
-    background: white;
+    background: var(--bg-color);
+    color: var(--text-color);
     border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     max-width: 800px;
     width: 90%;
-    max-height: 90vh;
+    height: 90vh;
     display: flex;
     flex-direction: column;
     animation: slideUp 0.3s ease-out;
+    border: 1px solid var(--border-color);
+    transition:
+      background-color 0.3s,
+      color 0.3s;
   }
 
   @keyframes slideUp {
@@ -559,22 +665,30 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 24px;
-    border-bottom: 1px solid #e0e0e0;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--header-bg);
+    border-radius: 12px 12px 0 0;
+    transition:
+      background-color 0.3s,
+      border-color 0.3s;
   }
 
   .reader-header h2 {
     margin: 0;
-    font-size: 22px;
-    color: #333;
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-color);
     flex: 1;
+    letter-spacing: -0.01em;
   }
 
   .close-button {
     background: none;
     border: none;
-    font-size: 28px;
-    color: #666;
+    font-size: 24px;
+    color: var(--text-color);
+    opacity: 0.6;
     cursor: pointer;
     padding: 0;
     width: 32px;
@@ -587,34 +701,37 @@
   }
 
   .close-button:hover {
-    background: #f0f0f0;
-    color: #333;
+    background: var(--button-hover);
+    opacity: 1;
   }
 
   .controls {
     display: flex;
-    gap: 12px;
+    gap: 16px;
     align-items: center;
-    padding: 16px 24px;
-    border-bottom: 1px solid #e0e0e0;
-    background: #f8f8f8;
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--control-bg);
     flex-wrap: wrap;
+    transition:
+      background-color 0.3s,
+      border-color 0.3s;
   }
 
   .controls button {
-    padding: 10px 20px;
+    padding: 8px 16px;
     border-radius: 6px;
-    border: 1px solid #ddd;
-    background: white;
-    font-size: 14px;
+    border: 1px solid var(--button-border);
+    background: var(--button-bg);
+    color: var(--button-text);
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
   }
 
   .controls button:hover:not(:disabled) {
-    background: #f0f0f0;
-    border-color: #ccc;
+    background: var(--button-hover);
   }
 
   .controls button:disabled {
@@ -622,27 +739,36 @@
     cursor: not-allowed;
   }
 
-  .speed-control {
+  .control-group {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 14px;
-    color: #333;
+    font-size: 13px;
+    color: var(--text-color);
+    opacity: 0.8;
   }
 
-  .speed-control select {
-    padding: 6px;
+  .control-group select {
+    padding: 6px 10px;
     border-radius: 4px;
-    border: 1px solid #ddd;
-    background: white;
-    font-size: 14px;
+    border: 1px solid var(--button-border);
+    background: var(--button-bg);
+    color: var(--button-text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .control-group select:focus {
+    outline: none;
+    border-color: var(--text-color);
   }
 
   .status {
     margin-left: auto;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
-    color: #666;
+    color: var(--text-color);
+    opacity: 0.7;
   }
 
   .status .playing {
@@ -654,37 +780,52 @@
   }
 
   .buffer-status {
-    padding: 6px 12px;
-    background: #e8f5e9;
-    color: #2e7d32;
+    padding: 4px 8px;
+    background: #1e3a20;
+    color: #81c784;
     border-radius: 4px;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
+    border: 1px solid #2e7d32;
   }
 
   .buffer-status.low {
-    background: #fff3e0;
-    color: #e65100;
+    background: #3e2723;
+    color: #ffcc80;
+    border-color: #e65100;
   }
 
   .text-content {
     flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 40px 60px;
     line-height: 1.8;
+    font-family:
+      'Inter',
+      system-ui,
+      -apple-system,
+      sans-serif;
+    font-size: 18px;
+    color: var(--text-color);
+    transition: color 0.3s;
   }
 
   .segment {
-    margin: 0 0 16px 0;
-    padding: 12px;
-    padding-left: 8px; /* Fixed padding to match reading state */
-    border-left: 4px solid transparent; /* Pre-allocate border space */
-    border-radius: 6px;
+    margin: 0;
+    padding: 2px 4px;
+    border-radius: 4px;
     transition:
       background-color 0.2s,
-      border-color 0.2s,
-      box-shadow 0.2s;
+      color 0.2s;
     cursor: default;
+    display: inline; /* Make text flow continuously */
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  /* Add spacing between segments to let them breathe, but keep flow */
+  .segment::after {
+    content: ' ';
   }
 
   .segment.clickable {
@@ -692,34 +833,54 @@
   }
 
   .segment.clickable:hover {
-    background: #f5f5f5;
-  }
-
-  .segment.buffered {
-    border-left-color: #e0e0e0;
+    background: var(--highlight-bg);
+    opacity: 0.7;
   }
 
   .segment.reading {
-    background: #fff9c4;
-    border-left-color: #fbc02d;
-    box-shadow: 0 2px 8px rgba(251, 192, 45, 0.2);
+    background: var(--highlight-bg);
+    color: var(--highlight-text);
+    box-shadow: 0 0 0 2px var(--highlight-border);
+  }
+
+  /* Subtle indicator for buffered segments */
+  .segment.buffered:not(.reading) {
+    color: var(--buffered-text);
   }
 
   /* Scrollbar styling */
   .text-content::-webkit-scrollbar {
-    width: 8px;
+    width: 10px;
   }
 
   .text-content::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--scrollbar-track);
+    border-left: 1px solid var(--border-color);
   }
 
   .text-content::-webkit-scrollbar-thumb {
-    background: #888;
-    border-radius: 4px;
+    background: var(--scrollbar-thumb);
+    border-radius: 5px;
+    border: 2px solid var(--scrollbar-track);
   }
 
   .text-content::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  @media (max-width: 640px) {
+    .text-content {
+      padding: 24px;
+      font-size: 16px;
+    }
+
+    .reader-header {
+      padding: 16px;
+    }
+
+    .controls {
+      padding: 12px 16px;
+      gap: 12px;
+    }
   }
 </style>

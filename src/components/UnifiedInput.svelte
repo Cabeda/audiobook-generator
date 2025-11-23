@@ -193,11 +193,11 @@
 
 <style>
   .unified-input {
-    border: 2px dashed #ccc;
+    border: 2px dashed var(--input-border);
     border-radius: 12px;
     padding: 40px 20px;
     text-align: center;
-    background: #f9f9f9;
+    background: var(--input-bg);
     transition: all 0.2s ease;
     cursor: pointer;
     position: relative;
@@ -205,8 +205,8 @@
 
   .unified-input:hover,
   .unified-input.drag-active {
-    border-color: #2196f3;
-    background: #f0f7ff;
+    border-color: var(--primary-color);
+    background: var(--selected-bg);
   }
 
   .content {
@@ -226,13 +226,13 @@
   .primary {
     font-size: 1.2em;
     font-weight: 500;
-    color: #333;
+    color: var(--text-color);
     margin: 0;
   }
 
   .secondary {
     font-size: 0.9em;
-    color: #666;
+    color: var(--secondary-text);
     margin: 0;
   }
 
@@ -241,7 +241,7 @@
     align-items: center;
     width: 100%;
     margin: 16px 0;
-    color: #999;
+    color: var(--secondary-text);
     font-size: 0.9em;
     font-weight: 500;
   }
@@ -250,7 +250,7 @@
   .divider::after {
     content: '';
     flex: 1;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--border-color);
   }
 
   .divider span {
@@ -276,14 +276,16 @@
   .url-input-group input {
     flex: 1;
     padding: 10px 12px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--input-border);
     border-radius: 6px;
     font-size: 16px;
+    background: var(--bg-color);
+    color: var(--text-color);
   }
 
   .url-input-group button {
     padding: 10px 20px;
-    background: #2196f3;
+    background: var(--primary-color);
     color: white;
     border: none;
     border-radius: 6px;
@@ -293,7 +295,7 @@
   }
 
   .url-input-group button:hover:not(:disabled) {
-    background: #1976d2;
+    background: var(--primary-hover);
   }
 
   .url-input-group button:disabled {
@@ -302,7 +304,7 @@
   }
 
   .status {
-    color: #2196f3;
+    color: var(--primary-color);
     font-weight: 500;
   }
 
