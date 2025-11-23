@@ -480,13 +480,18 @@
   </div>
 
   <!-- Advanced Options Toggle -->
-  <button class="advanced-toggle" onclick={() => (showAdvanced = !showAdvanced)}>
-    <span class="toggle-icon">{showAdvanced ? '▼' : '▶'}</span>
+  <button
+    class="advanced-toggle"
+    onclick={() => (showAdvanced = !showAdvanced)}
+    aria-expanded={showAdvanced}
+    aria-controls="advanced-options-panel"
+  >
+    <span class="toggle-icon" aria-hidden="true">{showAdvanced ? '▼' : '▶'}</span>
     Advanced Options
   </button>
 
   {#if showAdvanced}
-    <div class="advanced-options">
+    <div id="advanced-options-panel" class="advanced-options">
       <div class="option-group">
         {#if selectedModel === 'kokoro'}
           <label>
@@ -555,17 +560,25 @@
       class="primary"
       onclick={generateAndConcatenate}
       disabled={running || concatenating || getSelectedChapters().length === 0}
+      aria-busy={running || concatenating}
     >
       {running || concatenating ? '⏳ Processing...' : '🎧 Generate & Download'}
     </button>
     {#if running}
-      <button class="secondary" onclick={cancel}> ✕ Cancel </button>
+      <button class="secondary" onclick={cancel} aria-label="Cancel generation"> ✕ Cancel </button>
     {/if}
   </div>
 
   {#if running || concatenating}
-    <div class="progress-container">
-      <div class="progress-bar">
+    <div class="progress-container" role="status" aria-live="polite">
+      <div
+        class="progress-bar"
+        role="progressbar"
+        aria-valuenow={overallProgress}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-label="Generation progress"
+      >
         <div class="progress-fill" style="width: {overallProgress}%">
           <span class="progress-text">{overallProgress}%</span>
         </div>

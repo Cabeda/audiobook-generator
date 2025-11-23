@@ -239,9 +239,9 @@
     </div>
   </div>
 
-  <div class="chapter-list">
+  <div class="chapter-list" role="list">
     {#each book.chapters as ch}
-      <div class="chapter-card" class:selected={selected.get(ch.id)}>
+      <div class="chapter-card" class:selected={selected.get(ch.id)} role="listitem">
         <div class="card-content">
           <label class="chapter-header">
             <input
@@ -249,6 +249,7 @@
               class="chapter-checkbox"
               checked={selected.get(ch.id)}
               onchange={() => toggleChapter(ch.id)}
+              aria-label={`Select chapter: ${ch.title}`}
             />
             <span class="chapter-title">{ch.title}</span>
           </label>
@@ -265,26 +266,34 @@
             onclick={() => previewChapter(ch)}
             disabled={loadingChapterId === ch.id}
             title={playingChapterId === ch.id ? 'Stop preview' : 'Preview audio'}
+            aria-label={playingChapterId === ch.id
+              ? `Stop preview for ${ch.title}`
+              : `Preview audio for ${ch.title}`}
           >
             {#if loadingChapterId === ch.id}
-              <span class="icon spin">⏳</span>
+              <span class="icon spin" aria-hidden="true">⏳</span>
             {:else if playingChapterId === ch.id}
-              <span class="icon">⏹️</span> Stop
+              <span class="icon" aria-hidden="true">⏹️</span> Stop
             {:else}
-              <span class="icon">🔊</span> Preview
+              <span class="icon" aria-hidden="true">🔊</span> Preview
             {/if}
           </button>
 
-          <button class="action-btn" onclick={() => openReader(ch)}>
-            <span class="icon">📖</span> Read
+          <button
+            class="action-btn"
+            onclick={() => openReader(ch)}
+            aria-label={`Read chapter: ${ch.title}`}
+          >
+            <span class="icon" aria-hidden="true">📖</span> Read
           </button>
 
           <button
             class="action-btn icon-only"
             onclick={() => copyChapterContent(ch)}
             title="Copy text"
+            aria-label={`Copy text of chapter: ${ch.title}`}
           >
-            📋
+            <span aria-hidden="true">📋</span>
           </button>
         </div>
       </div>

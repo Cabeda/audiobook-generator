@@ -332,24 +332,30 @@
   })
 </script>
 
-<div class="reader-overlay">
+<div class="reader-overlay" role="dialog" aria-modal="true" aria-labelledby="chapter-title">
   <div class="reader-container">
     <!-- Header -->
     <div class="reader-header">
-      <h2>{chapter.title}</h2>
-      <button class="close-button" onclick={onClose} title="Close reader">✕</button>
+      <h2 id="chapter-title">{chapter.title}</h2>
+      <button class="close-button" onclick={onClose} aria-label="Close reader">✕</button>
     </div>
 
     <!-- Controls -->
-    <div class="controls">
-      <button onclick={togglePlayPause} disabled={isGenerating && currentSegmentIndex < 0}>
+    <div class="controls" role="toolbar" aria-label="Playback controls">
+      <button
+        onclick={togglePlayPause}
+        disabled={isGenerating && currentSegmentIndex < 0}
+        aria-label={isPlaying ? 'Pause' : 'Play'}
+      >
         {isPlaying ? '⏸️ Pause' : '▶️ Play'}
       </button>
-      <button onclick={stop} disabled={currentSegmentIndex < 0}>⏹️ Stop</button>
+      <button onclick={stop} disabled={currentSegmentIndex < 0} aria-label="Stop playback"
+        >⏹️ Stop</button
+      >
 
       <div class="speed-control">
         <label for="speed">Speed:</label>
-        <select id="speed" bind:value={playbackSpeed}>
+        <select id="speed" bind:value={playbackSpeed} aria-label="Playback speed">
           <option value={0.5}>0.5x</option>
           <option value={0.75}>0.75x</option>
           <option value={1.0}>1.0x</option>
@@ -359,18 +365,18 @@
         </select>
       </div>
 
-      <div class="status">
+      <div class="status" aria-live="polite">
         {#if isGenerating}
           <span class="generating">⏳ Generating...</span>
         {:else if isPlaying}
           <span class="playing">
-            {currentSegmentIndex + 1} / {segments.length}
+            Segment {currentSegmentIndex + 1} of {segments.length}
           </span>
         {/if}
       </div>
 
       {#if bufferStatus.total > 0}
-        <div class="buffer-status" class:low={bufferStatus.ready < 3}>
+        <div class="buffer-status" class:low={bufferStatus.ready < 3} aria-live="off">
           Buffer: {bufferStatus.ready}/{bufferStatus.total}
           {bufferStatus.ready === bufferStatus.total ? '✓' : '⚠️'}
         </div>
@@ -378,7 +384,7 @@
     </div>
 
     <!-- Text content -->
-    <div class="text-content">
+    <div class="text-content" role="feed" aria-label="Chapter content">
       {#each segments as segment (segment.index)}
         <p
           id="segment-{segment.index}"
@@ -389,6 +395,7 @@
           onclick={() => !isGenerating && playFromSegment(segment.index)}
           role="button"
           tabindex="0"
+          aria-current={currentSegmentIndex === segment.index ? 'true' : undefined}
           onkeypress={(e) => {
             if (e.key === 'Enter' && !isGenerating) playFromSegment(segment.index)
           }}

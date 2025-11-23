@@ -196,7 +196,13 @@
     <div class="app-container">
       <div class="header">
         <h1>Audiobook Generator</h1>
-        <button class="back-button" onclick={() => window.location.reload()}> ← Start Over </button>
+        <button
+          class="back-button"
+          onclick={() => window.location.reload()}
+          aria-label="Start over with a new book"
+        >
+          ← Start Over
+        </button>
       </div>
 
       <div class="main-content">
@@ -223,18 +229,25 @@
         />
 
         {#if generated.size > 0}
-          <div class="generated-section">
-            <h3>Generated Audio</h3>
+          <div class="generated-section" role="region" aria-labelledby="generated-heading">
+            <h3 id="generated-heading">Generated Audio</h3>
             <div class="generated-list">
               {#each Array.from(generated.entries()) as [id, rec]}
                 <div class="generated-item">
-                  <audio controls src={rec.url}></audio>
+                  <audio controls src={rec.url} aria-label={`Audio for ${getChapterTitle(id)}`}
+                  ></audio>
                   <div class="chapter-title" title={getChapterTitle(id)}>
                     {getChapterTitle(id)}
                   </div>
                   <div class="actions">
-                    <button onclick={() => downloadBlob(id)}>WAV</button>
-                    <button onclick={() => downloadBlobAsMp3(id)}>MP3</button>
+                    <button
+                      onclick={() => downloadBlob(id)}
+                      aria-label={`Download WAV for ${getChapterTitle(id)}`}>WAV</button
+                    >
+                    <button
+                      onclick={() => downloadBlobAsMp3(id)}
+                      aria-label={`Download MP3 for ${getChapterTitle(id)}`}>MP3</button
+                    >
                   </div>
                 </div>
               {/each}
