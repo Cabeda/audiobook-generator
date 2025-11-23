@@ -46,6 +46,7 @@
   }
 
   let playbackSpeed = $state(initialSpeed)
+  let pendingGenerations = new Map<number, Promise<void>>()
 
   // Split text into segments (sentences)
   function splitIntoSegments(text: string): TextSegment[] {
@@ -87,42 +88,62 @@
   async function generateSegment(index: number): Promise<void> {
     if (audioSegments.has(index)) return // Already generated
 
-    const segment = segments[index]
-    if (!segment) return
-
-    let lastError: unknown
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const worker = getTTSWorker()
-        const blob = await worker.generateVoice({
-          text: segment.text,
-          modelType: selectedModel,
-          voice: voice,
-          dtype: selectedModel === 'kokoro' ? quantization : undefined,
-          device: device,
-        })
-
-        const url = URL.createObjectURL(blob)
-        audioSegments.set(index, url)
-        bufferedSegments[index] = true // Trigger fine-grained reactivity
-        return // Success
-      } catch (err) {
-        console.warn(
-          `Failed to generate segment ${index} (attempt ${attempt}/${MAX_RETRIES}):`,
-          err
-        )
-        lastError = err
-
-        if (attempt < MAX_RETRIES) {
-          // Wait before retrying with exponential backoff
-          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt))
-        }
-      }
+    // Return existing promise if already generating
+    if (pendingGenerations.has(index)) {
+      return pendingGenerations.get(index)
     }
 
-    console.error(`Failed to generate segment ${index} after ${MAX_RETRIES} attempts`)
-    throw lastError
+    const segment = segments[index]
+    if (!segment) {
+      console.error(
+        `generateSegment: Segment ${index} not found in segments array (length ${segments.length})`
+      )
+      return
+    }
+
+    const promise = (async () => {
+      let lastError: unknown
+
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const worker = getTTSWorker()
+          const blob = await worker.generateVoice({
+            text: segment.text,
+            modelType: selectedModel,
+            voice: voice,
+            dtype: selectedModel === 'kokoro' ? quantization : undefined,
+            device: device,
+          })
+
+          const url = URL.createObjectURL(blob)
+          audioSegments.set(index, url)
+          bufferedSegments[index] = true // Trigger fine-grained reactivity
+          return // Success
+        } catch (err) {
+          console.warn(
+            `Failed to generate segment ${index} (attempt ${attempt}/${MAX_RETRIES}):`,
+            err
+          )
+          lastError = err
+
+          if (attempt < MAX_RETRIES) {
+            // Wait before retrying with exponential backoff
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt))
+          }
+        }
+      }
+
+      console.error(`Failed to generate segment ${index} after ${MAX_RETRIES} attempts`)
+      throw lastError
+    })()
+
+    pendingGenerations.set(index, promise)
+
+    try {
+      await promise
+    } finally {
+      pendingGenerations.delete(index)
+    }
   }
 
   // Generate multiple segments (for buffering)
@@ -214,12 +235,36 @@
     scrollToSegment(index)
   }
 
-  function playCurrentSegment() {
-    const url = audioSegments.get(currentSegmentIndex)
+  async function playCurrentSegment() {
+    const index = currentSegmentIndex
+    let url = audioSegments.get(index)
+
+    // If audio is missing (buffer underrun), generate it now
     if (!url) {
-      console.error('No audio for current segment')
-      isPlaying = false
-      return
+      console.log(`Buffer underrun for segment ${index}, generating...`)
+      isGenerating = true
+      try {
+        await generateSegment(index)
+
+        // Check if user switched segment or stopped while generating
+        if (currentSegmentIndex !== index || !isPlaying) {
+          isGenerating = false
+          return
+        }
+
+        url = audioSegments.get(index)
+        if (!url) throw new Error('Generation finished but no URL found')
+      } catch (err) {
+        console.error('Failed to recover segment:', err)
+        // Only stop if we are still on the same segment
+        if (currentSegmentIndex === index) {
+          isPlaying = false
+        }
+        isGenerating = false
+        return
+      } finally {
+        isGenerating = false
+      }
     }
 
     audio = new Audio(url)
@@ -252,14 +297,20 @@
 
     audio.onerror = (err) => {
       console.error('Audio playback error:', err)
-      isPlaying = false
-      audio = null
+      // Try to recover from playback error by regenerating
+      if (currentSegmentIndex === index) {
+        console.log('Attempting to recover from playback error...')
+        audioSegments.delete(index)
+        playCurrentSegment()
+      }
     }
 
     audio.play().catch((err) => {
       console.error('Failed to play audio:', err)
-      isPlaying = false
-      audio = null
+      if (currentSegmentIndex === index) {
+        isPlaying = false
+        audio = null
+      }
     })
 
     // Use requestAnimationFrame to batch DOM updates

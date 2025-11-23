@@ -183,14 +183,15 @@ export class TTSWorkerManager {
       return await execute()
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
-      // Check for memory allocation errors or session creation errors
+      // Check for memory allocation errors, session creation errors, or WASM aborts
       if (
         errorMsg.includes('failed to allocate') ||
         errorMsg.includes("Can't create a session") ||
-        errorMsg.includes('Out of memory')
+        errorMsg.includes('Out of memory') ||
+        errorMsg.includes('Aborted()')
       ) {
         console.warn(
-          '[TTSWorkerManager] Memory error detected, restarting worker and retrying...',
+          '[TTSWorkerManager] Critical worker error detected, restarting worker and retrying...',
           err
         )
 
