@@ -469,7 +469,7 @@
   <!-- Essential Options -->
   <div class="option-group">
     <label>
-      <span class="label-text">🧠 Model</span>
+      <span class="label-text">🧠 TTS Model</span>
       <select bind:value={selectedModel} disabled={running || concatenating}>
         {#each TTS_MODELS as model}
           <option value={model.id}>{model.name}</option>
