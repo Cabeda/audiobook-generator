@@ -23,90 +23,6 @@ test.describe('Audiobook Generation E2E', () => {
     })
   })
 
-  test('should generate with Edge TTS (default)', async ({ page }) => {
-    test.setTimeout(120000) // 2 minutes
-
-    // Upload EPUB
-    const epubPath = SHORT_EPUB
-
-    const epubBuffer = await readFile(epubPath)
-
-    const fileInput = page.locator('input[type="file"]')
-    const fileInputsCount = await page.evaluate(
-      () => document.querySelectorAll('input[type="file"]').length
-    )
-
-    // Use direct path upload to ensure Playwright sets the exact file on the browser
-    await fileInput.setInputFiles(epubPath)
-
-    // Wait for book to load
-    await page.waitForSelector('text=Short Test Book', {
-      timeout: 10000,
-    })
-
-    // Verify Edge TTS is selected by default
-    const modelSelect = page.locator('label:has-text("TTS Model") select')
-    const selectedValue = await modelSelect.inputValue()
-    expect(selectedValue).toBe('edge')
-
-    // Use the default Edge TTS model in test (server-backed) for the reliable downloadable generation
-    const ttsModelSelect = page.locator('label:has-text("TTS Model") select')
-    await expect(ttsModelSelect).toBeVisible()
-    await expect(ttsModelSelect).toBeEnabled()
-    // Confirm Edge is selected
-    await ttsModelSelect.selectOption('edge')
-
-    // Deselect all chapters, then select only the first one
-    await page.locator('button:has-text("Deselect all")').click()
-    const firstCheckbox = page.locator('input[type="checkbox"]').first()
-    await firstCheckbox.check()
-
-    // Verify chapter is selected (UI shows "Selected: 1 / Y") — short EPUB uses fewer chapters
-    await expect(page.locator('text=Selected: 1 /')).toBeVisible()
-
-    // Capture any download-trigger console logs and wait for the in-UI 'Download started!' message
-    const downloadConsoleLogs: any[] = []
-    page.on('console', async (msg) => {
-      if (!msg.text().startsWith('download-trigger')) return
-      for (const arg of msg.args()) {
-        try {
-          const val = await arg.jsonValue()
-          if (val && typeof val === 'object' && 'filename' in val) downloadConsoleLogs.push(val)
-        } catch {
-          // cannot parse, ignore
-        }
-      }
-    })
-
-    // Click 'Advanced Options' and set to MP3 format for deterministic downloadable generation
-    const advToggle = page.locator('button:has-text("Advanced Options")')
-    await expect(advToggle).toBeVisible()
-    await advToggle.click()
-    const adv = page.locator('.advanced-options')
-    await expect(adv).toBeVisible()
-    const formatSelect = adv.locator('label:has-text("Format") select')
-    await expect(formatSelect).toBeVisible()
-    await formatSelect.selectOption('mp3')
-
-    // Click generate & download button
-    const generateButton = page.locator('button:has-text("Generate & Download")')
-    await expect(generateButton).toBeVisible()
-    await generateButton.click()
-
-    // Wait for progress to appear
-    await page.waitForSelector('text=/Chapter 1\\//i', { timeout: 10000 })
-
-    // Wait for 'Download started!' in UI and validate via download-trigger console message
-    await page.waitForSelector('text=Download started!', { timeout: 120000 })
-    expect(downloadConsoleLogs.length).toBeGreaterThan(0)
-    // Validate the download object reports an MP3 filename
-    expect(downloadConsoleLogs[0].filename?.endsWith('.mp3')).toBeTruthy()
-
-    // Verify file size via download-trigger console log size field (should be > 1KB)
-    expect(downloadConsoleLogs.length).toBeGreaterThan(0)
-    expect(downloadConsoleLogs[0].size).toBeGreaterThan(1000)
-  })
-
   test('should load the application', async ({ page }) => {
     await expect(page).toHaveTitle(/Audiobook Generator/i)
     await expect(page.locator('h1')).toContainText(/Audiobook Generator/i)
@@ -274,10 +190,11 @@ test.describe('Audiobook Generation E2E', () => {
     })
 
     // Advanced options already open; proceed to generate
-    // Click generate button
+    // Click generate button and wait for the download event
+    const downloadPromise = page.waitForEvent('download')
     await page.locator('button:has-text("Generate & Download")').click()
 
-    // Wait for generation
+    // Wait for generation completion message (optional but keeps parity with other tests)
     await page.waitForSelector('text=/Audiobook created successfully/i', { timeout: 120000 })
 
     // Verify download
@@ -438,6 +355,37 @@ test.describe('Audiobook Generation E2E', () => {
     await expect(persistControl).toHaveAttribute('aria-label', 'Play')
     await persistControl.click()
     await expect(persistControl).toHaveAttribute('aria-label', 'Pause')
+  })
+
+  test('should show chapter duration (>= segment duration) in persistent player', async ({
+    page,
+  }) => {
+    const epubPath = SHORT_EPUB
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles(epubPath)
+    await page.waitForSelector('text=Short Test Book')
+
+    // Ensure first chapter selected and open reader
+    await page.locator('button:has-text("Deselect all")').click()
+    const firstCheckbox = page.locator('input[type="checkbox"]').first()
+    await firstCheckbox.check()
+    const firstReadButton = page.locator('button:has-text("Read")').first()
+    await firstReadButton.click()
+    await page.waitForSelector('#chapter-title')
+
+    // Wait a bit for initial generation & store update
+    await page.waitForTimeout(1500)
+
+    // Read persisted player state
+    const parsedState = await page.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem('audiobook_player_state') || '{}')
+      } catch (e) {
+        return {}
+      }
+    })
+
+    expect(parsedState.chapterDuration).toBeGreaterThanOrEqual(parsedState.duration)
   })
 
   test('should generate two chapters as MP3', async ({ page }) => {

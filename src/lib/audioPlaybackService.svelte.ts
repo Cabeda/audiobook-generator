@@ -18,6 +18,10 @@ class AudioPlaybackService {
   private audio: HTMLAudioElement | null = null
   private segments: TextSegment[] = []
   private audioSegments = new Map<number, string>() // index -> blob URL
+  private segmentDurations = new Map<number, number>() // index -> seconds
+  private wordsPerSegment: number[] = []
+  private totalWords = 0
+  private wordsMeasured = 0
   private pendingGenerations = new Map<number, Promise<void>>()
   private bufferTarget = 5
 
@@ -70,6 +74,18 @@ class AudioPlaybackService {
     this.stop() // Stop previous playback
 
     this.segments = this.splitIntoSegments(chapter.content)
+    // Compute words per segment & estimated chapter duration
+    this.wordsPerSegment = this.segments.map(
+      (s) => s.text.trim().split(/\s+/).filter(Boolean).length
+    )
+    this.totalWords = this.wordsPerSegment.reduce((a, b) => a + b, 0)
+    this.wordsMeasured = 0
+    this.segmentDurations.clear()
+    // Heuristic words per minute for speech (adjustable/tunable)
+    const WORDS_PER_MINUTE = 160
+    const wordsPerSecond = WORDS_PER_MINUTE / 60
+    const estimateSeconds = this.totalWords / (wordsPerSecond || 1)
+    audioPlayerStore.setChapterDuration(estimateSeconds)
     this.voice = settings.voice
     this.quantization = settings.quantization
     this.device = settings.device || 'auto'
@@ -88,6 +104,7 @@ class AudioPlaybackService {
 
     // Clear old audio segments
     this.audioSegments.clear()
+    this.segmentDurations.clear()
 
     // Initialize store
     audioPlayerStore.startPlayback(
@@ -150,6 +167,25 @@ class AudioPlaybackService {
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
       .map((text, index) => ({ index, text }))
+  }
+
+  private async getDurationFromUrl(url: string): Promise<number> {
+    return new Promise((resolve) => {
+      try {
+        const a = new Audio(url)
+        a.onloadedmetadata = () => {
+          const dur = a.duration || 0
+          a.pause()
+          a.src = ''
+          resolve(dur)
+        }
+        a.onerror = () => {
+          resolve(0)
+        }
+      } catch (e) {
+        resolve(0)
+      }
+    })
   }
 
   // Playback Control
@@ -263,6 +299,12 @@ class AudioPlaybackService {
       this.audio = null
     }
     this.currentSegmentIndex = -1
+    // Clear derived info
+    this.segmentDurations.clear()
+    this.wordsPerSegment = []
+    this.totalWords = 0
+    this.wordsMeasured = 0
+    audioPlayerStore.setChapterDuration(0)
   }
 
   // Internal Logic
@@ -383,6 +425,30 @@ class AudioPlaybackService {
           const url = URL.createObjectURL(blob)
           this.audioSegments.set(index, url)
           audioPlayerStore.setAudioSegment(index, url) // Sync with store
+          // Attempt to read duration for this generated segment and refine chapter duration estimate
+          const dur = await this.getDurationFromUrl(url)
+          if (dur > 0) {
+            this.segmentDurations.set(index, dur)
+            // Compute sum of known durations
+            let sumKnown = 0
+            for (const d of this.segmentDurations.values()) sumKnown += d
+            // Compute measured words
+            this.wordsMeasured = 0
+            for (const [i, d] of this.segmentDurations.entries()) {
+              this.wordsMeasured += this.wordsPerSegment[i] || 0
+            }
+            // Estimate remaining by words
+            const WORDS_PER_MINUTE = 160
+            const wordsPerSecond = WORDS_PER_MINUTE / 60
+            const remainingWords = Math.max(0, this.totalWords - this.wordsMeasured)
+            const estimateRemaining = remainingWords / (wordsPerSecond || 1)
+            const newEstimate = sumKnown + estimateRemaining
+            audioPlayerStore.setChapterDuration(newEstimate)
+            // If we've generated all segments, set final duration to sum of known
+            if (this.segmentDurations.size === this.segments.length) {
+              audioPlayerStore.setChapterDuration(sumKnown)
+            }
+          }
           return
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err)

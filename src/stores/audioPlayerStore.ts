@@ -10,6 +10,7 @@ export interface AudioPlayerState {
   segmentIndex: number
   currentTime: number
   duration: number
+  chapterDuration: number
 
   // Playback state
   isPlaying: boolean
@@ -37,6 +38,7 @@ const defaultState: AudioPlayerState = {
   segmentIndex: 0,
   currentTime: 0,
   duration: 0,
+  chapterDuration: 0,
   isPlaying: false,
   isMinimized: false,
   audioSegments: new Map(),
@@ -154,6 +156,15 @@ function createAudioPlayerStore() {
       })
     },
 
+    // Update the total chapter duration (seconds)
+    setChapterDuration: (chapterDuration: number) => {
+      update((state) => {
+        const newState = { ...state, chapterDuration }
+        scheduleSave(newState)
+        return newState
+      })
+    },
+
     // Play/pause
     play: () => {
       update((state) => ({ ...state, isPlaying: true }))
@@ -208,7 +219,7 @@ function createAudioPlayerStore() {
         // Revoke all blob URLs
         state.audioSegments.forEach((url) => URL.revokeObjectURL(url))
 
-        const newState = defaultState
+        const newState = { ...defaultState }
         try {
           localStorage.removeItem(STORAGE_KEY)
         } catch (e) {
@@ -240,6 +251,11 @@ export const isPlayerMinimized = derived(audioPlayerStore, ($player) => $player.
 export const currentPlaybackInfo = derived(audioPlayerStore, ($player) => ({
   bookTitle: $player.bookTitle,
   chapterTitle: $player.chapterTitle,
-  progress: $player.duration > 0 ? $player.currentTime / $player.duration : 0,
+  progress:
+    $player.chapterDuration > 0
+      ? $player.currentTime / $player.chapterDuration
+      : $player.duration > 0
+        ? $player.currentTime / $player.duration
+        : 0,
   isPlaying: $player.isPlaying,
 }))

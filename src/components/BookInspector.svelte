@@ -52,20 +52,22 @@
 
   function toggleChapter(id: string) {
     selected.set(id, !selected.get(id))
-    // trigger reactivity - NOT NEEDED in Svelte 5 with $state(Map)
-    // selected = new Map(selected)
+    // Ensure reactivity across Svelte versions: reassign the Map
+    selected = new Map(selected)
     dispatch('selectionchanged', { selected: Array.from(selected.entries()) })
   }
 
   function selectAll() {
     for (const k of selected.keys()) selected.set(k, true)
-    // selected = new Map(selected)
+    // Reassign to trigger reactivity reliably
+    selected = new Map(selected)
     dispatch('selectionchanged', { selected: Array.from(selected.entries()) })
   }
 
   function deselectAll() {
     for (const k of selected.keys()) selected.set(k, false)
-    // selected = new Map(selected)
+    // Reassign to trigger reactivity reliably
+    selected = new Map(selected)
     dispatch('selectionchanged', { selected: Array.from(selected.entries()) })
   }
 

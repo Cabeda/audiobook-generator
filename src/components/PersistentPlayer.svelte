@@ -116,7 +116,7 @@
       <div class="progress-bar">
         <div class="progress-fill" style="width: {playbackInfo.progress * 100}%"></div>
       </div>
-      <div class="time">{formatTime(playerState.duration)}</div>
+      <div class="time">{formatTime(playerState.chapterDuration || playerState.duration)}</div>
     </div>
 
     <!-- Close Button -->
