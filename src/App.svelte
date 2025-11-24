@@ -464,9 +464,11 @@
     const chapter = $book.chapters.find((c) => c.id === id)
     return chapter?.title || id
   }
+  import ReloadPrompt from './components/ReloadPrompt.svelte'
 </script>
 
 <main>
+  <ReloadPrompt />
   <Toast />
 
   {#if currentView === 'landing'}
