@@ -313,6 +313,97 @@ test.describe('Audiobook Generation E2E', () => {
     await expect(readerPlayPause).toHaveAttribute('aria-label', 'Pause')
   })
 
+  test('should stay on reader after page reload', async ({ page }) => {
+    const epubPath = SHORT_EPUB
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles(epubPath)
+    await page.waitForSelector('text=Short Test Book')
+
+    // Deselect and select first chapter
+    await page.locator('button:has-text("Deselect all")').click()
+    const firstCheckbox = page.locator('input[type="checkbox"]').first()
+    await firstCheckbox.check()
+
+    // Open reader for first chapter
+    const firstReadButton = page.locator('button:has-text("Read")').first()
+    await firstReadButton.click()
+    await page.waitForSelector('#chapter-title')
+
+    // Reload and ensure we remain on the reader page and same chapter
+    await page.reload()
+    await page.waitForSelector('#chapter-title')
+    await expect(page.locator('#chapter-title')).toBeVisible()
+    // Hash should be a reader route
+    const hash = await page.evaluate(() => location.hash)
+    expect(hash.startsWith('#/reader/')).toBeTruthy()
+  })
+
+  test('should restore playback position after page reload', async ({ page }) => {
+    const epubPath = SHORT_EPUB
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles(epubPath)
+    await page.waitForSelector('text=Short Test Book')
+
+    // Ensure first chapter selected and open reader
+    await page.locator('button:has-text("Deselect all")').click()
+    const firstCheckbox = page.locator('input[type="checkbox"]').first()
+    await firstCheckbox.check()
+
+    const firstReadButton = page.locator('button:has-text("Read")').first()
+    await firstReadButton.click()
+    await page.waitForSelector('#chapter-title')
+
+    // Wait a bit for playback progress
+    await page.waitForTimeout(2000)
+    // Read persisted playback time from localStorage
+    const startSeconds = await page.evaluate(() => {
+      try {
+        const raw = localStorage.getItem('audiobook_player_state')
+        if (!raw) return 0
+        const parsed = JSON.parse(raw)
+        return Math.floor(parsed.currentTime || 0)
+      } catch (e) {
+        return 0
+      }
+    })
+
+    // Reload and wait for the player to re-initialize
+    await page.reload()
+    await page.waitForFunction(() => !!localStorage.getItem('audiobook_player_state'))
+    const afterSeconds = await page.evaluate(() => {
+      try {
+        const raw = localStorage.getItem('audiobook_player_state')
+        if (!raw) return 0
+        const parsed = JSON.parse(raw)
+        return Math.floor(parsed.currentTime || 0)
+      } catch (e) {
+        return 0
+      }
+    })
+
+    // The restored time should be close to the previous time (within 3 seconds)
+    expect(Math.abs(afterSeconds - startSeconds)).toBeLessThanOrEqual(3)
+  })
+
+  test('should stay on book view after reload', async ({ page }) => {
+    const epubPath = SHORT_EPUB
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles(epubPath)
+    await page.waitForSelector('text=Short Test Book')
+
+    // Ensure we are in book view
+    const bookHeading = page.locator('h2:has-text("Short Test Book")')
+    await expect(bookHeading).toBeVisible()
+    const bookHashBefore = await page.evaluate(() => location.hash)
+    expect(bookHashBefore.startsWith('#/book/')).toBeTruthy()
+
+    // Reload and check we remain on '/book/:id'
+    await page.reload()
+    await page.waitForSelector('text=Short Test Book')
+    const bookHashAfter = await page.evaluate(() => location.hash)
+    expect(bookHashAfter.startsWith('#/book/')).toBeTruthy()
+  })
+
   test('should keep playing when clicking Back from reader', async ({ page }) => {
     // Load book and open reader
     const epubPath = SHORT_EPUB

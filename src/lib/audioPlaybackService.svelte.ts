@@ -59,6 +59,12 @@ class AudioPlaybackService {
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
       selectedModel?: 'kokoro' | 'piper'
       playbackSpeed?: number
+    },
+    options?: {
+      startSegmentIndex?: number
+      startTime?: number
+      startPlaying?: boolean
+      startMinimized?: boolean
     }
   ) {
     this.stop() // Stop previous playback
@@ -72,6 +78,11 @@ class AudioPlaybackService {
 
     this.currentSegmentIndex = 0
     this.currentTime = 0
+    // If restore options provided, override
+    if (options?.startSegmentIndex !== undefined && options?.startTime !== undefined) {
+      this.currentSegmentIndex = options.startSegmentIndex
+      this.currentTime = options.startTime
+    }
     this.duration = 0
     this.isPlaying = false
 
@@ -79,7 +90,58 @@ class AudioPlaybackService {
     this.audioSegments.clear()
 
     // Initialize store
-    audioPlayerStore.startPlayback(bookId, bookTitle, chapter, settings)
+    audioPlayerStore.startPlayback(
+      bookId,
+      bookTitle,
+      chapter,
+      settings,
+      options?.startPlaying ?? true,
+      options?.startMinimized ?? false
+    )
+    // If we have a starting segment index, ensure it's generated and create an audio element
+    if (options?.startSegmentIndex !== undefined) {
+      const index = options.startSegmentIndex
+      // Generate segment in background
+      this.generateSegment(index).catch((e) =>
+        console.debug('Failed to generate initial segment:', e)
+      )
+      // Prepare audio element but do not play
+      const prepareAudio = async () => {
+        try {
+          // We need to wait for the segment to be available
+          await this.generateSegment(index)
+          const url = this.audioSegments.get(index)
+          if (!url) return
+          if (this.audio) {
+            this.audio.pause()
+            this.audio.src = ''
+            this.audio = null
+          }
+          this.audio = new Audio(url)
+          this.audio.playbackRate = this.playbackSpeed
+          this.audio.onloadedmetadata = () => {
+            if (this.audio && options.startTime !== undefined) {
+              try {
+                // Some browsers require setting currentTime after metadata
+                this.audio.currentTime = options.startTime as number
+              } catch (e) {
+                console.debug('Failed to set currentTime on restore', e)
+              }
+            }
+            if (this.audio) this.duration = this.audio.duration
+          }
+          this.audio.ontimeupdate = () => {
+            if (this.audio) this.currentTime = this.audio.currentTime
+          }
+          this.audio.onended = () => {
+            // No-op: we don't auto-play here
+          }
+        } catch (err) {
+          console.debug('Failed to prepare audio for restore', err)
+        }
+      }
+      void prepareAudio()
+    }
   }
 
   private splitIntoSegments(text: string): TextSegment[] {

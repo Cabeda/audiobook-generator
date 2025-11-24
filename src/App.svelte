@@ -22,7 +22,8 @@
   import { audioService } from './lib/audioPlaybackService.svelte'
 
   // Import library functions
-  import { addBook, findBookByTitleAuthor } from './lib/libraryDB'
+  import { addBook, findBookByTitleAuthor, getBook } from './lib/libraryDB'
+  import { onMount } from 'svelte'
   import type { Chapter } from './lib/types/book'
 
   // View state management
@@ -62,6 +63,13 @@
     if ($isPlayerActive) {
       audioPlayerStore.maximize()
     }
+    // Update the url so refresh persists
+    try {
+      const id = $currentLibraryBookId ?? 'unsaved'
+      location.hash = `#/reader/${id}/${encodeURIComponent(chapter.id)}`
+    } catch (e) {
+      // noop
+    }
   }
 
   function navigateToBook() {
@@ -70,6 +78,13 @@
     if ($isPlayerActive) {
       audioPlayerStore.minimize()
     }
+    // Update url
+    try {
+      const id = $currentLibraryBookId ?? 'unsaved'
+      location.hash = `#/book/${id}`
+    } catch (e) {
+      // noop
+    }
   }
 
   function navigateToLanding() {
@@ -77,6 +92,12 @@
     currentChapter = null
     // Stop playback when leaving book
     audioPlayerStore.stop()
+    // Update url
+    try {
+      location.hash = `#/` // root
+    } catch (e) {
+      // noop
+    }
   }
 
   // Handle maximize from persistent player
@@ -84,6 +105,12 @@
     if (currentChapter) {
       currentView = 'reader'
       audioPlayerStore.maximize()
+      try {
+        const id = $currentLibraryBookId ?? 'unsaved'
+        location.hash = `#/reader/${id}/${encodeURIComponent(currentChapter.id)}`
+      } catch (e) {
+        // noop
+      }
     }
   }
 
@@ -124,8 +151,16 @@
         await adaptVoiceToLanguage(bookLang)
       }
 
-      // Navigate to book view
+      // Navigate to book view, ensure it's saved to library first
+      // If the book didn't come from library we'll save it — saveBookToLibrary will set $currentLibraryBookId
+      await saveBookToLibrary(providedBook, sourceFile, sourceUrl)
       currentView = 'book'
+      try {
+        const id = $currentLibraryBookId ?? 'unsaved'
+        location.hash = `#/book/${id}`
+      } catch (e) {
+        // noop
+      }
     }
   }
 
@@ -193,6 +228,159 @@
     const entries: [string, boolean][] = e.detail.selected || []
     $selectedChapters = new Map(entries)
   }
+
+  // Hash-based routing helpers -------------------------------------------------
+  async function applyRouteFromHash(hash?: string) {
+    const h = (hash ?? location.hash).replace(/^#/, '') || '/'
+    const parts = h.split('/').filter(Boolean)
+
+    if (parts.length === 0) {
+      // landing
+      currentView = 'landing'
+      currentChapter = null
+      return
+    }
+
+    const [first, second, third] = parts
+    if (first === 'book') {
+      const id = parseInt(second)
+      if (Number.isFinite(id)) {
+        try {
+          const b = await getBook(id)
+          if (b) {
+            $book = b
+            $currentLibraryBookId = id
+            currentView = 'book'
+            currentChapter = null
+            // No route-based audio initialization on 'book' route — the persistent player will be used.
+            return
+          }
+        } catch (err) {
+          console.error('Failed to load book from route', err)
+        }
+      }
+      // If we don't resolve to a book, fall back to landing
+      currentView = 'landing'
+      currentChapter = null
+      return
+    }
+
+    if (first === 'reader') {
+      const id = parseInt(second)
+      const chapterId = decodeURIComponent(third || '')
+      if (Number.isFinite(id) && chapterId) {
+        try {
+          const b = await getBook(id)
+          if (b) {
+            $book = b
+            $currentLibraryBookId = id
+            const ch = b.chapters.find((c) => c.id === chapterId)
+            if (ch) {
+              currentChapter = ch
+              // Delay to ensure view state is synchronized before attempting to init audio
+              currentView = 'reader'
+              // Ensure audio player is set to this chapter
+              try {
+                const playback = $audioPlayerStore
+                // Avoid re-initialization if playback is already set to this book and chapter
+                if (playback.bookId === id && playback.chapterId === ch.id) {
+                  // Playback already set for this book/chapter — ensure playback speed is synced but don't reinitialize
+                  audioService.setSpeed(playback.playbackSpeed)
+                } else {
+                  const saved = $audioPlayerStore
+                  if (saved.bookId === id && saved.chapterId === ch.id) {
+                    audioService.initialize(
+                      $currentLibraryBookId,
+                      $book?.title || '',
+                      ch,
+                      {
+                        voice: saved.voice,
+                        quantization: saved.quantization,
+                        device: saved.device,
+                        selectedModel: saved.selectedModel,
+                        playbackSpeed: saved.playbackSpeed,
+                      },
+                      {
+                        startSegmentIndex: saved.segmentIndex,
+                        startTime: saved.currentTime,
+                        startPlaying: false,
+                        startMinimized: saved.isMinimized,
+                      }
+                    )
+                  } else {
+                    audioService.initialize($currentLibraryBookId, $book?.title || '', ch, {
+                      voice: $selectedVoice,
+                      quantization: $selectedQuantization,
+                      device: $selectedDevice,
+                      selectedModel: $selectedModel,
+                      playbackSpeed: audioService.playbackSpeed,
+                    })
+                  }
+                }
+                // Do not auto-play on reload to avoid surprising the user
+              } catch (err) {
+                console.error('Failed to init audio from route', err)
+              }
+              return
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load reader route', err)
+        }
+      }
+      // If the route couldn't be handled, fall back to landing
+      currentView = 'landing'
+      currentChapter = null
+      return
+    }
+
+    // Unknown route: landing
+    currentView = 'landing'
+    currentChapter = null
+  }
+
+  onMount(() => {
+    // Initialize route on load
+    applyRouteFromHash()
+    // And handle back/forward navigation
+    const handler = () => applyRouteFromHash()
+    window.addEventListener('hashchange', handler)
+    // If we have a saved player state for a book and no route was loaded, attempt to load the book and restore
+    const saved = $audioPlayerStore
+    if ($currentLibraryBookId === null && saved.bookId !== null) {
+      getBook(saved.bookId)
+        .then((b) => {
+          if (b) {
+            $book = b
+            $currentLibraryBookId = saved.bookId
+            // If the store has a saved chapter, restore on the player
+            const ch = b.chapters.find((c) => c.id === saved.chapterId)
+            if (ch) {
+              audioService.initialize(
+                saved.bookId,
+                b.title,
+                ch,
+                {
+                  voice: saved.voice,
+                  quantization: saved.quantization,
+                  device: saved.device,
+                  selectedModel: saved.selectedModel,
+                  playbackSpeed: saved.playbackSpeed,
+                },
+                {
+                  startSegmentIndex: saved.segmentIndex,
+                  startTime: saved.currentTime,
+                  startPlaying: saved.isPlaying,
+                }
+              )
+            }
+          }
+        })
+        .catch((err) => console.warn('Failed to restore playback book on load', err))
+    }
+
+    return () => window.removeEventListener('hashchange', handler)
+  })
 
   function onGenerated(e: CustomEvent) {
     const { id, blob } = e.detail

@@ -5,7 +5,9 @@
     listVoices as listKokoroVoices,
     type VoiceId,
     isWebGPUAvailable,
+    isWebGPUAvailableAsync,
   } from '../lib/kokoro/kokoroClient'
+  import { onMount } from 'svelte'
   import { piperClient } from '../lib/piper/piperClient'
   import { type TTSModelType, TTS_MODELS } from '../lib/tts/ttsModels'
   import {
@@ -136,7 +138,16 @@
   let overallProgress = $state(0)
 
   // Check WebGPU availability
-  let webgpuAvailable = isWebGPUAvailable()
+  let webgpuAvailable = $state(isWebGPUAvailable())
+
+  // Re-check availability asynchronously (more accurate in headless/test envs)
+  onMount(async () => {
+    try {
+      webgpuAvailable = await isWebGPUAvailableAsync()
+    } catch {
+      webgpuAvailable = false
+    }
+  })
 
   function getSelectedChapters(): Chapter[] {
     return book.chapters.filter((ch: Chapter) => selectedMap.get(ch.id))

@@ -104,7 +104,9 @@ function createAudioPlayerStore() {
         device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
         selectedModel?: 'kokoro' | 'piper'
         playbackSpeed?: number
-      }
+      },
+      startPlaying: boolean = true,
+      minimized: boolean = false
     ) => {
       update((state) => {
         const newState = {
@@ -115,8 +117,8 @@ function createAudioPlayerStore() {
           chapterTitle: chapter.title,
           segmentIndex: 0,
           currentTime: 0,
-          isPlaying: true,
-          isMinimized: false,
+          isPlaying: startPlaying,
+          isMinimized: minimized,
           voice: settings.voice,
           quantization: settings.quantization,
           device: settings.device || 'auto',
