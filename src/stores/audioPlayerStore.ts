@@ -1,4 +1,4 @@
-import { writable, derived, get } from 'svelte/store'
+import { writable, derived } from 'svelte/store'
 import type { Chapter } from '../lib/types/book'
 
 export interface AudioPlayerState {
@@ -15,6 +15,7 @@ export interface AudioPlayerState {
   // Playback state
   isPlaying: boolean
   isMinimized: boolean
+  isBuffering: boolean
 
   // Audio segments cache (segment index -> blob URL)
   audioSegments: Map<number, string>
@@ -41,6 +42,7 @@ const defaultState: AudioPlayerState = {
   chapterDuration: 0,
   isPlaying: false,
   isMinimized: false,
+  isBuffering: false,
   audioSegments: new Map(),
   voice: '',
   quantization: 'q8',
@@ -208,6 +210,15 @@ function createAudioPlayerStore() {
     setPlaybackSpeed: (speed: number) => {
       update((state) => {
         const newState = { ...state, playbackSpeed: speed }
+        scheduleSave(newState)
+        return newState
+      })
+    },
+
+    // Buffering state (current segment generation pending)
+    setBuffering: (flag: boolean) => {
+      update((state) => {
+        const newState = { ...state, isBuffering: flag }
         scheduleSave(newState)
         return newState
       })

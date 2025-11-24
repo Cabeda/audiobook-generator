@@ -41,13 +41,6 @@ test.describe('Audiobook Generation E2E', () => {
       buffer: epubBuffer,
     })
 
-    // Debug: inspect the file input's first file name and size in the page context
-    const fileInfo = await page.evaluate(() => {
-      const input = document.querySelector('input[type="file"]') as HTMLInputElement
-      const f = input?.files?.[0]
-      return f ? { name: f.name, size: f.size } : null
-    })
-
     // Wait for parsing to complete
     await page.waitForSelector('text=Short Test Book', {
       timeout: 20000,
@@ -62,7 +55,23 @@ test.describe('Audiobook Generation E2E', () => {
   test('should upload SHORT EPUB and display quick info', async ({ page }) => {
     // Use the small epub fixture to quickly test upload and parsing
     const epubPath = SHORT_EPUB
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+    // Ensure we're on Upload tab so the hidden file input is rendered
+    const uploadTab = page.locator('button.tab:has-text("Upload New")')
+    if (await uploadTab.isVisible().catch(() => false)) {
+      await uploadTab.click()
+    }
+    await page.waitForSelector('.unified-input')
     const fileInput = page.locator('input[type="file"]')
+    // If not visible, try clicking the Start Over nav button and wait again
+    if (!(await fileInput.isVisible().catch(() => false))) {
+      const startOver = page.locator('button:has-text("Start Over")')
+      if (await startOver.isVisible().catch(() => false)) {
+        await startOver.click()
+      }
+      await page.waitForSelector('input[type="file"]', { timeout: 10000 })
+    }
     await fileInput.setInputFiles(epubPath)
 
     // Short book should parse quickly; verify title and author are displayed
@@ -230,6 +239,45 @@ test.describe('Audiobook Generation E2E', () => {
     await expect(readerPlayPause).toHaveAttribute('aria-label', 'Pause')
   })
 
+  test('space key toggles play/pause when no element is selected', async ({ page }) => {
+    const epubPath = SHORT_EPUB
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles(epubPath)
+    await page.waitForSelector('text=Short Test Book')
+
+    // Ensure first chapter selected and open reader
+    await page.locator('button:has-text("Deselect all")').click()
+    const firstCheckbox = page.locator('input[type="checkbox"]').first()
+    await firstCheckbox.check()
+    const firstReadButton = page.locator('button:has-text("Read")').first()
+    await firstReadButton.click()
+    await page.waitForSelector('#chapter-title')
+
+    // Ensure no element is focused and no selection present
+    await page.evaluate(() => {
+      try {
+        ;(document.activeElement as HTMLElement)?.blur?.()
+        const sel = window.getSelection()
+        if (sel) sel.removeAllRanges()
+      } catch {
+        // ignore
+      }
+    })
+
+    const readerPlayPause = page.locator('.reader-page .control-btn.play-pause')
+    await expect(readerPlayPause).toBeVisible()
+    // It should be playing initially (auto-play) - Pause attribute
+    await expect(readerPlayPause).toHaveAttribute('aria-label', 'Pause')
+
+    // Press Space to pause
+    await page.keyboard.press('Space')
+    await expect(readerPlayPause).toHaveAttribute('aria-label', 'Play')
+
+    // Press Space again to play
+    await page.keyboard.press('Space')
+    await expect(readerPlayPause).toHaveAttribute('aria-label', 'Pause')
+  })
+
   test('should stay on reader after page reload', async ({ page }) => {
     const epubPath = SHORT_EPUB
     const fileInput = page.locator('input[type="file"]')
@@ -279,7 +327,7 @@ test.describe('Audiobook Generation E2E', () => {
         if (!raw) return 0
         const parsed = JSON.parse(raw)
         return Math.floor(parsed.currentTime || 0)
-      } catch (e) {
+      } catch {
         return 0
       }
     })
@@ -293,7 +341,7 @@ test.describe('Audiobook Generation E2E', () => {
         if (!raw) return 0
         const parsed = JSON.parse(raw)
         return Math.floor(parsed.currentTime || 0)
-      } catch (e) {
+      } catch {
         return 0
       }
     })
@@ -380,7 +428,7 @@ test.describe('Audiobook Generation E2E', () => {
     const parsedState = await page.evaluate(() => {
       try {
         return JSON.parse(localStorage.getItem('audiobook_player_state') || '{}')
-      } catch (e) {
+      } catch {
         return {}
       }
     })
@@ -656,4 +704,62 @@ test.describe('Audiobook Generation E2E', () => {
       timeout: 10000,
     })
   })
+})
+
+test('should show a loading spinner when generating a segment while playing', async ({ page }) => {
+  const epubPath = SHORT_EPUB
+  const fileInput = page.locator('input[type="file"]')
+  await fileInput.setInputFiles(epubPath)
+  await page.waitForSelector('text=Short Test Book')
+
+  // Ensure first chapter selected and open reader
+  await page.locator('button:has-text("Deselect all")').click()
+  const firstCheckbox = page.locator('input[type="checkbox"]').first()
+  await firstCheckbox.check()
+  const firstReadButton = page.locator('button:has-text("Read")').first()
+  await firstReadButton.click()
+  await page.waitForSelector('#chapter-title')
+
+  // Wait for store to indicate buffering (first segment generation)
+  await page.waitForFunction(
+    () => {
+      try {
+        const raw = localStorage.getItem('audiobook_player_state')
+        const parsed = raw ? JSON.parse(raw) : null
+        return parsed && parsed.isBuffering === true
+      } catch {
+        return false
+      }
+    },
+    { timeout: 5000 }
+  )
+
+  // Check that the UI has a spinner element in the persistent player
+  const spinner = page.locator('.persistent-player .spinner')
+  await expect(spinner).toBeVisible()
+})
+
+test('clicking persistent player opens text reader for current chapter', async ({ page }) => {
+  const epubPath = SHORT_EPUB
+  const fileInput = page.locator('input[type="file"]')
+  await fileInput.setInputFiles(epubPath)
+  await page.waitForSelector('text=Short Test Book')
+
+  // Ensure first chapter selected and open reader
+  await page.locator('button:has-text("Deselect all")').click()
+  const firstCheckbox = page.locator('input[type="checkbox"]').first()
+  await firstCheckbox.check()
+  const firstReadButton = page.locator('button:has-text("Read")').first()
+  await firstReadButton.click()
+  await page.waitForSelector('#chapter-title')
+
+  // Click the Back button to return to the book; this hides the reader and shows the persistent player
+  const backButton = page.locator('.reader-header .back-button')
+  await backButton.click()
+  await expect(page.locator('.persistent-player')).toBeVisible()
+
+  // Click the persistent player area to re-open the reader for the playing chapter
+  await page.locator('.persistent-player').click()
+  await page.waitForSelector('#chapter-title')
+  await expect(page.locator('#chapter-title')).toBeVisible()
 })

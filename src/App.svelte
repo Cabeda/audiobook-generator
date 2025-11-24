@@ -102,6 +102,7 @@
 
   // Handle maximize from persistent player
   function handlePlayerMaximize() {
+    // If we already have the current chapter set, just navigate to reader
     if (currentChapter) {
       currentView = 'reader'
       audioPlayerStore.maximize()
@@ -111,6 +112,48 @@
       } catch (e) {
         // noop
       }
+      return
+    }
+
+    // Otherwise, try to restore from the saved player state
+    const saved = $audioPlayerStore
+    if (saved && saved.bookId && saved.chapterId) {
+      // If our current book is the same as saved, use it, otherwise load the book
+      if ($currentLibraryBookId === saved.bookId && $book) {
+        const ch = $book.chapters.find((c) => c.id === saved.chapterId)
+        if (ch) {
+          currentChapter = ch
+          currentView = 'reader'
+          audioPlayerStore.maximize()
+          try {
+            location.hash = `#/reader/${saved.bookId}/${encodeURIComponent(ch.id)}`
+          } catch (e) {
+            // noop
+          }
+          return
+        }
+      }
+
+      // Load book from library and then show reader
+      getBook(saved.bookId)
+        .then((b) => {
+          if (b) {
+            $book = b
+            $currentLibraryBookId = saved.bookId
+            const ch = b.chapters.find((c) => c.id === saved.chapterId)
+            if (ch) {
+              currentChapter = ch
+              currentView = 'reader'
+              audioPlayerStore.maximize()
+              try {
+                location.hash = `#/reader/${saved.bookId}/${encodeURIComponent(ch.id)}`
+              } catch (e) {
+                // noop
+              }
+            }
+          }
+        })
+        .catch((err) => console.warn('Failed to load book for player maximize', err))
     }
   }
 

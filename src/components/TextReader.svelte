@@ -152,6 +152,23 @@
   const THEME_KEY = 'text_reader_theme'
   let currentTheme = $state<Theme>('dark')
 
+  // Helper used to detect focus on interactive elements
+  function isInteractiveElement(el: Element | null) {
+    if (!el) return false
+    const tag = el.tagName
+    if (!tag) return false
+    const interactiveTags = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A']
+    if (interactiveTags.includes(tag)) return true
+    const role = el.getAttribute && el.getAttribute('role')
+    if (role === 'button' || role === 'textbox' || role === 'link') return true
+    // contenteditable or within settings menu should be treated as interactive
+    if ((el as HTMLElement).isContentEditable) return true
+    if (el.closest && el.closest('.settings-menu')) return true
+    return false
+  }
+
+  let handleGlobalKeydown: (e: KeyboardEvent) => void
+
   onMount(() => {
     try {
       const savedTheme = localStorage.getItem(THEME_KEY)
@@ -161,6 +178,29 @@
     } catch (e) {
       // ignore
     }
+    // Add global keydown handler: when no element is focused/selected, Space toggles play/pause
+    handleGlobalKeydown = (e: KeyboardEvent) => {
+      // Only care about Space key
+      if (e.code !== 'Space' && e.key !== ' ') return
+
+      // If a text selection exists, don't toggle playback
+      try {
+        const sel = window.getSelection && window.getSelection()
+        if (sel && sel.toString && sel.toString().length > 0) return
+      } catch (_) {
+        // ignore any selection errors
+      }
+
+      const active = document.activeElement
+      // If an interactive element is focused, let it handle the event
+      if (isInteractiveElement(active as Element)) return
+
+      // Prevent default (e.g. page scrolling) and toggle play/pause
+      e.preventDefault()
+      togglePlayPause()
+    }
+
+    document.addEventListener('keydown', handleGlobalKeydown)
   })
 
   function changeTheme(theme: Theme) {
@@ -175,6 +215,12 @@
   onDestroy(() => {
     // We don't stop audio on destroy anymore!
     // But we might want to unsubscribe if we had manual subscriptions
+    try {
+      // Remove event listener when leaving the reader
+      document.removeEventListener('keydown', handleGlobalKeydown)
+    } catch (e) {
+      // ignore
+    }
   })
 </script>
 
@@ -227,7 +273,11 @@
             onclick={togglePlayPause}
             aria-label={audioService.isPlaying ? 'Pause' : 'Play'}
           >
-            {audioService.isPlaying ? '⏸️' : '▶️'}
+            {#if $audioPlayerStore.isBuffering && audioService.isPlaying}
+              <span class="spinner" aria-hidden="true"></span>
+            {:else}
+              {audioService.isPlaying ? '⏸️' : '▶️'}
+            {/if}
           </button>
           <button class="control-btn" onclick={() => audioService.skipNext()} aria-label="Next">
             ⏭️
@@ -628,6 +678,24 @@
     }
     100% {
       transform: scale(1);
+    }
+  }
+  .spinner {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(0, 0, 0, 0.2);
+    border-top-color: rgba(0, 0, 0, 0.6);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
     }
   }
 

@@ -182,7 +182,7 @@ class AudioPlaybackService {
         a.onerror = () => {
           resolve(0)
         }
-      } catch (e) {
+      } catch {
         resolve(0)
       }
     })
@@ -213,6 +213,15 @@ class AudioPlaybackService {
     if (this.audio) {
       this.audio.pause()
     }
+    try {
+      const worker = getTTSWorker()
+      worker.cancelAll()
+    } catch {
+      // ignore
+    }
+    // Clear pending generation queue to avoid stale buffering state
+    this.pendingGenerations.clear()
+    audioPlayerStore.setBuffering(false)
   }
 
   togglePlayPause() {
@@ -247,13 +256,17 @@ class AudioPlaybackService {
 
     // Ensure generated
     if (!this.audioSegments.has(index)) {
+      // Indicate buffering while we wait for this segment to be generated
+      if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(true)
       try {
         await this.generateSegment(index)
       } catch (err) {
         console.error('Failed to generate segment:', err)
         if (this.currentSegmentIndex === index) this.isPlaying = false
+        if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(false)
         return
       }
+      if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(false)
     }
 
     // Check if switched while generating
@@ -425,6 +438,8 @@ class AudioPlaybackService {
           const url = URL.createObjectURL(blob)
           this.audioSegments.set(index, url)
           audioPlayerStore.setAudioSegment(index, url) // Sync with store
+          // If this was the current segment we were waiting for, clear buffering
+          if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(false)
           // Attempt to read duration for this generated segment and refine chapter duration estimate
           const dur = await this.getDurationFromUrl(url)
           if (dur > 0) {
@@ -434,7 +449,7 @@ class AudioPlaybackService {
             for (const d of this.segmentDurations.values()) sumKnown += d
             // Compute measured words
             this.wordsMeasured = 0
-            for (const [i, d] of this.segmentDurations.entries()) {
+            for (const [i, _] of this.segmentDurations.entries()) {
               this.wordsMeasured += this.wordsPerSegment[i] || 0
             }
             // Estimate remaining by words
@@ -462,10 +477,16 @@ class AudioPlaybackService {
     })()
 
     this.pendingGenerations.set(index, promise)
+    // If we're generating the current segment, set buffering
+    if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(true)
     try {
       await promise
     } finally {
       this.pendingGenerations.delete(index)
+      // If after deleting, the current segment is still pending, keep buffering; otherwise clear
+      const stillPending = this.pendingGenerations.has(this.currentSegmentIndex)
+      const shouldBuffer = stillPending && this.currentSegmentIndex >= 0 && this.isPlaying
+      audioPlayerStore.setBuffering(shouldBuffer)
     }
   }
 

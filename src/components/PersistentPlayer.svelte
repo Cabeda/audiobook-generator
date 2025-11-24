@@ -79,7 +79,9 @@
         onclick={handlePlayPause}
         aria-label={playbackInfo.isPlaying ? 'Pause' : 'Play'}
       >
-        {#if playbackInfo.isPlaying}
+        {#if playerState.isBuffering && playbackInfo.isPlaying}
+          <span class="spinner" aria-hidden="true"></span>
+        {:else if playbackInfo.isPlaying}
           <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
             <rect x="6" y="4" width="4" height="16" rx="1" />
             <rect x="14" y="4" width="4" height="16" rx="1" />
@@ -242,6 +244,30 @@
   .control-btn.play-pause:hover {
     background: var(--primary-hover);
     transform: scale(1.05);
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  .dark .spinner {
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-top-color: white;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .progress-section {
