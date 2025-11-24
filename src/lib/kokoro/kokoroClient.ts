@@ -46,8 +46,36 @@ export type GenerateParams = {
  */
 export function isWebGPUAvailable(): boolean {
   try {
-    return typeof navigator !== 'undefined' && 'gpu' in navigator && navigator.gpu !== undefined
+    if (typeof navigator === 'undefined') return false
+    if (!('gpu' in navigator) || navigator.gpu === undefined) return false
+    // Heuristics: disable WebGPU detection in headless/playwright environments
+    // Playwright and many headless browsers often include 'Headless' or 'Playwright' in UA
+    // which indicates that GPU adapters are unreliable in tests.
+    const ua = typeof navigator.userAgent === 'string' ? navigator.userAgent : ''
+    if (/Headless|Playwright|HeadlessChrome/i.test(ua)) return false
+    return true
   } catch {
+    return false
+  }
+}
+
+/**
+ * Asynchronously verify that WebGPU is usable by requesting an adapter.
+ * This is a more accurate check than a simple existence of navigator.gpu.
+ */
+export async function isWebGPUAvailableAsync(): Promise<boolean> {
+  try {
+    if (typeof navigator === 'undefined') return false
+    const nav = navigator as unknown as { gpu?: unknown; userAgent?: string }
+    if (!('gpu' in nav) || nav.gpu === undefined) return false
+    const ua = typeof nav.userAgent === 'string' ? nav.userAgent : ''
+    if (/Headless|Playwright|HeadlessChrome/i.test(ua)) return false
+    const gp = (nav as unknown as { gpu?: { requestAdapter?: () => Promise<unknown> } }).gpu
+    if (typeof gp?.requestAdapter !== 'function') return false
+    // Try to request an adapter — if this fails, GPU backends cannot be used
+    const adapter = await gp.requestAdapter?.()
+    return !!adapter
+  } catch (e) {
     return false
   }
 }
@@ -282,7 +310,8 @@ export async function generateVoiceSegments(
     // Auto-detect device if set to 'auto'
     let actualDevice: 'wasm' | 'webgpu' | 'cpu' = 'wasm'
     if (device === 'auto') {
-      actualDevice = isWebGPUAvailable() ? 'webgpu' : 'wasm'
+      // Prefer an async check to ensure a usable adapter exists (safety for headless tests)
+      actualDevice = (await isWebGPUAvailableAsync()) ? 'webgpu' : 'wasm'
       console.log(`[Kokoro] Auto-detected device: ${actualDevice}`)
     } else {
       actualDevice = device as 'wasm' | 'webgpu' | 'cpu'
@@ -446,7 +475,8 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
     // Auto-detect device if set to 'auto'
     let actualDevice: 'wasm' | 'webgpu' | 'cpu' = 'wasm'
     if (device === 'auto') {
-      actualDevice = isWebGPUAvailable() ? 'webgpu' : 'wasm'
+      // Use async check before deciding which backend to use
+      actualDevice = (await isWebGPUAvailableAsync()) ? 'webgpu' : 'wasm'
       console.log(`[Kokoro] Auto-detected device: ${actualDevice}`)
     } else {
       actualDevice = device as 'wasm' | 'webgpu' | 'cpu'

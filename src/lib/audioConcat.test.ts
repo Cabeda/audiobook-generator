@@ -357,7 +357,7 @@ describe('audioConcat', () => {
         }
         FS(op: 'writeFile' | 'readFile' | 'unlink' | 'remove', name: string, data?: Uint8Array) {
           if (op === 'writeFile') writtenFiles[name] = data as Uint8Array
-          if (op === 'readFile') return this.fs[name]
+          if (op === 'readFile') return (this.fs && this.fs[name]) || new Uint8Array()
         }
       }
 
