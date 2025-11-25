@@ -90,8 +90,10 @@
   function navigateToLanding() {
     currentView = 'landing'
     currentChapter = null
-    // Stop playback when leaving book
-    audioPlayerStore.stop()
+    // Minimize player if it's active so it shows as persistent bar
+    if ($isPlayerActive) {
+      audioPlayerStore.minimize()
+    }
     // Update url
     try {
       location.hash = `#/` // root
@@ -565,7 +567,7 @@
 </main>
 
 <!-- Persistent Audio Player -->
-{#if $isPlayerActive && $isPlayerMinimized}
+{#if $isPlayerActive && currentView !== 'reader'}
   <PersistentPlayer onMaximize={handlePlayerMaximize} />
 {/if}
 

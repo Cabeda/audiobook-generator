@@ -5,6 +5,7 @@
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
+  import AudioPlayerBar from './AudioPlayerBar.svelte'
 
   let {
     chapter,
@@ -69,13 +70,11 @@
       // Use untrack to read store without subscribing (prevents infinite loop)
       const needsInit = untrack(() => {
         const store = $audioPlayerStore
-        return (
-          store.chapterId !== chapter.id ||
-          store.bookId !== bookId ||
-          store.voice !== voice ||
-          store.selectedModel !== selectedModel ||
-          store.quantization !== quantization
-        )
+        // If the player is already set up for this chapter, don't re-initialize
+        if (store.bookId === bookId && store.chapterId === chapter.id) {
+          return false
+        }
+        return true
       })
 
       if (needsInit) {
@@ -158,23 +157,6 @@
   const THEME_KEY = 'text_reader_theme'
   let currentTheme = $state<Theme>('dark')
 
-  // Helper used to detect focus on interactive elements
-  function isInteractiveElement(el: Element | null) {
-    if (!el) return false
-    const tag = el.tagName
-    if (!tag) return false
-    const interactiveTags = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A']
-    if (interactiveTags.includes(tag)) return true
-    const role = el.getAttribute && el.getAttribute('role')
-    if (role === 'button' || role === 'textbox' || role === 'link') return true
-    // contenteditable or within settings menu should be treated as interactive
-    if ((el as HTMLElement).isContentEditable) return true
-    if (el.closest && el.closest('.settings-menu')) return true
-    return false
-  }
-
-  let handleGlobalKeydown: (e: KeyboardEvent) => void
-
   onMount(() => {
     try {
       const savedTheme = localStorage.getItem(THEME_KEY)
@@ -184,29 +166,6 @@
     } catch (e) {
       // ignore
     }
-    // Add global keydown handler: when no element is focused/selected, Space toggles play/pause
-    handleGlobalKeydown = (e: KeyboardEvent) => {
-      // Only care about Space key
-      if (e.code !== 'Space' && e.key !== ' ') return
-
-      // If a text selection exists, don't toggle playback
-      try {
-        const sel = window.getSelection && window.getSelection()
-        if (sel && sel.toString && sel.toString().length > 0) return
-      } catch (_) {
-        // ignore any selection errors
-      }
-
-      const active = document.activeElement
-      // If an interactive element is focused, let it handle the event
-      if (isInteractiveElement(active as Element)) return
-
-      // Prevent default (e.g. page scrolling) and toggle play/pause
-      e.preventDefault()
-      togglePlayPause()
-    }
-
-    document.addEventListener('keydown', handleGlobalKeydown)
 
     // Load Web Speech voices
     const loadVoices = () => {
@@ -230,12 +189,6 @@
   onDestroy(() => {
     // We don't stop audio on destroy anymore!
     // But we might want to unsubscribe if we had manual subscriptions
-    try {
-      // Remove event listener when leaving the reader
-      document.removeEventListener('keydown', handleGlobalKeydown)
-    } catch (e) {
-      // ignore
-    }
   })
 </script>
 
@@ -274,44 +227,12 @@
     </div>
 
     <!-- Bottom Bar -->
-    <div class="bottom-bar">
-      <div class="bar-content">
-        <div class="playback-controls">
-          <button
-            class="control-btn"
-            onclick={() => audioService.skipPrevious()}
-            aria-label="Previous"
-          >
-            ⏮️
-          </button>
-          <button
-            class="control-btn play-pause"
-            onclick={togglePlayPause}
-            aria-label={audioService.isPlaying ? 'Pause' : 'Play'}
-          >
-            {#if $audioPlayerStore.isBuffering && audioService.isPlaying}
-              <span class="spinner" aria-hidden="true"></span>
-            {:else}
-              {audioService.isPlaying ? '⏸️' : '▶️'}
-            {/if}
-          </button>
-          <button class="control-btn" onclick={() => audioService.skipNext()} aria-label="Next">
-            ⏭️
-          </button>
-        </div>
-
-        <div class="settings-toggle">
-          <button
-            class="control-btn"
-            onclick={() => (showSettings = !showSettings)}
-            aria-label="Settings"
-            aria-expanded={showSettings}
-          >
-            ⚙️
-          </button>
-        </div>
-      </div>
-    </div>
+    <!-- Bottom Bar -->
+    <AudioPlayerBar
+      mode="reader"
+      {showSettings}
+      onSettings={() => (showSettings = !showSettings)}
+    />
 
     <!-- Settings Menu -->
     {#if showSettings}
@@ -551,69 +472,6 @@
     transition: color 0.3s;
   }
 
-  /* Bottom Bar */
-  .bottom-bar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: var(--header-bg);
-    border-top: 1px solid var(--border-color);
-    padding: 16px 24px;
-    z-index: 100;
-    backdrop-filter: blur(10px);
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
-  }
-
-  .bar-content {
-    max-width: 900px;
-    margin: 0 auto;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .playback-controls {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    flex: 1;
-    justify-content: center;
-  }
-
-  .control-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 24px;
-    padding: 8px;
-    border-radius: 50%;
-    transition:
-      transform 0.1s,
-      background-color 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 48px;
-    height: 48px;
-  }
-
-  .control-btn:hover {
-    background: var(--surface-color);
-    transform: scale(1.1);
-  }
-
-  .control-btn.play-pause {
-    background: var(--text-color);
-    color: var(--bg-color);
-    font-size: 20px;
-  }
-
-  .control-btn.play-pause:hover {
-    transform: scale(1.05);
-    filter: brightness(1.2);
-  }
-
   /* Settings Menu */
   .settings-menu {
     position: fixed;
@@ -737,24 +595,6 @@
       transform: scale(1);
     }
   }
-  .spinner {
-    display: inline-block;
-    width: 18px;
-    height: 18px;
-    border: 2px solid rgba(0, 0, 0, 0.2);
-    border-top-color: rgba(0, 0, 0, 0.6);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
 
   /* Subtle indicator for buffered segments */
   .theme-selector {
@@ -801,10 +641,6 @@
     .text-content {
       padding: 24px 24px 100px 24px;
       font-size: 16px;
-    }
-
-    .bottom-bar {
-      padding: 12px 16px;
     }
 
     .settings-menu {
