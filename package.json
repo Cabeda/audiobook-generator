@@ -61,6 +61,7 @@
     "jszip": "^3.10.1",
     "kokoro-js": "^1.2.1",
     "onnxruntime-web": "^1.23.2",
-    "pdfjs-dist": "^5.4.394"
+    "pdfjs-dist": "^5.4.394",
+    "workbox-window": "^7.3.0"
   }
 }
