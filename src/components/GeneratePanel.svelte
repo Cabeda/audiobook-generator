@@ -7,7 +7,7 @@
     isWebGPUAvailable,
     isWebGPUAvailableAsync,
   } from '../lib/kokoro/kokoroClient'
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { piperClient } from '../lib/piper/piperClient'
   import { type TTSModelType, TTS_MODELS } from '../lib/tts/ttsModels'
   import {
@@ -92,21 +92,48 @@
   let kokoroVoices = listKokoroVoices()
   let availableVoices = $state<Array<{ id: string; label: string }>>([])
 
+  // Set up Web Speech voices handler once
+  let webSpeechVoicesLoaded = $state(false)
+
+  onMount(() => {
+    // Load Web Speech voices once on mount
+    const loadWebSpeechVoices = () => {
+      const voices = window.speechSynthesis.getVoices()
+      if (voices.length > 0) {
+        webSpeechVoicesLoaded = true
+      }
+    }
+
+    loadWebSpeechVoices()
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadWebSpeechVoices
+    }
+  })
+
   // Update voices when model changes
   $effect(() => {
-    if (selectedModel === 'kokoro') {
+    // Track the model change
+    const currentModel = selectedModel
+
+    if (currentModel === 'kokoro') {
       availableVoices = kokoroVoices.map((v) => ({
         id: v,
         label: voiceLabels[v] || v,
       }))
-      if (!kokoroVoices.includes(selectedVoice as VoiceId)) {
-        selectedVoice = 'af_heart'
-        // Notify parent of voice change
-        dispatch('voicechanged', { voice: selectedVoice })
-      }
-    } else if (selectedModel === 'piper') {
+      // Only change voice if it's invalid - use untrack to prevent circular updates
+      untrack(() => {
+        if (!kokoroVoices.includes(selectedVoice as VoiceId) && selectedVoice !== 'af_heart') {
+          selectedVoice = 'af_heart'
+          // Notify parent of voice change
+          dispatch('voicechanged', { voice: selectedVoice })
+        }
+      })
+    } else if (currentModel === 'piper') {
       // Load Piper voices
       piperClient.getVoices().then((voices) => {
+        // Only update if still on piper model (model may have changed while loading)
+        if (selectedModel !== 'piper') return
+
         availableVoices = voices.map((v) => ({
           id: v.key,
           label: `${v.name} (${v.language}) - ${v.quality}`,
@@ -118,10 +145,31 @@
           // Default to a known good voice or the first one
           const defaultVoice =
             availableVoices.find((v) => v.id === 'en_US-hfc_female-medium') || availableVoices[0]
-          if (defaultVoice) {
+          if (defaultVoice && selectedVoice !== defaultVoice.id) {
             selectedVoice = defaultVoice.id
             // Notify parent of voice change
             dispatch('voicechanged', { voice: selectedVoice })
+          }
+        }
+      })
+    } else if (currentModel === 'web_speech') {
+      // Load Web Speech voices (non-reactive to avoid infinite loop)
+      const voices = window.speechSynthesis.getVoices()
+      availableVoices = voices.map((v) => ({
+        id: v.name, // Use name as ID for web speech
+        label: `${v.name} (${v.lang})`,
+      }))
+
+      // Set default if needed (only if we actually have voices and voice needs changing)
+      untrack(() => {
+        if (availableVoices.length > 0) {
+          const currentVoiceExists = availableVoices.find((v) => v.id === selectedVoice)
+          if (!currentVoiceExists) {
+            const newVoice = availableVoices[0].id
+            if (selectedVoice !== newVoice) {
+              selectedVoice = newVoice
+              dispatch('voicechanged', { voice: selectedVoice })
+            }
           }
         }
       })
@@ -154,6 +202,11 @@
   }
 
   async function generate() {
+    if (selectedModel === 'web_speech') {
+      alert('Web Speech API does not support audio file generation.')
+      return
+    }
+
     const chapters = getSelectedChapters()
     if (chapters.length === 0) {
       alert('No chapters selected')
@@ -194,7 +247,7 @@
 
         const blob = await worker.generateVoice({
           text: ch.content,
-          modelType: effectiveModel,
+          modelType: effectiveModel as 'kokoro' | 'piper', // Safe cast as we checked for web_speech
           voice: selectedVoice,
           onProgress: (msg) => {
             progressText = `Chapter ${currentChapter}/${totalChapters}: ${msg}`
@@ -238,6 +291,8 @@
   }
 
   async function generateAndConcatenate() {
+    if (selectedModel === 'web_speech') return
+
     if (selectedFormat === 'epub') {
       await exportEpub()
       return
@@ -303,6 +358,8 @@
   }
 
   async function exportEpub() {
+    if (selectedModel === 'web_speech') return
+
     const chapters = getSelectedChapters()
     if (chapters.length === 0) {
       alert('No chapters selected')
@@ -337,7 +394,7 @@
         // Generate segments
         const segments = await worker.generateSegments({
           text: ch.content,
-          modelType: selectedModel,
+          modelType: selectedModel as 'kokoro' | 'piper', // Safe cast
           voice: selectedVoice,
           dtype: selectedModel === 'kokoro' ? selectedQuantization : undefined,
           device: selectedDevice,
@@ -567,14 +624,22 @@
 
   <!-- Action Buttons -->
   <div class="actions">
-    <button
-      class="primary"
-      onclick={generateAndConcatenate}
-      disabled={running || concatenating || getSelectedChapters().length === 0}
-      aria-busy={running || concatenating}
-    >
-      {running || concatenating ? '⏳ Processing...' : '🎧 Generate & Download'}
-    </button>
+    {#if selectedModel === 'web_speech'}
+      <div class="warning-message">
+        ⚠️ Web Speech API does not support file generation. Please select another model to generate
+        audio files.
+      </div>
+      <button class="primary" disabled> Generate Disabled </button>
+    {:else}
+      <button
+        class="primary"
+        onclick={generateAndConcatenate}
+        disabled={running || concatenating || getSelectedChapters().length === 0}
+        aria-busy={running || concatenating}
+      >
+        {running || concatenating ? '⏳ Processing...' : '🎧 Generate & Download'}
+      </button>
+    {/if}
     {#if running}
       <button class="secondary" onclick={cancel} aria-label="Cancel generation"> ✕ Cancel </button>
     {/if}
@@ -869,5 +934,16 @@
     color: #0066cc;
     font-weight: 500;
     font-style: normal;
+  }
+
+  .warning-message {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    color: #856404;
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    line-height: 1.5;
   }
 </style>

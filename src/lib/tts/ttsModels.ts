@@ -3,7 +3,7 @@
  * Provides a unified interface for different TTS engines
  */
 
-export type TTSModelType = 'kokoro' | 'piper'
+export type TTSModelType = 'kokoro' | 'piper' | 'web_speech'
 
 export interface TTSGenerateParams {
   text: string
@@ -85,6 +85,9 @@ export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> 
         },
       }
     }
+    case 'web_speech': {
+      throw new Error('Web Speech API does not support file generation')
+    }
     default:
       throw new Error(`Unknown TTS model type: ${modelType}`)
   }
@@ -114,6 +117,13 @@ export const TTS_MODELS: TTSModelInfo[] = [
     name: 'Piper TTS',
     description: 'Fast, local neural TTS running in the browser.',
     requiresDownload: true,
+    supportsOffline: true,
+  },
+  {
+    id: 'web_speech',
+    name: 'Web Speech API',
+    description: 'Uses system voices. Fast, no download required. (Playback only)',
+    requiresDownload: false,
     supportsOffline: true,
   },
 ]

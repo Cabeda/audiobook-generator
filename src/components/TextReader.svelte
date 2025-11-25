@@ -4,6 +4,7 @@
   import type { Chapter } from '../lib/types/book'
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
+  import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
 
   let {
     chapter,
@@ -22,7 +23,7 @@
     voice: string
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper'
+    selectedModel?: 'kokoro' | 'piper' | 'web_speech'
     onBack: () => void
     onChapterChange?: (chapter: Chapter) => void
   }>()
@@ -57,6 +58,7 @@
   // Initialize
   // Settings menu state
   let showSettings = $state(false)
+  let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
 
   // Initialize
   $effect(() => {
@@ -64,13 +66,17 @@
       segments = splitIntoSegments(chapter.content)
 
       // Check if we need to initialize the service
-      const store = $audioPlayerStore
-      const needsInit =
-        store.chapterId !== chapter.id ||
-        store.bookId !== bookId ||
-        store.voice !== voice ||
-        store.selectedModel !== selectedModel ||
-        store.quantization !== quantization
+      // Use untrack to read store without subscribing (prevents infinite loop)
+      const needsInit = untrack(() => {
+        const store = $audioPlayerStore
+        return (
+          store.chapterId !== chapter.id ||
+          store.bookId !== bookId ||
+          store.voice !== voice ||
+          store.selectedModel !== selectedModel ||
+          store.quantization !== quantization
+        )
+      })
 
       if (needsInit) {
         audioService.initialize(bookId, bookTitle, chapter, {
@@ -201,6 +207,15 @@
     }
 
     document.addEventListener('keydown', handleGlobalKeydown)
+
+    // Load Web Speech voices
+    const loadVoices = () => {
+      webSpeechVoices = window.speechSynthesis.getVoices()
+    }
+    loadVoices()
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices
+    }
   })
 
   function changeTheme(theme: Theme) {
@@ -224,6 +239,7 @@
   })
 </script>
 
+```ts
 <div class="reader-page" data-theme={currentTheme}>
   <div class="reader-container">
     <!-- Header -->
@@ -357,15 +373,45 @@
           </div>
         </div>
 
+        <div class="setting-item">
+          <label for="model-select">Model</label>
+          <select
+            id="model-select"
+            value={selectedModel}
+            onchange={(e) => {
+              // @ts-ignore
+              modelStore.set(e.currentTarget.value)
+            }}
+            class="model-select"
+          >
+            <option value="kokoro">Kokoro</option>
+            <option value="piper">Piper</option>
+            <option value="web_speech">Web Speech</option>
+          </select>
+        </div>
+
         <div class="setting-item info">
-          <div class="info-row">
-            <span class="label">Model:</span>
-            <span class="value">{selectedModel}</span>
-          </div>
-          <div class="info-row">
-            <span class="label">Voice:</span>
-            <span class="value">{voice}</span>
-          </div>
+          {#if selectedModel === 'web_speech'}
+            <label for="voice-select">Voice</label>
+            <select
+              id="voice-select"
+              value={voice}
+              onchange={(e) => {
+                // @ts-ignore
+                voiceStore.set(e.currentTarget.value)
+              }}
+              class="voice-select"
+            >
+              {#each webSpeechVoices as v}
+                <option value={v.name}>{v.name} ({v.lang})</option>
+              {/each}
+            </select>
+          {:else}
+            <div class="info-row">
+              <span class="label">Voice:</span>
+              <span class="value">{voice}</span>
+            </div>
+          {/if}
         </div>
       </div>
     {/if}
@@ -572,7 +618,7 @@
   .settings-menu {
     position: fixed;
     bottom: 90px;
-    right: 24px;
+    right: max(24px, calc((100vw - 900px) / 2 + 24px));
     background: var(--header-bg);
     border: 1px solid var(--border-color);
     border-radius: 12px;
@@ -637,6 +683,17 @@
 
   .speed-btn:hover {
     background: var(--surface-color);
+  }
+
+  .model-select,
+  .voice-select {
+    width: 100%;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-size: 14px;
   }
 
   .segment {

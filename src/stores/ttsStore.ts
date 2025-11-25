@@ -9,7 +9,7 @@ const MODEL_KEY = 'audiobook_model'
 // Type definitions
 export type Quantization = 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
 export type Device = 'auto' | 'wasm' | 'webgpu' | 'cpu'
-export type TTSModel = 'kokoro' | 'piper'
+export type TTSModel = 'kokoro' | 'piper' | 'web_speech'
 
 // Helper to create a localStorage-synced writable store
 function persistedWritable<T>(key: string, defaultValue: T): Writable<T> {
