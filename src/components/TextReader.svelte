@@ -70,13 +70,11 @@
       // Use untrack to read store without subscribing (prevents infinite loop)
       const needsInit = untrack(() => {
         const store = $audioPlayerStore
-        return (
-          store.chapterId !== chapter.id ||
-          store.bookId !== bookId ||
-          store.voice !== voice ||
-          store.selectedModel !== selectedModel ||
-          store.quantization !== quantization
-        )
+        // If the player is already set up for this chapter, don't re-initialize
+        if (store.bookId === bookId && store.chapterId === chapter.id) {
+          return false
+        }
+        return true
       })
 
       if (needsInit) {
