@@ -6,6 +6,7 @@
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
+  import DOMPurify from 'dompurify'
 
   let {
     chapter,
@@ -36,6 +37,8 @@
 
   // Local state for rendering
   let segments = $state<TextSegment[]>([])
+  let hasHtmlContent = $state(false)
+  let sanitizedHtml = $state('')
   const SPEED_KEY = 'text_reader_speed'
 
   // Initialize from localStorage if available
@@ -65,6 +68,42 @@
   $effect(() => {
     if (chapter) {
       segments = splitIntoSegments(chapter.content)
+
+      // Check if we have HTML content to render
+      hasHtmlContent = !!chapter.htmlContent
+      if (hasHtmlContent && chapter.htmlContent) {
+        // Sanitize HTML content before rendering
+        sanitizedHtml = DOMPurify.sanitize(chapter.htmlContent, {
+          ALLOWED_TAGS: [
+            'p',
+            'br',
+            'strong',
+            'em',
+            'b',
+            'i',
+            'u',
+            'h1',
+            'h2',
+            'h3',
+            'h4',
+            'h5',
+            'h6',
+            'ul',
+            'ol',
+            'li',
+            'blockquote',
+            'code',
+            'pre',
+            'a',
+            'img',
+            'figure',
+            'figcaption',
+            'div',
+            'span',
+          ],
+          ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id'],
+        })
+      }
 
       // Check if we need to initialize the service
       // Use untrack to read store without subscribing (prevents infinite loop)
@@ -206,24 +245,32 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div class="text-content" role="main" onclick={() => (showSettings = false)}>
-      {#each segments as segment (segment.index)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <span
-          id="segment-{segment.index}"
-          class="segment"
-          class:active={audioService.currentSegmentIndex === segment.index}
-          class:unprocessed={segment.index > audioService.currentSegmentIndex}
-          onclick={(e) => {
-            e.stopPropagation()
-            audioService.playFromSegment(segment.index)
-          }}
-          role="button"
-          tabindex="0"
-          aria-current={audioService.currentSegmentIndex === segment.index ? 'true' : undefined}
-        >
-          {segment.text}{' '}
-        </span>
-      {/each}
+      {#if hasHtmlContent}
+        <!-- HTML Content with sanitization -->
+        <div class="html-content">
+          {@html sanitizedHtml}
+        </div>
+      {:else}
+        <!-- Plain text with segment highlighting -->
+        {#each segments as segment (segment.index)}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <span
+            id="segment-{segment.index}"
+            class="segment"
+            class:active={audioService.currentSegmentIndex === segment.index}
+            class:unprocessed={segment.index > audioService.currentSegmentIndex}
+            onclick={(e) => {
+              e.stopPropagation()
+              audioService.playFromSegment(segment.index)
+            }}
+            role="button"
+            tabindex="0"
+            aria-current={audioService.currentSegmentIndex === segment.index ? 'true' : undefined}
+          >
+            {segment.text}{' '}
+          </span>
+        {/each}
+      {/if}
     </div>
 
     <!-- Bottom Bar -->
@@ -470,6 +517,75 @@
     font-size: 18px;
     color: var(--text-color);
     transition: color 0.3s;
+  }
+
+  /* HTML Content Styling */
+  .html-content :global(p) {
+    margin: 1em 0;
+    line-height: 1.8;
+  }
+
+  .html-content :global(img) {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 1.5em auto;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .html-content :global(h1),
+  .html-content :global(h2),
+  .html-content :global(h3),
+  .html-content :global(h4),
+  .html-content :global(h5),
+  .html-content :global(h6) {
+    margin: 1.5em 0 0.75em;
+    font-weight: 600;
+    color: var(--text-color);
+  }
+
+  .html-content :global(ul),
+  .html-content :global(ol) {
+    margin: 1em 0;
+    padding-left: 2em;
+  }
+
+  .html-content :global(li) {
+    margin: 0.5em 0;
+  }
+
+  .html-content :global(blockquote) {
+    margin: 1.5em 0;
+    padding: 1em 1.5em;
+    border-left: 4px solid var(--border-color);
+    background: var(--surface-color);
+    font-style: italic;
+  }
+
+  .html-content :global(code) {
+    background: var(--surface-color);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+  }
+
+  .html-content :global(pre) {
+    background: var(--surface-color);
+    padding: 1em;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 1em 0;
+  }
+
+  .html-content :global(a) {
+    color: #4a90e2;
+    text-decoration: underline;
+  }
+
+  .html-content :global(a:hover) {
+    color: #357abd;
   }
 
   /* Settings Menu */

@@ -1,11 +1,22 @@
-import type { Book, BookParser, Chapter } from '../types/book'
+import type { Book, BookParser, Chapter, ImageResource } from '../types/book'
 import { readFileAsText } from '../fileUtils'
+import TurndownService from 'turndown'
 
 /**
  * Parser for HTML files
  * Extracts chapters from heading tags and metadata from HTML meta tags
+ * Preserves HTML formatting and images
  */
 export class HtmlParser implements BookParser {
+  private turndownService: TurndownService
+
+  constructor() {
+    this.turndownService = new TurndownService({
+      headingStyle: 'atx',
+      codeBlockStyle: 'fenced',
+    })
+  }
+
   async canParse(file: File): Promise<boolean> {
     const ext = file.name.toLowerCase()
     return ext.endsWith('.html') || ext.endsWith('.htm') || file.type === 'text/html'
@@ -23,6 +34,9 @@ export class HtmlParser implements BookParser {
     // Extract metadata
     const metadata = this.extractMetadata(doc)
 
+    // Extract images
+    const images = this.extractImages(doc)
+
     // Extract chapters from heading structure
     const chapters = this.extractChapters(doc)
 
@@ -31,6 +45,7 @@ export class HtmlParser implements BookParser {
       author: metadata.author,
       chapters,
       format: 'html',
+      images: images.length > 0 ? images : undefined,
     }
   }
 
@@ -54,6 +69,29 @@ export class HtmlParser implements BookParser {
     const author = metaAuthor || dcCreator || 'Unknown'
 
     return { title, author }
+  }
+
+  /**
+   * Extract images from the document
+   */
+  private extractImages(doc: Document): ImageResource[] {
+    const images: ImageResource[] = []
+    const imgElements = doc.querySelectorAll('img')
+
+    imgElements.forEach((img, index) => {
+      const src = img.getAttribute('src')
+      const alt = img.getAttribute('alt') || undefined
+
+      if (src) {
+        images.push({
+          id: `img-${index}`,
+          url: src,
+          alt,
+        })
+      }
+    })
+
+    return images
   }
 
   /**
@@ -93,7 +131,8 @@ export class HtmlParser implements BookParser {
       const title = heading.textContent?.trim() || `Chapter ${i + 1}`
 
       // Collect content between this heading and the next
-      const content: string[] = []
+      const contentElements: Element[] = []
+      const textContent: string[] = []
       let currentNode: Node | null = heading.nextSibling
       const nextHeading = headings[i + 1]
 
@@ -102,23 +141,31 @@ export class HtmlParser implements BookParser {
           const element = currentNode as Element
           // Skip other headings of the same level
           if (!this.isHeading(element)) {
+            contentElements.push(element)
             const text = this.cleanText(element.textContent || '')
-            if (text) content.push(text)
+            if (text) textContent.push(text)
           }
         } else if (currentNode.nodeType === Node.TEXT_NODE) {
           const text = this.cleanText(currentNode.textContent || '')
-          if (text) content.push(text)
+          if (text) textContent.push(text)
         }
         currentNode = this.getNextNode(currentNode, nextHeading)
       }
 
-      const chapterContent = content.join('\n\n').trim()
+      const chapterContent = textContent.join('\n\n').trim()
 
       if (chapterContent.length > 0) {
+        // Generate HTML content
+        const htmlContent =
+          contentElements.length > 0
+            ? contentElements.map((el) => el.outerHTML).join('\n')
+            : undefined
+
         chapters.push({
           id: `chapter-${i + 1}`,
           title,
           content: chapterContent,
+          htmlContent,
         })
       }
     }
@@ -179,11 +226,15 @@ export class HtmlParser implements BookParser {
     // Use first line or first 80 characters as title
     const firstLine = content.split('\n')[0].substring(0, 80)
 
+    // Extract HTML content from body
+    const htmlContent = body.innerHTML
+
     return [
       {
         id: 'full-document',
         title: firstLine || 'Full Document',
         content,
+        htmlContent,
       },
     ]
   }

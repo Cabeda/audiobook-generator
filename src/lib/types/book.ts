@@ -1,4 +1,13 @@
 /**
+ * Image resource embedded in book content
+ */
+export interface ImageResource {
+  id: string
+  url: string // Can be external URL or data URL
+  alt?: string
+}
+
+/**
  * Common book format returned by all parsers
  */
 export interface Book {
@@ -8,12 +17,14 @@ export interface Book {
   chapters: Chapter[]
   format?: string // Original format (epub, pdf, txt, etc.)
   language?: string // ISO 639-1 language code (e.g., 'en', 'es', 'fr')
+  images?: ImageResource[] // Embedded images for HTML content
 }
 
 export interface Chapter {
   id: string
   title: string
-  content: string
+  content: string // Plain text content for TTS
+  htmlContent?: string // Optional HTML content for rich display
 }
 
 /**

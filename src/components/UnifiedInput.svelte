@@ -100,7 +100,7 @@
         throw new Error('Failed to parse article content')
       }
 
-      // Create Book object
+      // Create Book object with both HTML and text content
       const book: Book = {
         title: article.title || 'Untitled Article',
         author: article.byline || article.siteName || 'Unknown Author',
@@ -110,7 +110,8 @@
           {
             id: 'article-content',
             title: article.title || 'Article Content',
-            content: article.textContent || '',
+            content: article.textContent || '', // Plain text for TTS
+            htmlContent: article.content || undefined, // HTML for display
           },
         ],
       }
