@@ -7,6 +7,7 @@
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
   import DOMPurify from 'dompurify'
+  import { processHtmlAndGetSegments } from '../lib/htmlSegmenter'
 
   let {
     chapter,
@@ -39,6 +40,8 @@
   let segments = $state<TextSegment[]>([])
   let hasHtmlContent = $state(false)
   let sanitizedHtml = $state('')
+  let readerContainer: HTMLElement
+  let autoScroll = $state(true)
   const SPEED_KEY = 'text_reader_speed'
 
   // Initialize from localStorage if available
@@ -67,67 +70,78 @@
   // Initialize
   $effect(() => {
     if (chapter) {
-      segments = splitIntoSegments(chapter.content)
-
-      // Check if we have HTML content to render
-      hasHtmlContent = !!chapter.htmlContent
-      if (hasHtmlContent && chapter.htmlContent) {
-        // Sanitize HTML content before rendering
-        sanitizedHtml = DOMPurify.sanitize(chapter.htmlContent, {
-          ALLOWED_TAGS: [
-            'p',
-            'br',
-            'strong',
-            'em',
-            'b',
-            'i',
-            'u',
-            'h1',
-            'h2',
-            'h3',
-            'h4',
-            'h5',
-            'h6',
-            'ul',
-            'ol',
-            'li',
-            'blockquote',
-            'code',
-            'pre',
-            'a',
-            'img',
-            'figure',
-            'figcaption',
-            'div',
-            'span',
-          ],
-          ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id'],
-        })
-      }
-
-      // Check if we need to initialize the service
-      // Use untrack to read store without subscribing (prevents infinite loop)
+      // Use untrack to prevent reactive loop when reading store
       const needsInit = untrack(() => {
         const store = $audioPlayerStore
         // If the player is already set up for this chapter, don't re-initialize
-        if (store.bookId === bookId && store.chapterId === chapter.id) {
-          return false
-        }
-        return true
+        // We check bookId and chapter.id (assuming chapter has id, or we use index if id missing)
+        // The previous code used chapter.id. Let's assume chapter has id.
+        // If not, we might need another way. But let's stick to the pattern.
+        // If chapter doesn't have id, we might rely on title or index.
+        // Let's check the type definition of Chapter.
+        return store.bookId !== bookId || store.chapterId !== chapter.id
       })
 
       if (needsInit) {
-        audioService.initialize(bookId, bookTitle, chapter, {
-          voice,
-          quantization,
-          device,
-          selectedModel,
-          playbackSpeed: initialSpeed,
-        })
+        // Check if we have HTML content
+        if (chapter.htmlContent) {
+          hasHtmlContent = true
+          // Process HTML to inject segment markers and extract segments
+          const result = processHtmlAndGetSegments(chapter.htmlContent)
+          sanitizedHtml = result.html
+
+          // Create TextSegment objects from the extracted strings
+          segments = result.segments.map((text: string, index: number) => ({ index, text }))
+
+          // Reconstruct content string for audio service to ensure alignment
+          const alignedContent = segments.map((s) => s.text).join(' ')
+
+          // Initialize audio service with aligned content
+          audioService.initialize(
+            bookId,
+            bookTitle,
+            { ...chapter, content: alignedContent }, // Override content
+            {
+              voice,
+              quantization,
+              device,
+              selectedModel,
+              playbackSpeed: initialSpeed,
+            }
+          )
+        } else {
+          hasHtmlContent = false
+          sanitizedHtml = ''
+          segments = splitIntoSegments(chapter.content)
+
+          audioService.initialize(bookId, bookTitle, chapter, {
+            voice,
+            quantization,
+            device,
+            selectedModel,
+            playbackSpeed: initialSpeed,
+          })
+        }
+
         // Auto-play when opening a new chapter (async without blocking effect)
         audioService.play().catch((err) => {
           console.error('Auto-play failed:', err)
         })
+      } else {
+        // If we don't need init, we still need to populate local state (segments, html)
+        // because we might be returning to the view.
+        // But we shouldn't call audioService.initialize.
+
+        if (chapter.htmlContent) {
+          hasHtmlContent = true
+          const result = processHtmlAndGetSegments(chapter.htmlContent)
+          sanitizedHtml = result.html
+          segments = result.segments.map((text: string, index: number) => ({ index, text }))
+        } else {
+          hasHtmlContent = false
+          sanitizedHtml = ''
+          segments = splitIntoSegments(chapter.content)
+        }
       }
     }
   })
@@ -142,18 +156,41 @@
     }
   }
 
-  // Scroll to current segment
+  // Scroll to current segment and highlight
   $effect(() => {
     const index = audioService.currentSegmentIndex
-    if (index >= 0) {
+
+    // Handle scrolling
+    if (index >= 0 && autoScroll) {
       scrollToSegment(index)
+    }
+
+    // Handle highlighting for HTML content
+    // For plain text, svelte handles it via class:active in the loop
+    if (hasHtmlContent && readerContainer) {
+      // Remove active class from previously active segment
+      const prevActive = readerContainer.querySelector('.html-content .segment.active')
+      if (prevActive) {
+        prevActive.classList.remove('active')
+      }
+
+      // Add active class to current segment
+      // Note: A segment might span multiple spans if we split nodes.
+      // We should highlight ALL spans with this segment index.
+      // We also include the ID selector as a fallback for the first span of the segment
+      const currentSegments = readerContainer.querySelectorAll(
+        `[data-segment-index="${index}"], #segment-${index}`
+      )
+      currentSegments.forEach((el) => el.classList.add('active'))
     }
   })
 
   function scrollToSegment(index: number) {
     requestAnimationFrame(() => {
-      const element = document.getElementById(`segment-${index}`)
-      const container = document.querySelector('.reader-container') // Updated selector
+      const element =
+        document.getElementById(`segment-${index}`) ||
+        readerContainer?.querySelector(`[data-segment-index="${index}"]`)
+      const container = readerContainer
 
       if (element && container) {
         const elementRect = element.getBoundingClientRect()
@@ -225,20 +262,68 @@
     }
   }
 
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.code === 'Space') {
+      e.preventDefault()
+      audioService.togglePlayPause()
+    } else if (e.code === 'ArrowRight') {
+      audioService.skipNext()
+    } else if (e.code === 'ArrowLeft') {
+      audioService.skipPrevious()
+    }
+  }
+
+  function handleHtmlClick(e: MouseEvent) {
+    const target = e.target as HTMLElement
+    // Find the closest segment element
+    const segment = target.closest('.segment') as HTMLElement
+
+    if (segment && segment.dataset.segmentIndex) {
+      e.stopPropagation()
+      const index = parseInt(segment.dataset.segmentIndex, 10)
+      if (!isNaN(index)) {
+        audioService.playFromSegment(index)
+      }
+    }
+  }
+
   onDestroy(() => {
     // We don't stop audio on destroy anymore!
     // But we might want to unsubscribe if we had manual subscriptions
   })
 </script>
 
-```ts
+<svelte:window onkeydown={handleKeydown} />
+
 <div class="reader-page" data-theme={currentTheme}>
-  <div class="reader-container">
+  <div class="reader-container" bind:this={readerContainer}>
     <!-- Header -->
     <div class="reader-header">
       <button class="back-button" onclick={handleClose} aria-label="Back to book"> ← Back </button>
       <h2 id="chapter-title">{chapter.title}</h2>
       <div class="header-spacer"></div>
+      <button
+        class="icon-button"
+        class:active={autoScroll}
+        onclick={() => (autoScroll = !autoScroll)}
+        title="Toggle Auto-scroll"
+        aria-label="Toggle Auto-scroll"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M12 5v14" />
+          <path d="m19 12-7 7-7-7" />
+        </svg>
+      </button>
     </div>
 
     <!-- Text Content -->
@@ -247,7 +332,9 @@
     <div class="text-content" role="main" onclick={() => (showSettings = false)}>
       {#if hasHtmlContent}
         <!-- HTML Content with sanitization -->
-        <div class="html-content">
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <div class="html-content" onclick={handleHtmlClick} role="article">
           {@html sanitizedHtml}
         </div>
       {:else}
@@ -273,7 +360,6 @@
       {/if}
     </div>
 
-    <!-- Bottom Bar -->
     <!-- Bottom Bar -->
     <AudioPlayerBar
       mode="reader"
@@ -735,22 +821,50 @@
   }
 
   .theme-btn.active {
-    background: var(--text-color);
-    color: var(--bg-color);
-    border-color: var(--text-color);
+    background: var(--active-bg);
+    color: var(--active-text);
+    border-color: var(--border-color);
+  }
+
+  .icon-button {
+    background: none;
+    border: none;
+    color: var(--text-color);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+  }
+
+  .icon-button:hover {
+    background-color: var(--surface-color);
+  }
+
+  .icon-button.active {
+    background-color: var(--active-bg);
+    color: var(--active-text);
   }
 
   .info-row {
     display: flex;
     justify-content: space-between;
-    font-size: 13px;
-    margin-bottom: 4px;
-    color: var(--text-color);
-    opacity: 0.8;
+    align-items: center;
+    padding: 8px;
+    background: var(--surface-color);
+    border-radius: 6px;
+  }
+
+  .info-row .label {
+    font-weight: 500;
+    font-size: 14px;
   }
 
   .info-row .value {
-    font-weight: 500;
+    font-family: monospace;
+    font-size: 14px;
   }
 
   @media (max-width: 640px) {
