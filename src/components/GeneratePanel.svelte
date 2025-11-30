@@ -17,6 +17,7 @@
     type AudioChapter,
     type ConcatenationProgress,
     type AudioFormat,
+    createSilentWav,
   } from '../lib/audioConcat'
   import { createEventDispatcher } from 'svelte'
   import { EpubGenerator, type EpubMetadata } from '../lib/epub/epubGenerator'
@@ -245,7 +246,7 @@
           selectedVoice = 'af_heart'
         }
 
-        const blob = await worker.generateVoice({
+        let blob = await worker.generateVoice({
           text: ch.content,
           modelType: effectiveModel as 'kokoro' | 'piper', // Safe cast as we checked for web_speech
           voice: selectedVoice,
@@ -266,6 +267,13 @@
         })
 
         if (canceled) break
+
+        if (blob.size === 0) {
+          console.warn(`Generated empty blob for chapter "${ch.title}"`)
+          progressText = `Warning: Chapter ${currentChapter} generated empty audio (replaced with silence)`
+          // Replace empty blob with 1s silence so downloads/concatenation work
+          blob = createSilentWav(1)
+        }
 
         generatedChapters.set(ch.id, blob)
         dispatch('generated', { id: ch.id, blob })

@@ -21,13 +21,18 @@ async function getFFmpeg(): Promise<FFmpeg> {
     // Enable logging for debugging
     ffmpegInstance.on('log', ({ message }) => {
       console.log('[FFmpeg]', message)
+      if (message.includes('Aborted()')) {
+        console.warn('[FFmpeg] Detected Abort! Resetting instance.')
+        ffmpegLoaded = false
+        ffmpegInstance = null
+      }
     })
   }
 
   if (!ffmpegLoaded) {
     try {
       // Use ESM build from jsdelivr with direct URLs (no toBlobURL needed)
-      const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm'
+      const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm'
       console.log('[FFmpeg] Loading FFmpeg core from:', baseURL)
 
       await ffmpegInstance.load({
@@ -116,16 +121,24 @@ async function ffRun(ffmpeg: FFmpeg, args: string[]) {
   }
 }
 
-function ffReadFile(ffmpeg: FFmpeg, filename: string): Uint8Array {
-  const asWithRead = ffmpeg as unknown as { readFile?: (name: string) => Uint8Array } & FFmpegFS
+async function ffReadFile(ffmpeg: FFmpeg, filename: string): Promise<Uint8Array> {
+  const asWithRead = ffmpeg as unknown as {
+    readFile?: (name: string) => Promise<Uint8Array | string> | Uint8Array | string
+  } & FFmpegFS
 
   try {
     if (typeof asWithRead.readFile === 'function') {
-      const data = asWithRead.readFile(filename)
+      const result = asWithRead.readFile(filename)
+      const data = result instanceof Promise ? await result : result
+
       if (!data) {
         throw new Error(
           `File '${filename}' not found in FFmpeg virtual filesystem (readFile returned null/undefined)`
         )
+      }
+
+      if (typeof data === 'string') {
+        return new TextEncoder().encode(data)
       }
       return data
     }
@@ -503,7 +516,13 @@ export async function concatenateAudioChapters(
 
       // Validate blob size
       if (blob.size === 0) {
-        throw new Error(`Chapter ${i + 1} "${chapters[i].title}" has empty audio blob`)
+        console.warn(
+          `[audioConcat] Chapter ${i + 1} "${chapters[i].title}" has empty audio blob. Generating 1s silence.`
+        )
+        // Create 1 second of silence
+        const silence = audioContext.createBuffer(1, sampleRate, sampleRate)
+        audioBuffers.push(silence)
+        continue
       }
 
       const arrayBuffer = await blob.arrayBuffer()
@@ -519,9 +538,16 @@ export async function concatenateAudioChapters(
       audioBuffers.push(audioBuffer)
     } catch (err) {
       console.error(`[audioConcat] Failed to decode chapter ${i + 1} "${chapters[i].title}":`, err)
-      throw new Error(
-        `Failed to decode audio for chapter ${i + 1} "${chapters[i].title}": ${err instanceof Error ? err.message : String(err)}`
-      )
+      // Instead of failing the entire process, try to add silence for failed chapters too
+      try {
+        console.warn(`[audioConcat] Generating silence for failed chapter ${i + 1}`)
+        const silence = audioContext.createBuffer(1, sampleRate, sampleRate)
+        audioBuffers.push(silence)
+      } catch (e) {
+        throw new Error(
+          `Failed to decode audio for chapter ${i + 1} "${chapters[i].title}": ${err instanceof Error ? err.message : String(err)}`
+        )
+      }
     }
   }
 
@@ -663,7 +689,7 @@ export async function audioBufferToMp3(
     console.log(`[audioConcat] Reading output file: ${outputFile}`)
 
     // Read output file
-    const data = ffReadFile(ffmpeg, outputFile)
+    const data = await ffReadFile(ffmpeg, outputFile)
     console.log(`[audioConcat] Output file size: ${data.length} bytes`)
 
     if (data.length === 0) {
@@ -853,7 +879,40 @@ async function ffmpegConcatenateBlobs(
     const wavFilename = `input_${i}.normalized.wav`
 
     const data = new Uint8Array(await c.blob.arrayBuffer())
-    await ffWriteFile(ffmpeg, inFilename, data)
+
+    if (data.length === 0) {
+      console.warn(
+        `[audioConcat] Chapter ${i + 1} "${c.title}" has empty audio blob. Generating 1s silence for FFmpeg.`
+      )
+      // Create a silent WAV file (1s, 44100Hz, mono, 16-bit)
+      // Header (44 bytes) + 88200 bytes of silence (44100 * 2 bytes)
+      const silenceLength = 44100 * 2
+      const buffer = new ArrayBuffer(44 + silenceLength)
+      const view = new DataView(buffer)
+
+      // Write minimal WAV header
+      const writeStr = (offset: number, s: string) => {
+        for (let j = 0; j < s.length; j++) view.setUint8(offset + j, s.charCodeAt(j))
+      }
+
+      writeStr(0, 'RIFF')
+      view.setUint32(4, 36 + silenceLength, true)
+      writeStr(8, 'WAVE')
+      writeStr(12, 'fmt ')
+      view.setUint32(16, 16, true)
+      view.setUint16(20, 1, true) // PCM
+      view.setUint16(22, 1, true) // Mono
+      view.setUint32(24, 44100, true)
+      view.setUint32(28, 44100 * 2, true)
+      view.setUint16(32, 2, true)
+      view.setUint16(34, 16, true)
+      writeStr(36, 'data')
+      view.setUint32(40, silenceLength, true)
+
+      await ffWriteFile(ffmpeg, inFilename, new Uint8Array(buffer))
+    } else {
+      await ffWriteFile(ffmpeg, inFilename, data)
+    }
 
     // Normalize to WAV 44100 stereo PCM
     const args = ['-i', inFilename, '-ar', '44100', '-ac', '2', '-y', wavFilename]
@@ -912,7 +971,7 @@ async function ffmpegConcatenateBlobs(
   }
 
   // Read final file
-  const data = ffReadFile(ffmpeg, outFile)
+  const data = await ffReadFile(ffmpeg, outFile)
   const mime =
     format === 'wav'
       ? 'audio/wav'
@@ -1134,7 +1193,7 @@ export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Pro
     }
 
     // Read output file
-    const data = ffReadFile(ffmpeg, outFile)
+    const data = await ffReadFile(ffmpeg, outFile)
     console.log(`[convertWavToMp3] Output file size: ${data?.length || 0} bytes`)
 
     if (!data || data.length === 0) {
@@ -1184,4 +1243,40 @@ export function getAudioDuration(blob: Blob): Promise<number> {
     })
     audio.src = URL.createObjectURL(blob)
   })
+}
+
+/**
+ * Create a silent WAV blob of specified duration
+ */
+export function createSilentWav(durationSeconds: number = 1, sampleRate: number = 44100): Blob {
+  const numChannels = 1
+  const bitDepth = 16
+  const bytesPerSample = bitDepth / 8
+  const totalSamples = sampleRate * durationSeconds
+  const dataLength = totalSamples * numChannels * bytesPerSample
+
+  const buffer = new ArrayBuffer(44 + dataLength)
+  const view = new DataView(buffer)
+
+  const writeStr = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i))
+  }
+
+  writeStr(0, 'RIFF')
+  view.setUint32(4, 36 + dataLength, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true) // PCM
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * numChannels * bytesPerSample, true)
+  view.setUint16(32, numChannels * bytesPerSample, true)
+  view.setUint16(34, bitDepth, true)
+  writeStr(36, 'data')
+  view.setUint32(40, dataLength, true)
+
+  // Data is already 0 (silence) in new ArrayBuffer
+
+  return new Blob([buffer], { type: 'audio/wav' })
 }
