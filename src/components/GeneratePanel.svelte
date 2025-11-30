@@ -298,7 +298,14 @@
       return
     }
 
-    await generate()
+    // Check if all selected chapters are already generated
+    const selectedChapters = getSelectedChapters()
+    const allGenerated = selectedChapters.every((ch) => generatedChapters.has(ch.id))
+
+    // Only generate if we don't have all the chapters
+    if (!allGenerated) {
+      await generate()
+    }
 
     if (!canceled && generatedChapters.size > 0) {
       await concatenateAndDownload()
@@ -338,7 +345,14 @@
       )
 
       // Generate filename from book title with appropriate extension
-      const extension = selectedFormat === 'wav' ? 'wav' : selectedFormat === 'm4b' ? 'm4b' : 'mp3'
+      const extension =
+        selectedFormat === 'wav'
+          ? 'wav'
+          : selectedFormat === 'm4b'
+            ? 'm4b'
+            : selectedFormat === 'mp4'
+              ? 'mp4'
+              : 'mp3'
       const filename = `${book.title.replace(/[^a-z0-9]/gi, '_')}_audiobook.${extension}`
       // Log immediately before triggering the download so automated tests can detect it
       console.log('download-trigger', { filename, size: combinedBlob.size, format: selectedFormat })
@@ -547,6 +561,32 @@
     </label>
   </div>
 
+  <!-- Export Format Options (Outside Advanced) -->
+  <div class="option-group export-options">
+    <label>
+      <span class="label-text">📦 Export Format</span>
+      <select bind:value={selectedFormat} disabled={running}>
+        <option value="mp3">MP3 (Recommended)</option>
+        <option value="mp4">MP4 (With Chapters)</option>
+        <option value="m4b">M4B (Audiobook)</option>
+        <option value="wav">WAV (Uncompressed)</option>
+        <option value="epub">EPUB3 (Media Overlays)</option>
+      </select>
+    </label>
+
+    {#if selectedFormat === 'mp3' || selectedFormat === 'm4b' || selectedFormat === 'mp4'}
+      <label>
+        <span class="label-text">🎚️ Quality</span>
+        <select bind:value={selectedBitrate} disabled={running}>
+          <option value={128}>128 kbps (Smaller)</option>
+          <option value={192}>192 kbps (Balanced)</option>
+          <option value={256}>256 kbps (High)</option>
+          <option value={320}>320 kbps (Maximum)</option>
+        </select>
+      </label>
+    {/if}
+  </div>
+
   <!-- Advanced Options Toggle -->
   <button
     class="advanced-toggle"
@@ -596,28 +636,6 @@
             </select>
           </label>
         {/if}
-
-        <label>
-          <span class="label-text">📦 Format</span>
-          <select bind:value={selectedFormat} disabled={running || concatenating}>
-            <option value="mp3">MP3 (Recommended)</option>
-            <option value="m4b">M4B (Audiobook)</option>
-            <option value="wav">WAV (Uncompressed)</option>
-            <option value="epub">EPUB3 (Media Overlays)</option>
-          </select>
-        </label>
-
-        {#if selectedFormat === 'mp3' || selectedFormat === 'm4b'}
-          <label>
-            <span class="label-text">🎚️ Quality</span>
-            <select bind:value={selectedBitrate} disabled={running || concatenating}>
-              <option value={128}>128 kbps (Smaller)</option>
-              <option value={192}>192 kbps (Balanced)</option>
-              <option value={256}>256 kbps (High)</option>
-              <option value={320}>320 kbps (Maximum)</option>
-            </select>
-          </label>
-        {/if}
       </div>
     </div>
   {/if}
@@ -631,13 +649,19 @@
       </div>
       <button class="primary" disabled> Generate Disabled </button>
     {:else}
+      {@const selectedChapters = getSelectedChapters()}
+      {@const allGenerated = selectedChapters.every((ch) => generatedChapters.has(ch.id))}
       <button
         class="primary"
         onclick={generateAndConcatenate}
         disabled={running || concatenating || getSelectedChapters().length === 0}
         aria-busy={running || concatenating}
       >
-        {running || concatenating ? '⏳ Processing...' : '🎧 Generate & Download'}
+        {running || concatenating
+          ? '⏳ Processing...'
+          : allGenerated && generatedChapters.size > 0
+            ? '📥 Export with Current Format'
+            : '🎧 Generate & Download'}
       </button>
     {/if}
     {#if running}
@@ -722,6 +746,14 @@
   }
 
   .option-group {
+    margin-bottom: 16px;
+  }
+
+  .option-group.export-options {
+    padding: 16px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
     margin-bottom: 16px;
   }
 

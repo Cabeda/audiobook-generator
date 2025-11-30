@@ -1,7 +1,7 @@
 <script lang="ts">
   import UnifiedInput from './UnifiedInput.svelte'
   import LibraryView from './LibraryView.svelte'
-  import { createEventDispatcher } from 'svelte'
+  import { createEventDispatcher, onMount } from 'svelte'
   import { getBook, updateLastAccessed } from '../lib/libraryDB'
   import { libraryBooks } from '../stores/libraryStore'
   import { book } from '../stores/bookStore'
@@ -9,6 +9,29 @@
   const dispatch = createEventDispatcher()
 
   let currentView = $state<'upload' | 'library'>('upload')
+
+  // Sync currentView with URL hash
+  function syncViewFromHash() {
+    const hash = location.hash.replace(/^#/, '') || '/'
+    if (hash === '/library') {
+      currentView = 'library'
+    } else {
+      // Default to upload for '/', '/upload', or any other hash on landing
+      currentView = 'upload'
+    }
+  }
+
+  onMount(() => {
+    // Initialize view from URL on mount
+    syncViewFromHash()
+
+    // Listen for hash changes (browser back/forward)
+    const handleHashChange = () => {
+      syncViewFromHash()
+    }
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  })
 
   function onBookLoaded(event: CustomEvent) {
     dispatch('bookloaded', event.detail)
@@ -44,10 +67,12 @@
 
   function switchToUpload() {
     currentView = 'upload'
+    location.hash = '#/'
   }
 
   function switchToLibrary() {
     currentView = 'library'
+    location.hash = '#/library'
   }
 </script>
 

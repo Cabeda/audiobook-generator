@@ -119,15 +119,34 @@ async function ffRun(ffmpeg: FFmpeg, args: string[]) {
 function ffReadFile(ffmpeg: FFmpeg, filename: string): Uint8Array {
   const asWithRead = ffmpeg as unknown as { readFile?: (name: string) => Uint8Array } & FFmpegFS
 
-  if (typeof asWithRead.readFile === 'function') {
-    return asWithRead.readFile(filename)
-  }
+  try {
+    if (typeof asWithRead.readFile === 'function') {
+      const data = asWithRead.readFile(filename)
+      if (!data) {
+        throw new Error(
+          `File '${filename}' not found in FFmpeg virtual filesystem (readFile returned null/undefined)`
+        )
+      }
+      return data
+    }
 
-  if (typeof asWithRead.FS === 'function') {
-    return asWithRead.FS('readFile', filename) as Uint8Array
-  }
+    if (typeof asWithRead.FS === 'function') {
+      const data = asWithRead.FS('readFile', filename) as Uint8Array
+      if (!data) {
+        throw new Error(
+          `File '${filename}' not found in FFmpeg virtual filesystem (FS returned null/undefined)`
+        )
+      }
+      return data
+    }
 
-  throw new Error('FFmpeg read API not available')
+    throw new Error('FFmpeg read API not available')
+  } catch (err) {
+    console.error(`[FFmpeg] Error reading file '${filename}':`, err)
+    throw new Error(
+      `Failed to read file '${filename}' from FFmpeg: ${err instanceof Error ? err.message : String(err)}`
+    )
+  }
 }
 
 async function ffDeleteFile(ffmpeg: FFmpeg, filename: string) {
@@ -157,7 +176,7 @@ async function ffDeleteFile(ffmpeg: FFmpeg, filename: string) {
   // nothing to do
 }
 
-export type AudioFormat = 'wav' | 'mp3' | 'm4b'
+export type AudioFormat = 'wav' | 'mp3' | 'm4b' | 'mp4'
 
 export type AudioChapter = {
   id: string
@@ -478,9 +497,32 @@ export async function concatenateAudioChapters(
     // Yield to UI thread to prevent blocking
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    const arrayBuffer = await chapters[i].blob.arrayBuffer()
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-    audioBuffers.push(audioBuffer)
+    try {
+      const blob = chapters[i].blob
+      console.log(`[audioConcat] Decoding chapter ${i + 1}: size=${blob.size}, type=${blob.type}`)
+
+      // Validate blob size
+      if (blob.size === 0) {
+        throw new Error(`Chapter ${i + 1} "${chapters[i].title}" has empty audio blob`)
+      }
+
+      const arrayBuffer = await blob.arrayBuffer()
+
+      // Log first few bytes to help diagnose format issues
+      const view = new Uint8Array(arrayBuffer.slice(0, 12))
+      const header = String.fromCharCode(...view.slice(0, 4))
+      console.log(
+        `[audioConcat] Chapter ${i + 1} header: "${header}" (bytes: ${Array.from(view.slice(0, 12)).join(',')})`
+      )
+
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      audioBuffers.push(audioBuffer)
+    } catch (err) {
+      console.error(`[audioConcat] Failed to decode chapter ${i + 1} "${chapters[i].title}":`, err)
+      throw new Error(
+        `Failed to decode audio for chapter ${i + 1} "${chapters[i].title}": ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
   }
 
   // Normalize sample rate / channel count across decoded buffers
@@ -537,7 +579,11 @@ export async function concatenateAudioChapters(
       outputBlob = await audioBufferToMp3(outputBuffer, bitrate, chapters, options)
       break
     case 'm4b':
-      // M4B uses MP3 encoding with .m4b extension and chapter metadata
+      // M4B uses AAC encoding with .m4b extension and chapter metadata
+      outputBlob = await audioBufferToMp3(outputBuffer, bitrate, chapters, options)
+      break
+    case 'mp4':
+      // MP4 uses AAC encoding with .mp4 extension and chapter metadata
       outputBlob = await audioBufferToMp3(outputBuffer, bitrate, chapters, options)
       break
     case 'wav':
@@ -566,7 +612,7 @@ export async function concatenateAudioChapters(
 }
 
 /**
- * Convert AudioBuffer to MP3 or M4B blob using FFmpeg
+ * Convert AudioBuffer to MP3, M4B, or MP4 blob using FFmpeg
  */
 export async function audioBufferToMp3(
   audioBuffer: AudioBuffer,
@@ -577,13 +623,14 @@ export async function audioBufferToMp3(
   // First convert AudioBuffer to WAV
   const wavBlob = audioBufferToWav(audioBuffer)
 
-  // Then convert WAV to MP3 or M4B using FFmpeg
+  // Then convert WAV to MP3, M4B, or MP4 using FFmpeg
   const ffmpeg = await getFFmpeg()
 
   // Determine output format and file (declare here so finally can reference)
   const isM4B = options.format === 'm4b'
-  const outputFile = isM4B ? 'output.m4b' : 'output.mp3'
-  const codec = isM4B ? 'aac' : 'libmp3lame'
+  const isMP4 = options.format === 'mp4'
+  const outputFile = isM4B ? 'output.m4b' : isMP4 ? 'output.mp4' : 'output.mp3'
+  const codec = isM4B || isMP4 ? 'aac' : 'libmp3lame'
 
   try {
     // Write input WAV file
@@ -598,8 +645,8 @@ export async function audioBufferToMp3(
     if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
     if (options.bookAuthor) args.push('-metadata', `artist=${options.bookAuthor}`)
 
-    // Add chapter metadata for M4B
-    if (isM4B && chapters.length > 0) {
+    // Add chapter metadata for M4B and MP4
+    if ((isM4B || isMP4) && chapters.length > 0) {
       const metadata = createFFmpegMetadata(chapters, audioBuffer.duration)
       await ffWriteFile(ffmpeg, 'metadata.txt', new TextEncoder().encode(metadata))
       // Note: second input (index 1) contains metadata
@@ -623,7 +670,8 @@ export async function audioBufferToMp3(
       throw new Error('FFmpeg produced an empty output file')
     }
 
-    return new Blob([new Uint8Array(data)], { type: isM4B ? 'audio/m4b' : 'audio/mpeg' })
+    const mimeType = isM4B ? 'audio/m4b' : isMP4 ? 'audio/mp4' : 'audio/mpeg'
+    return new Blob([new Uint8Array(data)], { type: mimeType })
   } catch (err) {
     throw new Error(`Failed to convert audio buffer to ${options.format || 'mp3'}: ${String(err)}`)
   } finally {
@@ -631,7 +679,7 @@ export async function audioBufferToMp3(
     try {
       await ffDeleteFile(ffmpeg, 'input.wav')
       await ffDeleteFile(ffmpeg, outputFile)
-      if (isM4B && chapters.length > 0) await ffDeleteFile(ffmpeg, 'metadata.txt')
+      if ((isM4B || isMP4) && chapters.length > 0) await ffDeleteFile(ffmpeg, 'metadata.txt')
     } catch {
       // swallow cleanup errors
     }
@@ -689,9 +737,38 @@ async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
     }
 
     if (!fmtFound || dataOffset < 0) throw new Error('Invalid WAV file: missing fmt/data chunks')
-    if (audioFormat !== 1) throw new Error('Unsupported WAV format: only PCM supported')
 
-    const pcm = arr.slice(dataOffset, dataOffset + dataLength)
+    // Support PCM (1) and IEEE Float (3)
+    if (audioFormat !== 1 && audioFormat !== 3) {
+      throw new Error(`Unsupported WAV format: ${audioFormat} (only PCM and IEEE Float supported)`)
+    }
+
+    let pcm = arr.slice(dataOffset, dataOffset + dataLength)
+
+    // specific handling for Float32 (format 3)
+    if (audioFormat === 3) {
+      if (bitsPerSample !== 32) {
+        throw new Error('Unsupported Float WAV bit depth (only 32-bit float supported)')
+      }
+
+      // Convert Float32 to Int16 PCM
+      const floatView = new Float32Array(pcm.buffer, pcm.byteOffset, pcm.byteLength / 4)
+      const int16Buffer = new Int16Array(floatView.length)
+
+      for (let s = 0; s < floatView.length; s++) {
+        // Clamp and convert
+        const sample = Math.max(-1, Math.min(1, floatView[s]))
+        int16Buffer[s] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
+      }
+
+      // Use the converted buffer
+      pcm = new Uint8Array(int16Buffer.buffer)
+
+      // Update metadata to reflect the conversion to 16-bit PCM
+      bitsPerSample = 16
+      // audioFormat is effectively 1 (PCM) now for the purpose of concatenation
+    }
+
     parsed.push({ sampleRate, numChannels, bitsPerSample, pcm })
   }
 
@@ -818,17 +895,32 @@ async function ffmpegConcatenateBlobs(
 
   // Convert to final desired format if needed
   const isM4B = format === 'm4b'
-  const outFile = format === 'wav' ? outWav : format === 'mp3' ? 'output.mp3' : 'output.m4b'
+  const isMP4 = format === 'mp4'
+  const outFile =
+    format === 'wav'
+      ? outWav
+      : format === 'mp3'
+        ? 'output.mp3'
+        : isM4B
+          ? 'output.m4b'
+          : 'output.mp4'
 
-  if (format === 'mp3' || format === 'm4b') {
-    const codec = isM4B ? 'aac' : 'libmp3lame'
+  if (format === 'mp3' || isM4B || isMP4) {
+    const codec = isM4B || isMP4 ? 'aac' : 'libmp3lame'
     const args = ['-i', outWav, '-c:a', codec, '-b:a', `${bitrate}k`, '-y', outFile]
     await ffRun(ffmpeg, args)
   }
 
   // Read final file
   const data = ffReadFile(ffmpeg, outFile)
-  const mime = format === 'wav' ? 'audio/wav' : format === 'mp3' ? 'audio/mpeg' : 'audio/m4b'
+  const mime =
+    format === 'wav'
+      ? 'audio/wav'
+      : format === 'mp3'
+        ? 'audio/mpeg'
+        : isM4B
+          ? 'audio/m4b'
+          : 'audio/mp4'
 
   // Cleanup temporary files
   try {
@@ -1021,11 +1113,31 @@ export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Pro
       outFile,
     ])
 
+    console.log('[convertWavToMp3] Conversion complete, attempting to read output file')
+
+    // Try to list files to debug
+    try {
+      const asWithList = ffmpeg as any
+      if (typeof asWithList.listDir === 'function') {
+        const files = await asWithList.listDir('/')
+        console.log('[convertWavToMp3] Files in FFmpeg FS:', files)
+      } else if (typeof asWithList.FS === 'function') {
+        try {
+          const files = asWithList.FS('readdir', '/')
+          console.log('[convertWavToMp3] Files in FFmpeg FS (via FS):', files)
+        } catch {
+          // Ignore listing errors
+        }
+      }
+    } catch (err) {
+      console.warn('[convertWavToMp3] Could not list FFmpeg filesystem:', err)
+    }
+
     // Read output file
     const data = ffReadFile(ffmpeg, outFile)
-    console.log(`[convertWavToMp3] Output file size: ${data.length} bytes`)
+    console.log(`[convertWavToMp3] Output file size: ${data?.length || 0} bytes`)
 
-    if (data.length === 0) {
+    if (!data || data.length === 0) {
       throw new Error('FFmpeg produced an empty MP3 file')
     }
 

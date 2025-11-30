@@ -280,13 +280,29 @@
     const parts = h.split('/').filter(Boolean)
 
     if (parts.length === 0) {
-      // landing
+      // landing - upload view
       currentView = 'landing'
       currentChapter = null
       return
     }
 
     const [first, second, third] = parts
+
+    // Handle library view
+    if (first === 'library') {
+      currentView = 'landing'
+      currentChapter = null
+      // The LandingPage component will handle showing the library view
+      return
+    }
+
+    // Handle upload view (optional explicit route)
+    if (first === 'upload') {
+      currentView = 'landing'
+      currentChapter = null
+      return
+    }
+
     if (first === 'book') {
       const id = parseInt(second)
       if (Number.isFinite(id)) {
@@ -299,12 +315,26 @@
             currentChapter = null
             // No route-based audio initialization on 'book' route — the persistent player will be used.
             return
+          } else {
+            // Book not found - redirect to landing
+            console.warn(`Book with ID ${id} not found, redirecting to landing`)
+            location.hash = '#/'
+            currentView = 'landing'
+            currentChapter = null
+            return
           }
         } catch (err) {
           console.error('Failed to load book from route', err)
+          // On error, redirect to landing
+          location.hash = '#/'
+          currentView = 'landing'
+          currentChapter = null
+          return
         }
       }
-      // If we don't resolve to a book, fall back to landing
+      // If we don't have a valid ID, fall back to landing
+      console.warn(`Invalid book ID in route: ${second}, redirecting to landing`)
+      location.hash = '#/'
       currentView = 'landing'
       currentChapter = null
       return
@@ -367,30 +397,57 @@
                 console.error('Failed to init audio from route', err)
               }
               return
+            } else {
+              // Chapter not found - redirect to book view
+              console.warn(`Chapter ${chapterId} not found in book ${id}, redirecting to book view`)
+              location.hash = `#/book/${id}`
+              currentView = 'book'
+              currentChapter = null
+              return
             }
+          } else {
+            // Book not found - redirect to landing
+            console.warn(`Book with ID ${id} not found, redirecting to landing`)
+            location.hash = '#/'
+            currentView = 'landing'
+            currentChapter = null
+            return
           }
         } catch (err) {
           console.error('Failed to load reader route', err)
+          // On error, redirect to landing
+          location.hash = '#/'
+          currentView = 'landing'
+          currentChapter = null
+          return
         }
       }
       // If the route couldn't be handled, fall back to landing
+      console.warn(`Invalid reader route: ${h}, redirecting to landing`)
+      location.hash = '#/'
       currentView = 'landing'
       currentChapter = null
       return
     }
 
     // Unknown route: landing
+    console.warn(`Unknown route: ${h}, redirecting to landing`)
+    location.hash = '#/'
     currentView = 'landing'
     currentChapter = null
   }
 
-  onMount(() => {
-    // Initialize route on load
-    applyRouteFromHash()
+  onMount(async () => {
+    // Initialize route on load - MUST await this to prevent race condition
+    // where saved player state overrides the URL-based book loading
+    await applyRouteFromHash()
+
     // And handle back/forward navigation
     const handler = () => applyRouteFromHash()
     window.addEventListener('hashchange', handler)
+
     // If we have a saved player state for a book and no route was loaded, attempt to load the book and restore
+    // Only do this AFTER route resolution completes to avoid overriding URL-based navigation
     const saved = $audioPlayerStore
     if ($currentLibraryBookId === null && saved.bookId !== null) {
       getBook(saved.bookId)
