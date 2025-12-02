@@ -102,6 +102,19 @@
     }
   }
 
+  // Helper to initialize book state
+  async function initializeBookState(b: Book, libraryId: number) {
+    $book = b
+    $currentLibraryBookId = libraryId
+    $selectedChapters = new Map(b.chapters.map((c) => [c.id, true]))
+    $generatedAudio = new Map()
+
+    if (b.language) {
+      const bookLang = b.language.toLowerCase().substring(0, 2)
+      await adaptVoiceToLanguage(bookLang)
+    }
+  }
+
   // Handle maximize from persistent player
   function handlePlayerMaximize() {
     // If we already have the current chapter set, just navigate to reader
@@ -136,12 +149,10 @@
         }
       }
 
-      // Load book from library and then show reader
       getBook(saved.bookId)
-        .then((b) => {
+        .then(async (b) => {
           if (b) {
-            $book = b
-            $currentLibraryBookId = saved.bookId
+            await initializeBookState(b, saved.bookId!)
             const ch = b.chapters.find((c) => c.id === saved.chapterId)
             if (ch) {
               currentChapter = ch
@@ -309,8 +320,7 @@
         try {
           const b = await getBook(id)
           if (b) {
-            $book = b
-            $currentLibraryBookId = id
+            await initializeBookState(b, id)
             currentView = 'book'
             currentChapter = null
             // No route-based audio initialization on 'book' route — the persistent player will be used.
@@ -347,8 +357,10 @@
         try {
           const b = await getBook(id)
           if (b) {
-            $book = b
-            $currentLibraryBookId = id
+            // If book is not already loaded or different, initialize it
+            if (!$book || $currentLibraryBookId !== id) {
+              await initializeBookState(b, id)
+            }
             const ch = b.chapters.find((c) => c.id === chapterId)
             if (ch) {
               currentChapter = ch
@@ -451,10 +463,9 @@
     const saved = $audioPlayerStore
     if ($currentLibraryBookId === null && saved.bookId !== null) {
       getBook(saved.bookId)
-        .then((b) => {
+        .then(async (b) => {
           if (b) {
-            $book = b
-            $currentLibraryBookId = saved.bookId
+            await initializeBookState(b, saved.bookId!)
             // If the store has a saved chapter, restore on the player
             const ch = b.chapters.find((c) => c.id === saved.chapterId)
             if (ch) {
