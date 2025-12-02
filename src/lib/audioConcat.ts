@@ -664,14 +664,11 @@ export async function audioBufferToMp3(
     console.log(`[audioConcat] Writing input WAV: ${wavData.length} bytes`)
     await ffWriteFile(ffmpeg, 'input.wav', wavData)
 
-    // Build FFmpeg command with -y flag to overwrite output
-    const args: string[] = ['-i', 'input.wav', '-c:a', codec, '-b:a', `${bitrate}k`, '-y']
+    // Build FFmpeg command
+    // Order matters: inputs first, then output options, then output file
+    const args: string[] = ['-i', 'input.wav']
 
-    // Add metadata if available
-    if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
-    if (options.bookAuthor) args.push('-metadata', `artist=${options.bookAuthor}`)
-
-    // Add chapter metadata for M4B and MP4
+    // Add metadata input if available (for chapters)
     if ((isM4B || isMP4) && chapters.length > 0) {
       const metadata = createFFmpegMetadata(chapters, audioBuffer.duration)
       await ffWriteFile(ffmpeg, 'metadata.txt', new TextEncoder().encode(metadata))
@@ -679,7 +676,15 @@ export async function audioBufferToMp3(
       args.push('-i', 'metadata.txt', '-map_metadata', '1')
     }
 
-    args.push(outputFile)
+    // Output options
+    args.push('-c:a', codec, '-b:a', `${bitrate}k`)
+
+    // Add metadata tags
+    if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
+    if (options.bookAuthor) args.push('-metadata', `artist=${options.bookAuthor}`)
+
+    // Overwrite output file
+    args.push('-y', outputFile)
 
     console.log(`[audioConcat] Running FFmpeg with args:`, args)
 
