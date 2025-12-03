@@ -69,8 +69,8 @@
   // Delay before checking audio state after restart
   const AUDIO_READY_DELAY_MS = 50
 
-  // Helper function to restart playback with new settings
-  function restartWithNewSettings(newModel: 'kokoro' | 'piper' | 'web_speech', newVoice: string) {
+  // Helper function to restart TTS playback with new settings
+  function restartTTSWithNewSettings(newModel: 'kokoro' | 'piper' | 'web_speech', newVoice: string) {
     const currentSegment = audioService.currentSegmentIndex
     const wasPlaying = audioService.isPlaying
 
