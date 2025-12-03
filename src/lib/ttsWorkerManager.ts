@@ -6,7 +6,7 @@
 import logger from './utils/logger'
 import type { TTSModelType } from './tts/ttsModels'
 import { retryWithBackoff, isRetryableError } from './retryUtils'
-import { normalizeError, ModelLoadError, AudioGenerationError, CancellationError } from './errors'
+import { normalizeError, CancellationError } from './errors'
 
 type WorkerRequest = {
   id: string
