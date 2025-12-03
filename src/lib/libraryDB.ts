@@ -50,8 +50,6 @@ async function openDB(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result
-      const oldVersion = event.oldVersion
-
       // Create books store if it doesn't exist
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const objectStore = db.createObjectStore(STORE_NAME, {
