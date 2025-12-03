@@ -721,134 +721,111 @@ export async function audioBufferToMp3(
  * Lightweight WAV-only concatenation that does not require WebAudio or FFmpeg.
  * This supports only PCM WAV files with identical sampleRate, channels, and bitDepth.
  */
+/**
+ * Lightweight WAV-only concatenation that does not require WebAudio or FFmpeg.
+ * This supports only PCM/Float WAV files with identical sampleRate, channels, and bitDepth.
+ * Optimized to use Blob composition to avoid large memory allocations.
+ */
 async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
   if (!chapters || chapters.length === 0) throw new Error('No chapters')
 
-  // Parse WAV header info and extract PCM data for each chapter
-  const parsed: Array<{
-    sampleRate: number
-    numChannels: number
-    bitsPerSample: number
-    pcm: Uint8Array
-  }> = []
+  const parts: BlobPart[] = []
+  let totalDataLength = 0
 
-  for (let i = 0; i < chapters.length; i++) {
-    const blob = chapters[i].blob
-    const arr = new Uint8Array(await blob.arrayBuffer())
-    // Basic WAV header parsing (RIFF/WAVE fmt/data)
-    const view = new DataView(arr.buffer)
-    if (String.fromCharCode(...arr.slice(0, 4)) !== 'RIFF') throw new Error('Not a RIFF WAV file')
-    if (String.fromCharCode(...arr.slice(8, 12)) !== 'WAVE') throw new Error('Not a WAVE file')
+  // Helper to parse WAV header from a blob
+  async function parseWavHeader(blob: Blob) {
+    // Read first 1024 bytes to be safe (headers are usually small)
+    const headerData = new Uint8Array(await blob.slice(0, 1024).arrayBuffer())
+    const view = new DataView(headerData.buffer)
 
-    // Search for 'fmt ' chunk
+    if (String.fromCharCode(...headerData.slice(0, 4)) !== 'RIFF')
+      throw new Error('Not a RIFF WAV file')
+    if (String.fromCharCode(...headerData.slice(8, 12)) !== 'WAVE')
+      throw new Error('Not a WAVE file')
+
     let offset = 12
-    let fmtFound = false
-    let audioFormat = 1
-    let numChannels = 1
-    let sampleRate = 44100
-    let bitsPerSample = 16
+    let fmt: any = null
     let dataOffset = -1
     let dataLength = 0
 
-    while (offset < arr.length) {
-      const chunkId = String.fromCharCode(...arr.slice(offset, offset + 4))
+    while (offset < headerData.length) {
+      const chunkId = String.fromCharCode(...headerData.slice(offset, offset + 4))
       const chunkSize = view.getUint32(offset + 4, true)
+
       if (chunkId === 'fmt ') {
-        fmtFound = true
-        audioFormat = view.getUint16(offset + 8, true)
-        numChannels = view.getUint16(offset + 10, true)
-        sampleRate = view.getUint32(offset + 12, true)
-        bitsPerSample = view.getUint16(offset + 22, true)
+        fmt = {
+          audioFormat: view.getUint16(offset + 8, true),
+          numChannels: view.getUint16(offset + 10, true),
+          sampleRate: view.getUint32(offset + 12, true),
+          byteRate: view.getUint32(offset + 16, true),
+          blockAlign: view.getUint16(offset + 20, true),
+          bitsPerSample: view.getUint16(offset + 22, true),
+        }
       } else if (chunkId === 'data') {
         dataOffset = offset + 8
         dataLength = chunkSize
         break
       }
+
       offset += 8 + chunkSize
     }
 
-    if (!fmtFound || dataOffset < 0) throw new Error('Invalid WAV file: missing fmt/data chunks')
+    if (!fmt || dataOffset === -1) throw new Error('Invalid WAV: missing fmt or data chunk')
 
-    // Support PCM (1) and IEEE Float (3)
-    if (audioFormat !== 1 && audioFormat !== 3) {
-      throw new Error(`Unsupported WAV format: ${audioFormat} (only PCM and IEEE Float supported)`)
-    }
-
-    let pcm = arr.slice(dataOffset, dataOffset + dataLength)
-
-    // specific handling for Float32 (format 3)
-    if (audioFormat === 3) {
-      if (bitsPerSample !== 32) {
-        throw new Error('Unsupported Float WAV bit depth (only 32-bit float supported)')
-      }
-
-      // Convert Float32 to Int16 PCM
-      const floatView = new Float32Array(pcm.buffer, pcm.byteOffset, pcm.byteLength / 4)
-      const int16Buffer = new Int16Array(floatView.length)
-
-      for (let s = 0; s < floatView.length; s++) {
-        // Clamp and convert
-        const sample = Math.max(-1, Math.min(1, floatView[s]))
-        int16Buffer[s] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
-      }
-
-      // Use the converted buffer
-      pcm = new Uint8Array(int16Buffer.buffer)
-
-      // Update metadata to reflect the conversion to 16-bit PCM
-      bitsPerSample = 16
-      // audioFormat is effectively 1 (PCM) now for the purpose of concatenation
-    }
-
-    parsed.push({ sampleRate, numChannels, bitsPerSample, pcm })
+    return { fmt, dataOffset, dataLength }
   }
 
-  // Ensure all WAVs have compatible sample rates / channels / bit depth
-  const first = parsed[0]
-  for (let i = 1; i < parsed.length; i++) {
-    const p = parsed[i]
+  // Parse first chapter to establish format
+  const firstInfo = await parseWavHeader(chapters[0].blob)
+
+  // Add first chapter's data
+  parts.push(
+    chapters[0].blob.slice(firstInfo.dataOffset, firstInfo.dataOffset + firstInfo.dataLength)
+  )
+  totalDataLength += firstInfo.dataLength
+
+  // Process remaining chapters
+  for (let i = 1; i < chapters.length; i++) {
+    const info = await parseWavHeader(chapters[i].blob)
+
+    // Validate format compatibility
     if (
-      p.sampleRate !== first.sampleRate ||
-      p.numChannels !== first.numChannels ||
-      p.bitsPerSample !== first.bitsPerSample
+      info.fmt.audioFormat !== firstInfo.fmt.audioFormat ||
+      info.fmt.numChannels !== firstInfo.fmt.numChannels ||
+      info.fmt.sampleRate !== firstInfo.fmt.sampleRate ||
+      info.fmt.bitsPerSample !== firstInfo.fmt.bitsPerSample
     ) {
-      throw new Error('WAV files have incompatible formats; cannot concatenate without resampling')
+      throw new Error(
+        `Chapter ${i + 1} format mismatch (SR: ${info.fmt.sampleRate} vs ${firstInfo.fmt.sampleRate}, CH: ${info.fmt.numChannels} vs ${firstInfo.fmt.numChannels})`
+      )
     }
+
+    parts.push(chapters[i].blob.slice(info.dataOffset, info.dataOffset + info.dataLength))
+    totalDataLength += info.dataLength
   }
 
-  // Create new WAV header with concatenated PCM
-  const totalPCMLength = parsed.reduce((sum, p) => sum + p.pcm.length, 0)
-  const byteRate = first.sampleRate * first.numChannels * (first.bitsPerSample / 8)
-  const blockAlign = first.numChannels * (first.bitsPerSample / 8)
-  const dataBuffer = new ArrayBuffer(44 + totalPCMLength)
-  const view = new DataView(dataBuffer)
+  // Create new header
+  const headerBuffer = new ArrayBuffer(44)
+  const headerView = new DataView(headerBuffer)
 
-  function writeString(view: DataView, offset: number, str: string) {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
-  }
+  writeString(headerView, 0, 'RIFF')
+  headerView.setUint32(4, 36 + totalDataLength, true)
+  writeString(headerView, 8, 'WAVE')
+  writeString(headerView, 12, 'fmt ')
+  headerView.setUint32(16, 16, true)
+  headerView.setUint16(20, firstInfo.fmt.audioFormat, true)
+  headerView.setUint16(22, firstInfo.fmt.numChannels, true)
+  headerView.setUint32(24, firstInfo.fmt.sampleRate, true)
+  headerView.setUint32(28, firstInfo.fmt.byteRate, true)
+  headerView.setUint16(32, firstInfo.fmt.blockAlign, true)
+  headerView.setUint16(34, firstInfo.fmt.bitsPerSample, true)
+  writeString(headerView, 36, 'data')
+  headerView.setUint32(40, totalDataLength, true)
 
-  writeString(view, 0, 'RIFF')
-  view.setUint32(4, 36 + totalPCMLength, true)
-  writeString(view, 8, 'WAVE')
-  writeString(view, 12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, first.numChannels, true)
-  view.setUint32(24, first.sampleRate, true)
-  view.setUint32(28, byteRate, true)
-  view.setUint16(32, blockAlign, true)
-  view.setUint16(34, first.bitsPerSample, true)
-  writeString(view, 36, 'data')
-  view.setUint32(40, totalPCMLength, true)
+  // Prepend header to parts
+  parts.unshift(headerBuffer)
 
-  // Copy PCM data
-  let offset = 44
-  for (const p of parsed) {
-    new Uint8Array(dataBuffer).set(p.pcm, offset)
-    offset += p.pcm.length
-  }
-
-  return new Blob([dataBuffer], { type: 'audio/wav' })
+  return new Blob(parts, { type: 'audio/wav' })
 }
 
 /**
