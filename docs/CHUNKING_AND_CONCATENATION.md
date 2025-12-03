@@ -32,7 +32,7 @@ The Kokoro TTS engine (`src/lib/kokoro/kokoroClient.ts`) implements intelligent 
 
 ```typescript
 /**
- * Default chunk size: 500 characters
+ * Default chunk size: 1000 characters
  * Chunking strategy: Sentence-boundary aware
  * Fallback: Word boundaries, then character splitting
  */
@@ -58,7 +58,7 @@ The Kokoro TTS engine (`src/lib/kokoro/kokoroClient.ts`) implements intelligent 
 
 | Engine             | Default Size | Min Size  | Max Size   | Notes                              |
 | ------------------ | ------------ | --------- | ---------- | ---------------------------------- |
-| **Kokoro-82M**     | 500 chars    | 100 chars | 1000 chars | Sentence-aware splitting           |
+| **Kokoro-82M**     | 1000 chars   | 100 chars | 2000 chars | Sentence-aware splitting           |
 | **Edge TTS**       | 1000 chars   | 200 chars | 3000 chars | Cloud-based, handles longer inputs |
 | **Web Speech API** | 200 chars    | 50 chars  | 500 chars  | Browser-native, more restrictive   |
 
@@ -68,17 +68,17 @@ To modify chunk size in `kokoroClient.ts`:
 
 ```typescript
 // In src/lib/kokoro/kokoroClient.ts
-function chunkText(text: string, maxChunkSize: number = 500): string[] {
-  // Change default value from 500 to your desired size
-  // Recommended range: 300-1000 characters
+function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): string[] {
+  // Change default value from 1000 to your desired size
+  // Recommended range: 500-2000 characters
 }
 ```
 
 **Trade-offs:**
 
-- **Smaller chunks** (200-300 chars): Better memory usage, more overhead, may cause stuttering
-- **Larger chunks** (800-1000 chars): Fewer API calls, higher memory usage, less granular progress
-- **Optimal** (500 chars): Balances memory, performance, and natural pauses
+- **Smaller chunks** (500-700 chars): Better memory usage, more overhead, may cause stuttering
+- **Larger chunks** (1500-2000 chars): Fewer API calls, higher memory usage, less granular progress
+- **Optimal** (1000 chars): Balances memory, performance, and natural pauses
 
 ---
 
