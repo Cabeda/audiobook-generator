@@ -20,7 +20,6 @@ describe('Logger', () => {
     // Reset logger config before each test
     logger.configure({
       level: 'info',
-      sendToBackend: false,
       silent: false,
     })
   })
@@ -37,28 +36,24 @@ describe('Logger', () => {
     it('should have default configuration', () => {
       const config = logger.getConfig()
       expect(config.level).toBeDefined()
-      expect(config.sendToBackend).toBe(false)
-      expect(config.backendUrl).toBeUndefined()
+      expect(config.silent).toBeDefined()
     })
 
     it('should allow updating configuration', () => {
       logger.configure({
         level: 'debug',
-        sendToBackend: true,
-        backendUrl: 'https://example.com/logs',
+        silent: false,
       })
 
       const config = logger.getConfig()
       expect(config.level).toBe('debug')
-      expect(config.sendToBackend).toBe(true)
-      expect(config.backendUrl).toBe('https://example.com/logs')
+      expect(config.silent).toBe(false)
     })
 
     it('should partially update configuration', () => {
       logger.configure({ level: 'debug' })
       const config = logger.getConfig()
       expect(config.level).toBe('debug')
-      expect(config.sendToBackend).toBe(false)
     })
   })
 
