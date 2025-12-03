@@ -68,8 +68,12 @@ To modify chunk size in `kokoroClient.ts`:
 
 ```typescript
 // In src/lib/kokoro/kokoroClient.ts
-function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): string[] {
-  // Change default value from 1000 to your desired size
+// The splitTextIntoChunks function implements intelligent chunking:
+export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): string[] {
+  // 1. Splits by sentence boundaries (., !, ?)
+  // 2. Falls back to comma/semicolon/newline splitting
+  // 3. Falls back to word splitting if needed
+  // Change maxChunkSize default from 1000 to your desired size
   // Recommended range: 500-2000 characters
 }
 ```
@@ -872,10 +876,10 @@ test('slow operation', async ({ page }) => {
 
 ### Code References
 
-- **Chunking logic**: `src/lib/kokoro/kokoroClient.ts` (line 220-280)
-- **Concatenation pipeline**: `src/lib/audioConcat.ts` (line 400-600)
-- **Audio buffer processing**: `src/lib/audioConcat.ts` (line 217-250)
-- **FFmpeg integration**: `src/lib/audioConcat.ts` (line 1-200)
+- **Chunking logic**: `src/lib/kokoro/kokoroClient.ts` (lines 215-284, splitTextIntoChunks function)
+- **Concatenation pipeline**: `src/lib/audioConcat.ts` (lines 400-600)
+- **Audio buffer processing**: `src/lib/audioConcat.ts` (lines 217-250, resampleAndNormalizeAudioBuffers)
+- **FFmpeg integration**: `src/lib/audioConcat.ts` (lines 1-200, getFFmpeg and related functions)
 - **Text preprocessing**: `src/lib/kokoro/textProcessor.ts`
 
 ### Documentation
