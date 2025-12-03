@@ -95,7 +95,9 @@
           const data = await response.json()
 
           if (!data.contents) {
-            throw new Error('No content received from URL')
+            const error: Error & { status?: number } = new Error('No content received from URL');
+            error.status = 200;
+            throw error;
           }
 
           return data
