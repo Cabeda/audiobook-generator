@@ -525,6 +525,20 @@
     return () => window.removeEventListener('hashchange', handler)
   })
 
+  // Clean up Object URLs when book changes or component unmounts
+  $effect(() => {
+    // Track the current book ID to detect changes
+    const currentBookId = $currentLibraryBookId
+    const currentAudioMap = $generatedAudio
+
+    return () => {
+      // Revoke all blob URLs when the book changes or component unmounts
+      currentAudioMap.forEach((record) => {
+        URL.revokeObjectURL(record.url)
+      })
+    }
+  })
+
   function onGenerated(e: CustomEvent) {
     const { id, blob } = e.detail
     const url = URL.createObjectURL(blob)
