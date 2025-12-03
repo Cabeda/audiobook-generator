@@ -3,6 +3,7 @@
  * This worker handles TTS generation off the main thread
  */
 
+import logger from './lib/utils/logger'
 import { getTTSEngine, type TTSModelType } from './lib/tts/ttsModels.ts'
 
 // Message types
@@ -61,7 +62,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   if (type === 'generate') {
     try {
       // Log device selection
-      console.log(`[Worker] Generating with device: ${device}`)
+      logger.info(`[Worker] Generating with device: ${device}`)
 
       // Send progress update
       self.postMessage({

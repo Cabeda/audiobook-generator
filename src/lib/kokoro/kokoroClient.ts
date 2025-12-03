@@ -1,4 +1,5 @@
 import { KokoroTTS } from 'kokoro-js'
+import logger from '../utils/logger'
 
 // Valid Kokoro voice IDs based on the official kokoro-js library
 export type VoiceId =
@@ -124,11 +125,11 @@ function createFetchWithCache(originalFetch: typeof fetch) {
         const cachedResponse = await cache.match(input)
 
         if (cachedResponse) {
-          console.warn(`[KokoroCache] Serving from cache: ${url}`)
+          logger.info('[KokoroCache]', `Serving from cache: ${url}`)
           return cachedResponse
         }
 
-        console.warn(`[KokoroCache] Fetching and caching: ${url}`)
+        logger.info('[KokoroCache]', `Fetching and caching: ${url}`)
         // Fetch from network using original fetch to avoid recursion
         const networkResponse = await originalFetch(input, init)
 
@@ -138,13 +139,13 @@ function createFetchWithCache(originalFetch: typeof fetch) {
           try {
             await cache.put(input, networkResponse.clone())
           } catch (err) {
-            console.warn('[KokoroCache] Failed to cache response:', err)
+            logger.warn('[KokoroCache]', 'Failed to cache response:', err)
           }
         }
 
         return networkResponse
       } catch (err) {
-        console.warn('[KokoroCache] Cache access failed, falling back to network:', err)
+        logger.warn('[KokoroCache]', 'Cache access failed, falling back to network:', err)
         return originalFetch(input, init)
       }
     }
@@ -168,8 +169,8 @@ async function getKokoroInstance(
     process.env.NODE_ENV === 'test' ||
     (globalThis as unknown as { __vitest__?: boolean }).__vitest__ === true
   if (!ttsInstance || isTestEnv) {
-    console.warn(`[KokoroClient] Initializing instance. Model: ${modelId}`)
-    console.log(`Loading Kokoro TTS model: ${modelId} (${dtype}, ${device})...`)
+    logger.info('[KokoroClient]', `Initializing instance. Model: ${modelId}`)
+    logger.info('[KokoroClient]', `Loading Kokoro TTS model: ${modelId} (${dtype}, ${device})...`)
     if (onProgress) onProgress('Loading model...')
 
     // Intercept global fetch to enable caching for the model loading
@@ -190,15 +191,15 @@ async function getKokoroInstance(
           if (progress.loaded && progress.total) {
             const percent = ((progress.loaded / progress.total) * 100).toFixed(0)
             const msg = `Downloading ${progress.file}: ${percent}%`
-            console.log(msg)
+            logger.info('[KokoroClient]', msg)
             if (onProgress) onProgress(msg)
           } else {
-            console.log(`Model loading: ${progress.status}`)
+            logger.info('[KokoroClient]', `Model loading: ${progress.status}`)
             if (onProgress) onProgress(`Loading: ${progress.status}`)
           }
         },
       })
-      console.log('Kokoro TTS model loaded successfully')
+      logger.info('[KokoroClient]', 'Kokoro TTS model loaded successfully')
     } finally {
       // Restore original fetch
       globalThis.fetch = originalFetch
@@ -312,10 +313,10 @@ export async function generateVoiceSegments(
     if (device === 'auto') {
       // Prefer an async check to ensure a usable adapter exists (safety for headless tests)
       actualDevice = (await isWebGPUAvailableAsync()) ? 'webgpu' : 'wasm'
-      console.log(`[Kokoro] Auto-detected device: ${actualDevice}`)
+      logger.info('[Kokoro]', `Auto-detected device: ${actualDevice}`)
     } else {
       actualDevice = device as 'wasm' | 'webgpu' | 'cpu'
-      console.log(`[Kokoro] Using specified device: ${actualDevice}`)
+      logger.info('[Kokoro]', `Using specified device: ${actualDevice}`)
     }
 
     const tts = await getKokoroInstance(model, dtype, actualDevice, onProgress)
@@ -324,9 +325,12 @@ export async function generateVoiceSegments(
     const MAX_CHUNK_SIZE = 1000
 
     if (text.length > MAX_CHUNK_SIZE) {
-      console.log(`Long text detected (${text.length} chars), using streaming approach...`)
+      logger.info(
+        '[Kokoro]',
+        `Long text detected (${text.length} chars), using streaming approach...`
+      )
       const chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE)
-      console.log(`Split into ${chunks.length} chunks`)
+      logger.info('[Kokoro]', `Split into ${chunks.length} chunks`)
 
       const { TextSplitterStream } = await import('kokoro-js')
       const splitter = new TextSplitterStream()
@@ -359,7 +363,7 @@ export async function generateVoiceSegments(
             'toString' in blob &&
             String(blob).includes('JSHandle')
           ) {
-            console.warn('Generated blob looks like JSHandle:', String(blob))
+            logger.warn('[Kokoro]', 'Generated blob looks like JSHandle:', String(blob))
             throw new Error('Generated audio is a JSHandle, not a Blob')
           }
 
@@ -399,14 +403,14 @@ export async function generateVoiceSegments(
         'toString' in blob &&
         String(blob).includes('JSHandle')
       ) {
-        console.warn('Generated blob looks like JSHandle:', String(blob))
+        logger.warn('[Kokoro]', 'Generated blob looks like JSHandle:', String(blob))
         throw new Error('Generated audio is a JSHandle, not a Blob')
       }
 
       return [{ text, blob }]
     }
   } catch (error) {
-    console.error('Kokoro TTS generation failed:', error)
+    logger.error('[Kokoro]', 'TTS generation failed:', error)
     try {
       ttsInstance = null
     } catch {
@@ -477,10 +481,10 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
     if (device === 'auto') {
       // Use async check before deciding which backend to use
       actualDevice = (await isWebGPUAvailableAsync()) ? 'webgpu' : 'wasm'
-      console.log(`[Kokoro] Auto-detected device: ${actualDevice}`)
+      logger.info('[Kokoro]', `Auto-detected device: ${actualDevice}`)
     } else {
       actualDevice = device as 'wasm' | 'webgpu' | 'cpu'
-      console.log(`[Kokoro] Using specified device: ${actualDevice}`)
+      logger.info('[Kokoro]', `Using specified device: ${actualDevice}`)
     }
 
     const tts = await getKokoroInstance(model, dtype, actualDevice)
@@ -503,11 +507,12 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
           const hasToBlob = typeof (audio as unknown as { toBlob?: unknown })?.toBlob === 'function'
           const ctorName = (audio as unknown as { constructor?: { name?: string } })?.constructor
             ?.name
-          console.log(
+          logger.debug(
+            '[Kokoro]',
             `Stream chunk audio object: typeof=${typeof audio}; constructor=${ctorName}; hasToBlob=${hasToBlob}; props=${props.slice(0, 10).join(',')}`
           )
         } catch (e) {
-          console.warn('Failed to inspect stream chunk audio object:', e)
+          logger.warn('[Kokoro]', 'Failed to inspect stream chunk audio object:', e)
         }
 
         const toBlobFn = (audio as unknown as { toBlob?: () => unknown })?.toBlob
@@ -522,14 +527,15 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
               ? String((audioBlob as unknown as { toString?: () => string })?.toString?.())
               : String(audioBlob)
           if (maybeString.includes('JSHandle')) {
-            console.warn('Stream chunk converted blob looks like JSHandle:', maybeString)
+            logger.warn('[Kokoro]', 'Stream chunk converted blob looks like JSHandle:', maybeString)
           }
           const ablob = audioBlob as Blob
-          console.log(
+          logger.info(
+            '[Kokoro]',
             `Stream chunk converted blob: instanceofBlob=${ablob instanceof Blob}; constructor=${ablob?.constructor?.name}; type=${ablob?.type}; size=${ablob?.size}`
           )
         } catch (e) {
-          console.warn('Failed to inspect converted stream chunk blob:', e)
+          logger.warn('[Kokoro]', 'Failed to inspect converted stream chunk blob:', e)
         }
         yield {
           text: chunk.text,
@@ -537,12 +543,12 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
           audio: audioBlob as Blob,
         }
       } catch (e) {
-        console.error('Failed to convert streaming chunk audio to Blob:', e)
+        logger.error('[Kokoro]', 'Failed to convert streaming chunk audio to Blob:', e)
         throw e
       }
     }
   } catch (error) {
-    console.error('Kokoro TTS streaming failed:', error)
+    logger.error('[Kokoro]', 'TTS streaming failed:', error)
     throw new Error(
       `Failed to stream speech: ${error instanceof Error ? error.message : String(error)}`
     )

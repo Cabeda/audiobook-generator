@@ -1,4 +1,5 @@
 import { writable, type Writable } from 'svelte/store'
+import logger from '../lib/utils/logger'
 
 // Storage keys
 const VOICE_KEY = 'audiobook_voice'
@@ -23,7 +24,7 @@ function persistedWritable<T>(key: string, defaultValue: T): Writable<T> {
         initialValue = JSON.parse(stored) as T
       }
     } catch (e) {
-      console.warn(`Failed to load ${key} from localStorage:`, e)
+      logger.warn(`Failed to load ${key} from localStorage:`, e)
     }
   }
 
@@ -35,7 +36,7 @@ function persistedWritable<T>(key: string, defaultValue: T): Writable<T> {
       try {
         localStorage.setItem(key, JSON.stringify(value))
       } catch (e) {
-        console.warn(`Failed to save ${key} to localStorage:`, e)
+        logger.warn(`Failed to save ${key} to localStorage:`, e)
       }
     })
   }

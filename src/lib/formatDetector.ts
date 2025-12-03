@@ -1,4 +1,5 @@
 export type EbookFormat = 'epub' | 'pdf' | 'txt' | 'html' | 'mobi' | 'azw3' | 'docx' | 'unknown'
+import logger from './utils/logger'
 
 /**
  * Detect ebook format from file
@@ -107,7 +108,7 @@ async function detectFromMagicBytes(file: File): Promise<EbookFormat> {
 
     return 'unknown'
   } catch (e) {
-    console.warn('Failed to detect format from magic bytes:', e)
+    logger.warn('Failed to detect format from magic bytes:', e)
     return 'unknown'
   }
 }

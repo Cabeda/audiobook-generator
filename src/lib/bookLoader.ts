@@ -1,4 +1,5 @@
 import { detectFormat } from './formatDetector'
+import logger from './utils/logger'
 import { epubParser } from './epubParser'
 import { txtParser } from './parsers/txtParser'
 import { htmlParser } from './parsers/htmlParser'
@@ -18,7 +19,7 @@ async function getPdfParser(): Promise<BookParser | null> {
     const { pdfParser } = await import('./parsers/pdfParser')
     return pdfParser
   } catch (e) {
-    console.warn('PDF parser not available:', e)
+    logger.warn('PDF parser not available:', e)
     return null
   }
 }
@@ -43,7 +44,7 @@ async function getAllParsers(): Promise<BookParser[]> {
  */
 export async function loadBook(file: File): Promise<Book> {
   const format = await detectFormat(file)
-  console.log(`Detected format: ${format}`)
+  logger.info(`Detected format: ${format}`)
 
   // Find parser that can handle this file
   const parser = await findParser(file)
@@ -57,7 +58,7 @@ export async function loadBook(file: File): Promise<Book> {
     )
   }
 
-  console.log(`Using parser: ${parser.getFormatName()}`)
+  logger.info(`Using parser: ${parser.getFormatName()}`)
 
   // Parse the file
   return await parser.parse(file)

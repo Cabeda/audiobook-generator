@@ -1,4 +1,5 @@
 import * as pdfjsLib from 'pdfjs-dist'
+import logger from '../utils/logger'
 import type { Book, BookParser, Chapter } from '../types/book'
 import { readFileAsText } from '../fileUtils'
 
@@ -75,7 +76,7 @@ export class PdfParser implements BookParser {
         author: info.Author || 'Unknown',
       }
     } catch (e) {
-      console.warn('Failed to extract PDF metadata:', e)
+      logger.warn('Failed to extract PDF metadata:', e)
       return {
         title: 'Untitled PDF',
         author: 'Unknown',

@@ -1,4 +1,5 @@
 import { writable, derived } from 'svelte/store'
+import logger from '../lib/utils/logger'
 import type { Chapter } from '../lib/types/book'
 
 export interface AudioPlayerState {
@@ -66,7 +67,7 @@ function loadState(): AudioPlayerState {
       }
     }
   } catch (e) {
-    console.warn('Failed to load audio player state:', e)
+    logger.warn('Failed to load audio player state:', e)
   }
   return defaultState
 }
@@ -89,7 +90,7 @@ function createAudioPlayerStore() {
         }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
       } catch (e) {
-        console.warn('Failed to save audio player state:', e)
+        logger.warn('Failed to save audio player state:', e)
       }
     }, 500)
   }
@@ -234,7 +235,7 @@ function createAudioPlayerStore() {
         try {
           localStorage.removeItem(STORAGE_KEY)
         } catch (e) {
-          console.warn('Failed to clear audio player state:', e)
+          logger.warn('Failed to clear audio player state:', e)
         }
         return newState
       })
@@ -246,7 +247,7 @@ function createAudioPlayerStore() {
       try {
         localStorage.removeItem(STORAGE_KEY)
       } catch (e) {
-        console.warn('Failed to clear audio player state:', e)
+        logger.warn('Failed to clear audio player state:', e)
       }
     },
   }
