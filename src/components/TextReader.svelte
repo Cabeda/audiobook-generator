@@ -88,9 +88,15 @@
       if (!wasPlaying) {
         playPromise
           .then(() => {
-            // Wait for audio to be ready before pausing
-            if (!audioService.isPlaying) return
-            audioService.pause()
+            // Small delay to ensure audio element is ready
+            return new Promise((resolve) => setTimeout(resolve, 50))
+          })
+          .then(() => {
+            // Double-check the service is still not supposed to be playing
+            // (user might have pressed play in the meantime)
+            if (audioService.isPlaying && !wasPlaying) {
+              audioService.pause()
+            }
           })
           .catch((err) => {
             console.error('Failed to restart with new settings:', err)
@@ -148,17 +154,16 @@
     const store = untrack(() => $audioPlayerStore)
     if (store.chapterId !== chapter.id) return
 
-    // Check if model changed
+    // Check if model or voice changed
     const modelChanged = newModel !== currentModelFromStore
-    // Check if voice changed (only relevant for web_speech model)
-    const voiceChanged = newModel === 'web_speech' && newVoice !== currentVoiceFromStore
+    const voiceChanged = newVoice !== currentVoiceFromStore
 
+    // Always update tracked values to stay in sync
+    currentModelFromStore = newModel
+    currentVoiceFromStore = newVoice
+
+    // Restart if either model or voice changed
     if (modelChanged || voiceChanged) {
-      // Update tracked values
-      if (modelChanged) currentModelFromStore = newModel
-      if (voiceChanged) currentVoiceFromStore = newVoice
-
-      // Restart with new settings
       restartWithNewSettings(newModel, newVoice)
     }
   })
