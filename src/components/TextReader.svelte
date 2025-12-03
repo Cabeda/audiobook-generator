@@ -85,30 +85,9 @@
 
     // Restart from the current segment
     if (currentSegment >= 0) {
-      const playPromise = audioService.playFromSegment(currentSegment)
-
-      // If we weren't playing before, pause after playback starts
-      if (!wasPlaying) {
-        playPromise
-          .then(() => {
-            // Small delay to ensure audio element is ready
-            return new Promise((resolve) => setTimeout(resolve, AUDIO_READY_DELAY_MS))
-          })
-          .then(() => {
-            // Pause if the audio started playing
-            // Note: User might have manually pressed play during the delay, which is okay
-            if (audioService.isPlaying) {
-              audioService.pause()
-            }
-          })
-          .catch((err) => {
-            console.error('Failed to restart with new settings:', err)
-          })
-      } else {
-        playPromise.catch((err) => {
-          console.error('Failed to restart with new settings:', err)
-        })
-      }
+      audioService.playFromSegment(currentSegment).catch((err) => {
+        console.error('Failed to restart with new settings:', err)
+      })
     }
   }
 
