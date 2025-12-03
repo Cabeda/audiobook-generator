@@ -142,8 +142,9 @@ describe('kokoroClient', () => {
 
       // Re-import the module after setting the per-test mock
       const { generateVoice } = await import('./kokoroClient.ts')
-      // Spy on console.warn to assert our detection logs
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      // Spy on logger.warn to assert our detection logs
+      const logger = await import('../utils/logger')
+      const warnSpy = vi.spyOn(logger.default, 'warn').mockImplementation(() => {})
 
       // The per-test mock `createJSHandleKokoroMock()` will provide the JSHandle-like
       // values used to trigger strict handling in `generateVoice`. We re-import the

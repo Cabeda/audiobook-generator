@@ -1,4 +1,5 @@
 import { getTTSWorker } from './ttsWorkerManager'
+import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import type { Chapter } from './types/book'
 
@@ -127,7 +128,7 @@ class AudioPlaybackService {
       } else {
         // Generate segment in background
         this.generateSegment(index).catch((e) =>
-          console.debug('Failed to generate initial segment:', e)
+          logger.debug('Failed to generate initial segment:', e)
         )
         // Prepare audio element but do not play
         const prepareAudio = async () => {
@@ -149,7 +150,7 @@ class AudioPlaybackService {
                   // Some browsers require setting currentTime after metadata
                   this.audio.currentTime = options.startTime as number
                 } catch (e) {
-                  console.debug('Failed to set currentTime on restore', e)
+                  logger.debug('Failed to set currentTime on restore', e)
                 }
               }
               if (this.audio) this.duration = this.audio.duration
@@ -161,7 +162,7 @@ class AudioPlaybackService {
               // No-op: we don't auto-play here
             }
           } catch (err) {
-            console.debug('Failed to prepare audio for restore', err)
+            logger.debug('Failed to prepare audio for restore', err)
           }
         }
         void prepareAudio()
@@ -216,7 +217,7 @@ class AudioPlaybackService {
       try {
         await this.audio.play()
       } catch (e) {
-        console.error('Failed to resume audio:', e)
+        logger.error('Failed to resume audio:', e)
         this.isPlaying = false
       }
     } else if (this.currentSegmentIndex >= 0) {
@@ -295,7 +296,7 @@ class AudioPlaybackService {
       try {
         await this.generateSegment(index)
       } catch (err) {
-        console.error('Failed to generate segment:', err)
+        logger.error('Failed to generate segment:', err)
         if (this.currentSegmentIndex === index) this.isPlaying = false
         if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(false)
         return
@@ -307,7 +308,9 @@ class AudioPlaybackService {
     if (this.currentSegmentIndex !== index) return
 
     // Buffer ahead
-    this.bufferSegments(index + 1, this.bufferTarget).catch(console.error)
+    this.bufferSegments(index + 1, this.bufferTarget).catch((err) =>
+      logger.error('[AudioPlayback]', err)
+    )
 
     if (this.isPlaying) {
       await this.playCurrentSegment()
@@ -375,14 +378,14 @@ class AudioPlaybackService {
     let url = this.audioSegments.get(index)
 
     if (!url) {
-      console.log(`Buffer underrun for segment ${index}, generating...`)
+      logger.info(`Buffer underrun for segment ${index}, generating...`)
       try {
         await this.generateSegment(index)
         if (this.currentSegmentIndex !== index || !this.isPlaying) return
         url = this.audioSegments.get(index)
         if (!url) throw new Error('Generation finished but no URL found')
       } catch (err) {
-        console.error('Failed to recover segment:', err)
+        logger.error('Failed to recover segment:', err)
         if (this.currentSegmentIndex === index) this.isPlaying = false
         return
       }
@@ -420,7 +423,9 @@ class AudioPlaybackService {
         // Check buffer
         const buffered = this.countBufferedSegments()
         if (buffered < 3) {
-          this.bufferSegments(this.currentSegmentIndex + 1, this.bufferTarget).catch(console.error)
+          this.bufferSegments(this.currentSegmentIndex + 1, this.bufferTarget).catch((err) =>
+            logger.error('[AudioPlayback]', err)
+          )
         }
 
         this.cleanupOldSegments()
@@ -439,7 +444,7 @@ class AudioPlaybackService {
     }
 
     this.audio.onerror = (err) => {
-      console.error('Audio playback error:', err)
+      logger.error('Audio playback error:', err)
       if (this.currentSegmentIndex === index) {
         this.audioSegments.delete(index)
         this.playCurrentSegment()
@@ -449,7 +454,7 @@ class AudioPlaybackService {
     try {
       await this.audio.play()
     } catch (err) {
-      console.error('Failed to play audio:', err)
+      logger.error('Failed to play audio:', err)
       if (this.currentSegmentIndex === index) {
         this.isPlaying = false
         if (this.audio) {
@@ -487,7 +492,7 @@ class AudioPlaybackService {
     }
 
     utterance.onerror = (e) => {
-      console.error('Web Speech API error:', e)
+      logger.error('Web Speech API error:', e)
       this.isPlaying = false
     }
 
@@ -560,7 +565,7 @@ class AudioPlaybackService {
           const errorMsg = err instanceof Error ? err.message : String(err)
           if (errorMsg.includes('Cancelled')) throw err
 
-          console.warn(`Failed to generate segment ${index} (attempt ${attempt})`, err)
+          logger.warn(`Failed to generate segment ${index} (attempt ${attempt})`, err)
           if (attempt < MAX_RETRIES) await new Promise((r) => setTimeout(r, 1000 * attempt))
           else throw err
         }

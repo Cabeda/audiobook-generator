@@ -1,4 +1,5 @@
 import { getOnnxRuntime } from './getOnnxRuntime.ts'
+import logger from '../utils/logger'
 import { fetchAndCache } from './modelCache.ts'
 
 /**
@@ -28,7 +29,7 @@ export async function loadOnnxModel(
     })
     return { ort, session }
   } catch (e) {
-    console.error('Failed to create ONNX session', e)
+    logger.error('Failed to create ONNX session', e)
     throw e
   }
 }

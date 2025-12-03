@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store'
+import logger from '../lib/utils/logger'
 
 const APP_THEME_KEY = 'app_theme'
 
@@ -18,7 +19,7 @@ function getInitialTheme(): Theme {
       return 'dark'
     }
   } catch (e) {
-    console.warn('Failed to load theme from localStorage:', e)
+    logger.warn('Failed to load theme from localStorage:', e)
   }
 
   return 'light'
@@ -33,7 +34,7 @@ if (typeof window !== 'undefined') {
       localStorage.setItem(APP_THEME_KEY, theme)
       document.body.setAttribute('data-theme', theme)
     } catch (e) {
-      console.warn('Failed to save theme to localStorage:', e)
+      logger.warn('Failed to save theme to localStorage:', e)
     }
   })
 }

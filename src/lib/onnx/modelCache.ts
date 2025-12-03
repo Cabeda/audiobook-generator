@@ -1,4 +1,5 @@
 // Simple model downloader + cache using the Cache API. Stores responses under a named cache.
+import logger from '../utils/logger'
 
 const CACHE_NAME = 'kokoro-model-cache-v1'
 
@@ -8,7 +9,7 @@ export async function isCached(url: string): Promise<boolean> {
     const res = await cache.match(url)
     return !!res
   } catch (e) {
-    console.warn('Cache API unavailable', e)
+    logger.warn('Cache API unavailable', e)
     return false
   }
 }
@@ -18,7 +19,7 @@ export async function cacheResponse(url: string, res: Response): Promise<void> {
     const cache = await caches.open(CACHE_NAME)
     await cache.put(url, res.clone())
   } catch (e) {
-    console.warn('Failed to cache response', e)
+    logger.warn('Failed to cache response', e)
   }
 }
 

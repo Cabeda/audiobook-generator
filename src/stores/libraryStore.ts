@@ -1,4 +1,5 @@
 import { writable, type Writable } from 'svelte/store'
+import logger from '../lib/utils/logger'
 import type { BookMetadata } from '../lib/libraryDB'
 import { getAllBooksMetadata, deleteBook as deleteBookFromDB } from '../lib/libraryDB'
 import { toastStore } from './toastStore'
@@ -26,7 +27,7 @@ export async function refreshLibrary() {
     books.sort((a, b) => b.lastAccessed - a.lastAccessed)
     libraryBooks.set(books)
   } catch (err) {
-    console.error('Failed to load library:', err)
+    logger.error('Failed to load library:', err)
     libraryError.set(err instanceof Error ? err.message : 'Failed to load library')
     libraryBooks.set([])
   } finally {
@@ -56,7 +57,7 @@ export async function removeBookFromLibrary(id: number) {
 
     toastStore.success('Book removed from library')
   } catch (err) {
-    console.error('Failed to delete book:', err)
+    logger.error('Failed to delete book:', err)
 
     // Rollback UI on error
     libraryBooks.set(previousBooks)

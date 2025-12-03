@@ -1,4 +1,5 @@
 /**
+import logger from './lib/utils/logger'
  * Web Worker for TTS generation to prevent UI blocking
  * This worker handles TTS generation off the main thread
  */
@@ -61,7 +62,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   if (type === 'generate') {
     try {
       // Log device selection
-      console.log(`[Worker] Generating with device: ${device}`)
+      logger.info(`[Worker] Generating with device: ${device}`)
 
       // Send progress update
       self.postMessage({

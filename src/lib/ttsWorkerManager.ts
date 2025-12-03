@@ -1,4 +1,5 @@
 /*
+import logger from './utils/logger'
  * TTS Worker Manager
  * Single authoritative implementation.
  */
@@ -89,7 +90,7 @@ export class TTSWorkerManager {
             }
             case 'error': {
               const resp = data as Extract<WorkerResponse, { type: 'error' }>
-              console.error('[TTSWorker] error from worker:', resp.error)
+              logger.error('[TTSWorker] error from worker:', resp.error)
               const err = new Error(resp.error || 'Unknown worker error')
               const respAny = resp as unknown as { message?: string }
               if (respAny.message) {
@@ -122,7 +123,7 @@ export class TTSWorkerManager {
         }
 
         this.worker.onerror = (err) => {
-          console.error('TTS worker error', err)
+          logger.error('TTS worker error', err)
         }
 
         setTimeout(() => {
@@ -190,7 +191,7 @@ export class TTSWorkerManager {
         errorMsg.includes('Out of memory') ||
         errorMsg.includes('Aborted()')
       ) {
-        console.warn(
+        logger.warn(
           '[TTSWorkerManager] Critical worker error detected, restarting worker and retrying...',
           err
         )
