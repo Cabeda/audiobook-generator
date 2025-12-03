@@ -534,7 +534,7 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
             `Stream chunk converted blob: instanceofBlob=${ablob instanceof Blob}; constructor=${ablob?.constructor?.name}; type=${ablob?.type}; size=${ablob?.size}`
           )
         } catch (e) {
-          logger.warn('Failed to inspect converted stream chunk blob:', e)
+          logger.warn('[Kokoro]', 'Failed to inspect converted stream chunk blob:', e)
         }
         yield {
           text: chunk.text,
