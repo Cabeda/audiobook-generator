@@ -62,8 +62,46 @@
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
 
   // Track the current model and voice from the store to detect changes
-  let currentModelFromStore = $state<'kokoro' | 'piper' | 'web_speech'>(selectedModel)
-  let currentVoiceFromStore = $state<string>(voice)
+  // Initialize with store values to ensure consistency
+  let currentModelFromStore = $state<'kokoro' | 'piper' | 'web_speech'>($modelStore)
+  let currentVoiceFromStore = $state<string>($voiceStore)
+
+  // Helper function to restart playback with new settings
+  function restartWithNewSettings(newModel: 'kokoro' | 'piper' | 'web_speech', newVoice: string) {
+    const currentSegment = audioService.currentSegmentIndex
+    const wasPlaying = audioService.isPlaying
+
+    // Re-initialize with new settings
+    audioService.initialize(bookId, bookTitle, chapter, {
+      voice: newVoice,
+      quantization,
+      device,
+      selectedModel: newModel,
+      playbackSpeed: audioService.playbackSpeed,
+    })
+
+    // Restart from the current segment
+    if (currentSegment >= 0) {
+      const playPromise = audioService.playFromSegment(currentSegment)
+
+      // If we weren't playing before, pause after playback starts
+      if (!wasPlaying) {
+        playPromise
+          .then(() => {
+            // Wait for audio to be ready before pausing
+            if (!audioService.isPlaying) return
+            audioService.pause()
+          })
+          .catch((err) => {
+            console.error('Failed to restart with new settings:', err)
+          })
+      } else {
+        playPromise.catch((err) => {
+          console.error('Failed to restart with new settings:', err)
+        })
+      }
+    }
+  }
 
   // Initialize
   $effect(() => {
@@ -100,36 +138,13 @@
   // React to model changes from the store
   $effect(() => {
     const newModel = $modelStore
+    const newVoice = $voiceStore
 
     // Only react to changes if we're already playing/initialized
     const store = untrack(() => $audioPlayerStore)
     if (store.chapterId === chapter.id && newModel !== currentModelFromStore) {
       currentModelFromStore = newModel
-
-      // Restart from current segment with new model
-      const currentSegment = audioService.currentSegmentIndex
-      const wasPlaying = audioService.isPlaying
-
-      // Re-initialize with new model
-      audioService.initialize(bookId, bookTitle, chapter, {
-        voice: $voiceStore,
-        quantization,
-        device,
-        selectedModel: newModel,
-        playbackSpeed: audioService.playbackSpeed,
-      })
-
-      // Restart from the current segment
-      if (currentSegment >= 0) {
-        audioService.playFromSegment(currentSegment).catch((err) => {
-          console.error('Failed to restart with new model:', err)
-        })
-
-        // If we weren't playing before, pause after starting playback
-        if (!wasPlaying) {
-          setTimeout(() => audioService.pause(), 100)
-        }
-      }
+      restartWithNewSettings(newModel, newVoice)
     }
   })
 
@@ -146,31 +161,7 @@
       newVoice !== currentVoiceFromStore
     ) {
       currentVoiceFromStore = newVoice
-
-      // Restart from current segment with new voice
-      const currentSegment = audioService.currentSegmentIndex
-      const wasPlaying = audioService.isPlaying
-
-      // Re-initialize with new voice
-      audioService.initialize(bookId, bookTitle, chapter, {
-        voice: newVoice,
-        quantization,
-        device,
-        selectedModel: currentModel,
-        playbackSpeed: audioService.playbackSpeed,
-      })
-
-      // Restart from the current segment
-      if (currentSegment >= 0) {
-        audioService.playFromSegment(currentSegment).catch((err) => {
-          console.error('Failed to restart with new voice:', err)
-        })
-
-        // If we weren't playing before, pause after starting playback
-        if (!wasPlaying) {
-          setTimeout(() => audioService.pause(), 100)
-        }
-      }
+      restartWithNewSettings(currentModel, newVoice)
     }
   })
 
