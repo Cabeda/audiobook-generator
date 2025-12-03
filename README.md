@@ -164,6 +164,7 @@ audiobook-generator/
 - **[Audio Concatenation](docs/AUDIO_CONCATENATION.md)** - Concatenation API, chapter markers, usage
 - **[E2E Testing](docs/E2E_TESTING.md)** - Test coverage, running tests, debugging
 - **[Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md)** - Technical overview, architecture
+- **[Troubleshooting Guide](docs/CHUNKING_AND_CONCATENATION.md)** - Chunking behavior, environment requirements, debugging tips
 
 ## 🧪 Testing
 
@@ -273,6 +274,24 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [kokoro-js](https://www.npmjs.com/package/kokoro-js) - JavaScript/TypeScript implementation
 - [espeak-ng](https://github.com/espeak-ng/espeak-ng) - Phonemization engine
 - [lamejs](https://github.com/zhuker/lamejs) - JavaScript MP3 encoder
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+Having problems? Check our comprehensive troubleshooting guide:
+
+👉 **[Troubleshooting Guide](docs/CHUNKING_AND_CONCATENATION.md)**
+
+**Quick fixes:**
+
+- **Out of memory**: Use q8 model instead of fp32, generate fewer chapters at once
+- **Slow generation**: Enable WebGPU (Chrome 113+), close other tabs
+- **Audio clicks/pops**: Ensure consistent voice settings across all chapters
+- **MP3 encoding fails**: Try WAV format, check browser console for FFmpeg errors
+- **Wrong chapter order**: Generate sequentially, not in parallel
+
+For detailed solutions and debugging tips, see the [full troubleshooting guide](docs/CHUNKING_AND_CONCATENATION.md).
 
 ## 🐛 Known Issues
 
