@@ -3,13 +3,15 @@
  */
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import logger from './utils/logger'
+import { retryWithBackoff, isRetryableError } from './retryUtils'
+import { FFmpegError, normalizeError } from './errors'
 
 // Singleton FFmpeg instance
 let ffmpegInstance: FFmpeg | null = null
 let ffmpegLoaded = false
 
 /**
- * Get or create FFmpeg instance
+ * Get or create FFmpeg instance with retry logic
  */
 async function getFFmpeg(): Promise<FFmpeg> {
   if (ffmpegInstance && ffmpegLoaded) {
@@ -31,25 +33,41 @@ async function getFFmpeg(): Promise<FFmpeg> {
   }
 
   if (!ffmpegLoaded) {
-    try {
-      // Use ESM build from jsdelivr with direct URLs (no toBlobURL needed)
-      const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm'
-      logger.info('[FFmpeg]', 'Loading FFmpeg core from:', baseURL)
+    await retryWithBackoff(
+      async () => {
+        // Use ESM build from jsdelivr with direct URLs (no toBlobURL needed)
+        const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm'
+        logger.info('[FFmpeg]', 'Loading FFmpeg core from:', baseURL)
 
-      await ffmpegInstance.load({
-        coreURL: `${baseURL}/ffmpeg-core.js`,
-        wasmURL: `${baseURL}/ffmpeg-core.wasm`,
-      })
+        await ffmpegInstance!.load({
+          coreURL: `${baseURL}/ffmpeg-core.js`,
+          wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+        })
 
-      logger.info('[FFmpeg]', 'Successfully loaded')
-      ffmpegLoaded = true
-    } catch (err) {
-      logger.error('[FFmpeg]', 'Failed to load:', err)
+        logger.info('[FFmpeg]', 'Successfully loaded')
+        ffmpegLoaded = true
+      },
+      {
+        maxRetries: 2,
+        initialDelay: 1000,
+        maxDelay: 5000,
+        shouldRetry: isRetryableError,
+        onRetry: (attempt, maxRetries, error) => {
+          logger.warn(`[FFmpeg] Load retry ${attempt}/${maxRetries}:`, error.message)
+        },
+      }
+    ).catch((err) => {
+      logger.error('[FFmpeg]', 'Failed to load after retries:', err)
       // Reset instance so it can be retried
       ffmpegInstance = null
       ffmpegLoaded = false
-      throw new Error(`Failed to load FFmpeg: ${String(err)}`)
-    }
+      throw new FFmpegError(
+        `Failed to load FFmpeg: ${err instanceof Error ? err.message : String(err)}`,
+        'load',
+        isRetryableError(err),
+        err instanceof Error ? err : undefined
+      )
+    })
   }
 
   return ffmpegInstance

@@ -1,5 +1,7 @@
 import { KokoroTTS } from 'kokoro-js'
 import logger from '../utils/logger'
+import { retryWithBackoff, isRetryableError } from '../retryUtils'
+import { ModelLoadError, AudioGenerationError, normalizeError } from '../errors'
 
 // Valid Kokoro voice IDs based on the official kokoro-js library
 export type VoiceId =
@@ -173,37 +175,65 @@ async function getKokoroInstance(
     logger.info('[KokoroClient]', `Loading Kokoro TTS model: ${modelId} (${dtype}, ${device})...`)
     if (onProgress) onProgress('Loading model...')
 
-    // Intercept global fetch to enable caching for the model loading
-    const originalFetch = globalThis.fetch
-    // Create cached fetch using the original fetch to avoid recursion
-    globalThis.fetch = createFetchWithCache(originalFetch) as typeof fetch
+    // Use retry with backoff for model loading
+    ttsInstance = await retryWithBackoff(
+      async () => {
+        // Intercept global fetch to enable caching for the model loading
+        const originalFetch = globalThis.fetch
+        // Create cached fetch using the original fetch to avoid recursion
+        globalThis.fetch = createFetchWithCache(originalFetch) as typeof fetch
 
-    try {
-      ttsInstance = await KokoroTTS.from_pretrained(modelId, {
-        dtype,
-        device,
-        progress_callback: (progress: {
-          status: string
-          file?: string
-          loaded?: number
-          total?: number
-        }) => {
-          if (progress.loaded && progress.total) {
-            const percent = ((progress.loaded / progress.total) * 100).toFixed(0)
-            const msg = `Downloading ${progress.file}: ${percent}%`
-            logger.info('[KokoroClient]', msg)
-            if (onProgress) onProgress(msg)
-          } else {
-            logger.info('[KokoroClient]', `Model loading: ${progress.status}`)
-            if (onProgress) onProgress(`Loading: ${progress.status}`)
-          }
+        try {
+          const instance = await KokoroTTS.from_pretrained(modelId, {
+            dtype,
+            device,
+            progress_callback: (progress: {
+              status: string
+              file?: string
+              loaded?: number
+              total?: number
+            }) => {
+              if (progress.loaded && progress.total) {
+                const percent = ((progress.loaded / progress.total) * 100).toFixed(0)
+                const msg = `Downloading ${progress.file}: ${percent}%`
+                logger.info('[KokoroClient]', msg)
+                if (onProgress) onProgress(msg)
+              } else {
+                logger.info('[KokoroClient]', `Model loading: ${progress.status}`)
+                if (onProgress) onProgress(`Loading: ${progress.status}`)
+              }
+            },
+          })
+          logger.info('[KokoroClient]', 'Kokoro TTS model loaded successfully')
+          return instance
+        } finally {
+          // Restore original fetch
+          globalThis.fetch = originalFetch
+        }
+      },
+      {
+        maxRetries: 2,
+        initialDelay: 2000,
+        maxDelay: 10000,
+        shouldRetry: isRetryableError,
+        onRetry: (attempt, maxRetries, error) => {
+          logger.warn(`[KokoroClient] Model load retry ${attempt}/${maxRetries}:`, error.message)
+          if (onProgress) onProgress(`Retrying model load... (${attempt}/${maxRetries})`)
         },
-      })
-      logger.info('[KokoroClient]', 'Kokoro TTS model loaded successfully')
-    } finally {
-      // Restore original fetch
-      globalThis.fetch = originalFetch
-    }
+      }
+    ).catch((error) => {
+      // Convert to ModelLoadError
+      const isTransient = isRetryableError(error)
+      const modelError = new ModelLoadError(
+        `Failed to load Kokoro model: ${error instanceof Error ? error.message : String(error)}`,
+        'kokoro',
+        isTransient,
+        error instanceof Error ? error : undefined
+      )
+      logger.error('[KokoroClient]', modelError.message)
+      if (onProgress) onProgress(modelError.getUserMessage())
+      throw modelError
+    })
   }
   return ttsInstance
 }
@@ -416,9 +446,14 @@ export async function generateVoiceSegments(
     } catch {
       // ignore
     }
-    throw new Error(
-      `Failed to generate speech: ${error instanceof Error ? error.message : String(error)}`
+    // Convert to AudioGenerationError
+    const isTransient = isRetryableError(error)
+    const genError = new AudioGenerationError(
+      `Failed to generate speech: ${error instanceof Error ? error.message : String(error)}`,
+      isTransient,
+      error instanceof Error ? error : undefined
     )
+    throw genError
   }
 }
 

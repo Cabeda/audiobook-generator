@@ -1,3 +1,8 @@
+import { TimeoutError, isRetryableError } from './errors'
+
+// Re-export for convenience
+export { isRetryableError } from './errors'
+
 /**
  * Configuration options for retry behavior
  */
@@ -10,8 +15,12 @@ export interface RetryOptions {
   maxDelay?: number
   /** Backoff multiplier (default: 2) */
   backoffMultiplier?: number
-  /** Function to determine if error is retryable (default: always retry) */
+  /** Function to determine if error is retryable (default: uses isRetryableError) */
   shouldRetry?: (error: Error) => boolean
+  /** Timeout in milliseconds for each attempt (default: no timeout) */
+  timeoutMs?: number
+  /** Callback for retry attempts (useful for logging or UI updates) */
+  onRetry?: (attempt: number, maxRetries: number, error: Error) => void
 }
 
 /**
@@ -25,7 +34,7 @@ export interface RetryOptions {
  * @example
  * const result = await retryWithBackoff(
  *   () => fetch('https://api.example.com/data'),
- *   { maxRetries: 3, initialDelay: 1000 }
+ *   { maxRetries: 3, initialDelay: 1000, timeoutMs: 5000 }
  * );
  */
 export async function retryWithBackoff<T>(
@@ -37,7 +46,9 @@ export async function retryWithBackoff<T>(
     initialDelay = 1000,
     maxDelay = 10000,
     backoffMultiplier = 2,
-    shouldRetry = () => true,
+    shouldRetry = () => true, // Default to always retry for backward compatibility
+    timeoutMs,
+    onRetry,
   } = options
 
   // Validate maxRetries is non-negative
@@ -49,13 +60,20 @@ export async function retryWithBackoff<T>(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await fn()
+      // Apply timeout if specified
+      const result = timeoutMs ? await withTimeout(fn(), timeoutMs) : await fn()
+      return result
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
 
       // Don't retry if this is the last attempt or if error is not retryable
       if (attempt === maxRetries || !shouldRetry(lastError)) {
         throw lastError
+      }
+
+      // Notify caller about retry
+      if (onRetry) {
+        onRetry(attempt + 1, maxRetries, lastError)
       }
 
       // Calculate delay with exponential backoff
@@ -68,4 +86,35 @@ export async function retryWithBackoff<T>(
 
   // This should never be reached due to loop logic, but TypeScript needs it
   throw lastError!
+}
+
+/**
+ * Wrap a promise with a timeout
+ *
+ * @param promise Promise to wrap
+ * @param timeoutMs Timeout in milliseconds
+ * @returns Promise that resolves with the original promise or rejects with TimeoutError
+ *
+ * @example
+ * const result = await withTimeout(
+ *   fetch('https://api.example.com/data'),
+ *   5000
+ * );
+ */
+export function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new TimeoutError(`Operation timed out after ${timeoutMs}ms`, timeoutMs))
+    }, timeoutMs)
+
+    promise
+      .then((value) => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch((error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+  })
 }

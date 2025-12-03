@@ -5,6 +5,8 @@
 
 import logger from './utils/logger'
 import type { TTSModelType } from './tts/ttsModels'
+import { retryWithBackoff, isRetryableError } from './retryUtils'
+import { normalizeError, ModelLoadError, AudioGenerationError, CancellationError } from './errors'
 
 type WorkerRequest = {
   id: string
@@ -180,31 +182,45 @@ export class TTSWorkerManager {
       })
     }
 
-    try {
-      return await execute()
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      // Check for memory allocation errors, session creation errors, or WASM aborts
-      if (
-        errorMsg.includes('failed to allocate') ||
-        errorMsg.includes("Can't create a session") ||
-        errorMsg.includes('Out of memory') ||
-        errorMsg.includes('Aborted()')
-      ) {
-        logger.warn(
-          '[TTSWorkerManager] Critical worker error detected, restarting worker and retrying...',
-          err
-        )
+    // Use retry with backoff for generation
+    return retryWithBackoff(execute, {
+      maxRetries: 2,
+      initialDelay: 1000,
+      maxDelay: 5000,
+      shouldRetry: (error: Error) => {
+        const errorMsg = error.message
+        // Check for memory allocation errors, session creation errors, or WASM aborts
+        const isMemoryError =
+          errorMsg.includes('failed to allocate') ||
+          errorMsg.includes("Can't create a session") ||
+          errorMsg.includes('Out of memory') ||
+          errorMsg.includes('Aborted()')
 
-        // Terminate and re-init
-        this.terminate()
-        this.readyPromise = this.initWorker()
+        if (isMemoryError) {
+          logger.warn('[TTSWorkerManager] Memory error detected, will retry with worker restart')
+          // Terminate and re-init worker before retry
+          this.terminate()
+          this.readyPromise = this.initWorker()
+          return true
+        }
 
-        // Retry once
-        return await execute()
+        // Use standard retry logic for other errors
+        return isRetryableError(error)
+      },
+      onRetry: (attempt, maxRetries, error) => {
+        logger.warn(`[TTSWorkerManager] Retry attempt ${attempt}/${maxRetries}:`, error.message)
+        if (options.onProgress) {
+          options.onProgress(`Retrying... (attempt ${attempt}/${maxRetries})`)
+        }
+      },
+    }).catch((error) => {
+      // Convert to structured error
+      const normalized = normalizeError(error, 'TTS generation')
+      if (options.onProgress) {
+        options.onProgress(normalized.getUserMessage())
       }
-      throw err
-    }
+      throw normalized
+    })
   }
 
   async generateSegments(options: {
@@ -251,8 +267,9 @@ export class TTSWorkerManager {
   }
 
   cancelAll() {
-    // Reject pending promises
-    this.pendingRequests.forEach((p) => p.reject(new Error('Cancelled by user')))
+    // Reject pending promises with CancellationError
+    const cancellationError = new CancellationError('TTS generation cancelled by user')
+    this.pendingRequests.forEach((p) => p.reject(cancellationError))
     this.pendingRequests.clear()
 
     // Restart the worker to stop in-progress work
