@@ -61,6 +61,38 @@
   let showSettings = $state(false)
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
 
+  // Track the current model and voice from the store to detect changes
+  // Will be initialized after first initialization to avoid false change detection
+  let currentModelFromStore = $state<'kokoro' | 'piper' | 'web_speech' | null>(null)
+  let currentVoiceFromStore = $state<string | null>(null)
+
+  // Helper function to restart TTS playback with new settings
+  function restartTTSWithNewSettings(
+    newModel: 'kokoro' | 'piper' | 'web_speech',
+    newVoice: string
+  ) {
+    const currentSegment = audioService.currentSegmentIndex
+    const wasPlaying = audioService.isPlaying
+
+    // Re-initialize with new settings
+    audioService.initialize(bookId, bookTitle, chapter, {
+      voice: newVoice,
+      quantization,
+      device,
+      selectedModel: newModel,
+      playbackSpeed: audioService.playbackSpeed,
+    })
+
+    // Restart from the current segment
+    // playFromSegment preserves the playing state (sets isPlaying = wasPlaying)
+    // so if we weren't playing, it won't start playing
+    if (currentSegment >= 0) {
+      audioService.playFromSegment(currentSegment).catch((err) => {
+        console.error('Failed to restart with new settings:', err)
+      })
+    }
+  }
+
   // Initialize
   $effect(() => {
     if (chapter) {
@@ -78,18 +110,55 @@
       })
 
       if (needsInit) {
+        // Use store values (from $modelStore and $voiceStore) for initialization.
+        // This ensures that the initial values match those tracked by the reactive effect,
+        // preventing unnecessary restarts when the component mounts or when store values change.
+        const currentModel = untrack(() => $modelStore)
+        const currentVoice = untrack(() => $voiceStore)
+
         audioService.initialize(bookId, bookTitle, chapter, {
-          voice,
+          voice: currentVoice,
           quantization,
           device,
-          selectedModel,
+          selectedModel: currentModel,
           playbackSpeed: initialSpeed,
         })
+
+        // Initialize tracked values after successful initialization to avoid false change detection
+        currentModelFromStore = currentModel
+        currentVoiceFromStore = currentVoice
+
         // Auto-play when opening a new chapter (async without blocking effect)
         audioService.play().catch((err) => {
           console.error('Auto-play failed:', err)
         })
       }
+    }
+  })
+
+  // React to model or voice changes from the store
+  $effect(() => {
+    const newModel = $modelStore
+    const newVoice = $voiceStore
+
+    // Only react to changes if we're already playing/initialized
+    const store = untrack(() => $audioPlayerStore)
+    if (store.chapterId !== chapter.id) return
+
+    // Skip if tracked values haven't been initialized yet (first run)
+    if (currentModelFromStore === null || currentVoiceFromStore === null) return
+
+    // Check if model or voice changed
+    const modelChanged = newModel !== currentModelFromStore
+    const voiceChanged = newVoice !== currentVoiceFromStore
+
+    // Always update tracked values to stay in sync
+    currentModelFromStore = newModel
+    currentVoiceFromStore = newVoice
+
+    // Restart if either model or voice changed
+    if (modelChanged || voiceChanged) {
+      restartTTSWithNewSettings(newModel, newVoice)
     }
   })
 
