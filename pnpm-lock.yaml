@@ -38,6 +38,9 @@ importers:
         specifier: ^7.3.0
         version: 7.4.0
     devDependencies:
+      '@eslint/js':
+        specifier: ^9.39.1
+        version: 9.39.1
       '@playwright/test':
         specifier: ^1.56.1
         version: 1.56.1
@@ -89,6 +92,9 @@ importers:
       svelte:
         specifier: ^5.43.14
         version: 5.43.14
+      svelte-eslint-parser:
+        specifier: ^1.4.0
+        version: 1.4.0(svelte@5.43.14)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
