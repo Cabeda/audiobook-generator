@@ -120,11 +120,15 @@
       })
 
       if (needsInit) {
+        // Use store values for consistency with restart logic
+        const currentModel = untrack(() => $modelStore)
+        const currentVoice = untrack(() => $voiceStore)
+
         audioService.initialize(bookId, bookTitle, chapter, {
-          voice,
+          voice: currentVoice,
           quantization,
           device,
-          selectedModel,
+          selectedModel: currentModel,
           playbackSpeed: initialSpeed,
         })
         // Auto-play when opening a new chapter (async without blocking effect)
@@ -135,33 +139,27 @@
     }
   })
 
-  // React to model changes from the store
+  // React to model or voice changes from the store
   $effect(() => {
     const newModel = $modelStore
     const newVoice = $voiceStore
 
     // Only react to changes if we're already playing/initialized
     const store = untrack(() => $audioPlayerStore)
-    if (store.chapterId === chapter.id && newModel !== currentModelFromStore) {
-      currentModelFromStore = newModel
+    if (store.chapterId !== chapter.id) return
+
+    // Check if model changed
+    const modelChanged = newModel !== currentModelFromStore
+    // Check if voice changed (only relevant for web_speech model)
+    const voiceChanged = newModel === 'web_speech' && newVoice !== currentVoiceFromStore
+
+    if (modelChanged || voiceChanged) {
+      // Update tracked values
+      if (modelChanged) currentModelFromStore = newModel
+      if (voiceChanged) currentVoiceFromStore = newVoice
+
+      // Restart with new settings
       restartWithNewSettings(newModel, newVoice)
-    }
-  })
-
-  // React to voice changes from the store (for web_speech model)
-  $effect(() => {
-    const newVoice = $voiceStore
-    const currentModel = $modelStore
-
-    // Only react to voice changes if we're using web_speech model
-    const store = untrack(() => $audioPlayerStore)
-    if (
-      store.chapterId === chapter.id &&
-      currentModel === 'web_speech' &&
-      newVoice !== currentVoiceFromStore
-    ) {
-      currentVoiceFromStore = newVoice
-      restartWithNewSettings(currentModel, newVoice)
     }
   })
 
