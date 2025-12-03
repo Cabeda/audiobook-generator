@@ -82,13 +82,13 @@
           const response = await fetch(proxyUrl)
 
           // Store status for shouldRetry check
-          const status = response.status
+
 
           if (!response.ok) {
             const error: Error & { status?: number } = new Error(
               `Failed to fetch: ${response.statusText}`
             )
-            error.status = status
+            error.status = response.status
             throw error
           }
 
