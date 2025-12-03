@@ -1,21 +1,22 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
   import type { Book, Chapter } from '../lib/types/book'
-  // TTS worker is used by other UI components (GeneratePanel, Audio service).
-  // BookInspector no longer needs to import it since preview was removed.
+  import ChapterItem from './ChapterItem.svelte'
 
   let {
     book,
+    generatedAudioMap = new Map(),
     selectedVoice,
     selectedQuantization,
     selectedDevice = 'auto',
     selectedModel = 'kokoro',
   } = $props<{
     book: Book
+    generatedAudioMap?: Map<string, { url: string; blob: Blob }>
     selectedVoice: string
     selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     selectedDevice?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper'
+    selectedModel?: 'kokoro' | 'piper' | 'web_speech'
   }>()
 
   const dispatch = createEventDispatcher()
@@ -23,30 +24,14 @@
   // Map of chapter id -> selected
   let selected = $state(new Map<string, boolean>())
 
-  // No preview playback state here anymore; preview removed to avoid
-  // duplicate controls and keep UI simple.
-
   // initialize selections when book changes
   $effect(() => {
     if (book) {
-      // Use untracked to prevent circular dependency if needed, but here we just need to ensure
-      // we don't read 'selected' in a way that triggers this effect again.
-      // Actually, 'selected' is a dependency, but we only want to run this when 'book' changes.
-      // In Svelte 5, we should be careful.
-      // Better approach: derive initial state or just run once when book changes.
-
-      // However, since we want to preserve selection if possible or reset it,
-      // we should probably just recreate the map based on the new book.
-
       const newMap = new Map<string, boolean>()
       for (const ch of book.chapters) {
-        // default: selected
-        // We use untracked to avoid re-running when 'selected' changes
         newMap.set(ch.id, true)
       }
       selected = newMap
-
-      // Nothing else to clear here
     }
   })
 
@@ -59,14 +44,12 @@
 
   function selectAll() {
     for (const k of selected.keys()) selected.set(k, true)
-    // Reassign to trigger reactivity reliably
     selected = new Map(selected)
     dispatch('selectionchanged', { selected: Array.from(selected.entries()) })
   }
 
   function deselectAll() {
     for (const k of selected.keys()) selected.set(k, false)
-    // Reassign to trigger reactivity reliably
     selected = new Map(selected)
     dispatch('selectionchanged', { selected: Array.from(selected.entries()) })
   }
@@ -93,15 +76,7 @@
     dispatch('export', { count: selectedChapters.length })
   }
 
-  function copyChapterContent(ch: Chapter) {
-    navigator.clipboard?.writeText(ch.content).catch(() => alert('Clipboard not available'))
-  }
-
-  // Preview functionality removed: the Read button is the single play entry point
-  // and the persistent player / TextReader handle playback.
-
   function openReader(ch: Chapter) {
-    // Dispatch event to navigate to reader view
     dispatch('readchapter', { chapter: ch })
   }
 </script>
@@ -135,43 +110,15 @@
 
   <div class="chapter-list" role="list">
     {#each book.chapters as ch}
-      <div class="chapter-card" class:selected={selected.get(ch.id)} role="listitem">
-        <div class="card-content">
-          <label class="chapter-header">
-            <input
-              type="checkbox"
-              class="chapter-checkbox"
-              checked={selected.get(ch.id)}
-              onchange={() => toggleChapter(ch.id)}
-              aria-label={`Select chapter: ${ch.title}`}
-            />
-            <span class="chapter-title">{ch.title}</span>
-          </label>
-          <p class="chapter-preview">
-            {ch.content.slice(0, 180)}{ch.content.length > 180 ? '…' : ''}
-          </p>
-        </div>
-
-        <div class="card-actions">
-          <!-- Preview button removed; Read starts playback in reader and persistent player -->
-          <button
-            class="action-btn"
-            onclick={() => openReader(ch)}
-            aria-label={`Read chapter: ${ch.title}`}
-          >
-            <span class="icon" aria-hidden="true">📖</span> Read
-          </button>
-
-          <button
-            class="action-btn icon-only"
-            onclick={() => copyChapterContent(ch)}
-            title="Copy text"
-            aria-label={`Copy text of chapter: ${ch.title}`}
-          >
-            <span aria-hidden="true">📋</span>
-          </button>
-        </div>
-      </div>
+      <ChapterItem
+        chapter={ch}
+        selected={selected.get(ch.id)}
+        audioData={generatedAudioMap.get(ch.id)}
+        onToggle={toggleChapter}
+        onRead={openReader}
+        onDownloadWav={(id) => dispatch('downloadwav', { id })}
+        onDownloadMp3={(id) => dispatch('downloadmp3', { id })}
+      />
     {/each}
   </div>
 </div>
@@ -213,7 +160,7 @@
     margin-bottom: 16px;
     border-bottom: 1px solid var(--border-color);
   }
-  /* Cleaned up preview styles; spin keyframes kept for other components. */
+
   .text-btn {
     background: none;
     border: none;
@@ -260,113 +207,6 @@
     gap: 12px;
   }
 
-  .chapter-card {
-    background: var(--surface-color);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    padding: 16px;
-    display: flex;
-    gap: 16px;
-    align-items: flex-start;
-    transition: all 0.2s ease;
-  }
-
-  .chapter-card:hover {
-    border-color: var(--secondary-text);
-    box-shadow: 0 2px 8px var(--shadow-color);
-  }
-
-  .chapter-card.selected {
-    background: var(--selected-bg);
-    border-color: var(--selected-border);
-  }
-
-  .card-content {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .chapter-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    cursor: pointer;
-    margin-bottom: 6px;
-  }
-
-  .chapter-checkbox {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-  }
-
-  .chapter-title {
-    font-weight: 600;
-    font-size: 1.05rem;
-    color: var(--text-color);
-    line-height: 1.4;
-  }
-
-  .chapter-preview {
-    margin: 0;
-    font-size: 0.9rem;
-    color: var(--secondary-text);
-    line-height: 1.5;
-    padding-left: 30px; /* Align with title text */
-  }
-
-  .card-actions {
-    display: flex;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-
-  .action-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
-    border: 1px solid var(--input-border);
-    background: var(--surface-color);
-    border-radius: 6px;
-    font-size: 0.9rem;
-    color: var(--secondary-text);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .action-btn:hover:not(:disabled) {
-    background: var(--bg-color);
-    border-color: var(--text-color);
-    color: var(--text-color);
-  }
-
-  .action-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .action-btn.icon-only {
-    padding: 8px;
-  }
-
-  .action-btn .icon {
-    font-size: 1.1em;
-  }
-
-  /* Preview Button States removed */
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  /* playing-pulse animation removed */
-
   /* Mobile Responsive */
   @media (max-width: 640px) {
     .controls-bar {
@@ -378,35 +218,6 @@
     .left-controls,
     .right-controls {
       justify-content: space-between;
-    }
-
-    .chapter-card {
-      flex-direction: column;
-      gap: 12px;
-      padding: 12px;
-    }
-
-    .chapter-preview {
-      padding-left: 0;
-      margin-top: 8px;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-
-    .card-actions {
-      width: 100%;
-      display: grid;
-      grid-template-columns: 1fr 1fr auto;
-      gap: 8px;
-      padding-top: 12px;
-      border-top: 1px solid var(--border-color);
-    }
-
-    .action-btn {
-      justify-content: center;
     }
   }
 </style>

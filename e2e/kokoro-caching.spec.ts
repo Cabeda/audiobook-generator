@@ -98,9 +98,7 @@ test.describe('Kokoro TTS Caching', () => {
           const hasCacheLog = consoleLogs.some((l) =>
             l.includes('[KokoroCache] Serving from cache')
           )
-          const hasLoadLog = consoleLogs.some((l) =>
-            l.includes('Kokoro TTS model loaded successfully')
-          )
+          consoleLogs.some((l) => l.includes('Kokoro TTS model loaded successfully'))
           // We want to ensure it didn't fetch again (no "Fetching and caching" after second trigger)
           // But consoleLogs accumulates all logs. We need to check logs AFTER the second trigger.
           // For now, just check if we hit the cache log.

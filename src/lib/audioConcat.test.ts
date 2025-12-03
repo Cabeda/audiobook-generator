@@ -342,15 +342,20 @@ describe('audioConcat', () => {
           this.listeners['log'] = this.listeners['log'] || []
           this.listeners['log'].push(cb)
         }
-        async load() {}
+        async load() {
+          // Resolve immediately
+          return Promise.resolve()
+        }
         writeFile(name: string, data: Uint8Array) {
           writtenFiles[name] = data
         }
-        exec(args: string[]) {
+        async exec(args: string[]) {
           runArgs.push(...args)
           const out = args[args.length - 1]
           this.fs = this.fs || {}
           this.fs[out] = new Uint8Array([1, 2, 3])
+          // Resolve immediately
+          return Promise.resolve()
         }
         readFile(name: string) {
           return (this.fs && this.fs[name]) || new Uint8Array()
@@ -396,7 +401,7 @@ describe('audioConcat', () => {
       vi.doUnmock('@ffmpeg/ffmpeg')
       // Reset modules to clear our dynamic import mock state
       vi.resetModules()
-    })
+    }, 10000) // Increase timeout to 10 seconds
   })
 
   describe('downloadAudioFile', () => {

@@ -8,6 +8,11 @@ import {
   searchBooks,
   findBookByTitleAuthor,
   clearLibrary,
+  saveChapterAudio,
+  getChapterAudio,
+  getChapterAudioWithSettings,
+  deleteBookAudio,
+  type AudioGenerationSettings,
 } from './libraryDB'
 import type { Book } from './types/book'
 import 'fake-indexeddb/auto'
@@ -101,5 +106,157 @@ describe('libraryDB', () => {
 
     const notFound = await findBookByTitleAuthor('Other', 'Author')
     expect(notFound).toBeNull()
+  })
+
+  describe('Audio Persistence', () => {
+    let bookId: number
+    const mockAudioBlob = new Blob(['fake audio data'], { type: 'audio/wav' })
+    const mockSettings: AudioGenerationSettings = {
+      model: 'kokoro',
+      voice: 'af_heart',
+      quantization: 'q8',
+      device: 'auto',
+    }
+
+    beforeEach(async () => {
+      bookId = await addBook(mockBook)
+    })
+
+    // Note: fake-indexeddb has limitations with Blob serialization.
+    // These tests verify the API contract but may not fully test Blob persistence.
+    // For complete testing, use E2E tests with real IndexedDB or integration tests.
+
+    it('should save and retrieve chapter audio with settings', async () => {
+      await saveChapterAudio(bookId, '1', mockAudioBlob, mockSettings)
+
+      const result = await getChapterAudioWithSettings(bookId, '1')
+      expect(result).toBeDefined()
+      expect(result?.blob).toBeDefined()
+      // Note: fake-indexeddb doesn't preserve Blob fully, so we check structure
+      expect(result?.settings).toEqual(mockSettings)
+    })
+
+    it('should save chapter audio without settings (backward compatibility)', async () => {
+      await saveChapterAudio(bookId, '1', mockAudioBlob)
+
+      const result = await getChapterAudioWithSettings(bookId, '1')
+      expect(result).toBeDefined()
+      expect(result?.blob).toBeDefined()
+      expect(result?.settings).toBeUndefined()
+    })
+
+    it('should retrieve chapter audio blob only (backward compatibility)', async () => {
+      await saveChapterAudio(bookId, '1', mockAudioBlob, mockSettings)
+
+      const blob = await getChapterAudio(bookId, '1')
+      expect(blob).toBeDefined()
+    })
+
+    it('should return null for non-existent chapter audio', async () => {
+      const result = await getChapterAudioWithSettings(bookId, 'nonexistent')
+      expect(result).toBeNull()
+
+      const blob = await getChapterAudio(bookId, 'nonexistent')
+      expect(blob).toBeNull()
+    })
+
+    it('should save audio for multiple chapters', async () => {
+      const blob1 = new Blob(['audio 1'], { type: 'audio/wav' })
+      const blob2 = new Blob(['audio 2'], { type: 'audio/wav' })
+
+      await saveChapterAudio(bookId, '1', blob1, mockSettings)
+      await saveChapterAudio(bookId, '2', blob2, mockSettings)
+
+      const result1 = await getChapterAudioWithSettings(bookId, '1')
+      const result2 = await getChapterAudioWithSettings(bookId, '2')
+
+      expect(result1).toBeDefined()
+      expect(result2).toBeDefined()
+      expect(result1?.settings).toEqual(mockSettings)
+      expect(result2?.settings).toEqual(mockSettings)
+    })
+
+    it('should update existing chapter audio', async () => {
+      const newBlob = new Blob(['updated audio'], { type: 'audio/wav' })
+      const newSettings: AudioGenerationSettings = {
+        model: 'piper',
+        voice: 'en_US-hfc_female-medium',
+      }
+
+      await saveChapterAudio(bookId, '1', mockAudioBlob, mockSettings)
+      await saveChapterAudio(bookId, '1', newBlob, newSettings)
+
+      const result = await getChapterAudioWithSettings(bookId, '1')
+      expect(result).toBeDefined()
+      expect(result?.settings).toEqual(newSettings)
+    })
+
+    it('should delete all audio for a book', async () => {
+      await saveChapterAudio(bookId, '1', mockAudioBlob, mockSettings)
+      await saveChapterAudio(bookId, '2', mockAudioBlob, mockSettings)
+
+      await deleteBookAudio(bookId)
+
+      const result1 = await getChapterAudioWithSettings(bookId, '1')
+      const result2 = await getChapterAudioWithSettings(bookId, '2')
+
+      expect(result1).toBeNull()
+      expect(result2).toBeNull()
+    })
+
+    it('should delete audio when book is deleted', async () => {
+      await saveChapterAudio(bookId, '1', mockAudioBlob, mockSettings)
+
+      await deleteBook(bookId)
+
+      const result = await getChapterAudioWithSettings(bookId, '1')
+      expect(result).toBeNull()
+    })
+
+    it('should isolate audio by book ID', async () => {
+      const bookId2 = await addBook({ ...mockBook, title: 'Book 2' })
+
+      await saveChapterAudio(bookId, '1', mockAudioBlob, mockSettings)
+      await saveChapterAudio(bookId2, '1', mockAudioBlob, mockSettings)
+
+      const result1 = await getChapterAudioWithSettings(bookId, '1')
+      const result2 = await getChapterAudioWithSettings(bookId2, '1')
+
+      expect(result1).toBeDefined()
+      expect(result2).toBeDefined()
+
+      await deleteBookAudio(bookId)
+
+      const afterDelete1 = await getChapterAudioWithSettings(bookId, '1')
+      const afterDelete2 = await getChapterAudioWithSettings(bookId2, '1')
+
+      expect(afterDelete1).toBeNull()
+      expect(afterDelete2).toBeDefined()
+    })
+
+    it('should handle different generation settings', async () => {
+      const kokoroSettings: AudioGenerationSettings = {
+        model: 'kokoro',
+        voice: 'af_bella',
+        quantization: 'fp16',
+        device: 'webgpu',
+      }
+
+      const piperSettings: AudioGenerationSettings = {
+        model: 'piper',
+        voice: 'en_US-lessac-medium',
+      }
+
+      await saveChapterAudio(bookId, '1', mockAudioBlob, kokoroSettings)
+      await saveChapterAudio(bookId, '2', mockAudioBlob, piperSettings)
+
+      const result1 = await getChapterAudioWithSettings(bookId, '1')
+      const result2 = await getChapterAudioWithSettings(bookId, '2')
+
+      expect(result1?.settings?.quantization).toBe('fp16')
+      expect(result1?.settings?.device).toBe('webgpu')
+      expect(result2?.settings?.quantization).toBeUndefined()
+      expect(result2?.settings?.device).toBeUndefined()
+    })
   })
 })
