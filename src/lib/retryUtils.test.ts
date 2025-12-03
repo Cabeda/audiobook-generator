@@ -109,4 +109,22 @@ describe('retryWithBackoff', () => {
     // Default maxRetries is 3, so should be called 4 times (initial + 3 retries)
     expect(fn).toHaveBeenCalledTimes(4)
   })
+
+  it('should throw error when maxRetries is negative', async () => {
+    const fn = vi.fn().mockResolvedValue('success')
+
+    await expect(retryWithBackoff(fn, { maxRetries: -1 })).rejects.toThrow(
+      'maxRetries must be a non-negative number'
+    )
+    expect(fn).toHaveBeenCalledTimes(0) // Should not call fn at all
+  })
+
+  it('should handle maxRetries of 0 (no retries)', async () => {
+    const fn = vi.fn().mockRejectedValue(new Error('Immediate failure'))
+
+    await expect(retryWithBackoff(fn, { maxRetries: 0, initialDelay: 10 })).rejects.toThrow(
+      'Immediate failure'
+    )
+    expect(fn).toHaveBeenCalledTimes(1) // Only initial attempt, no retries
+  })
 })

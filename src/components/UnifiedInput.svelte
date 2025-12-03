@@ -83,7 +83,6 @@
 
           // Store status for shouldRetry check
 
-
           if (!response.ok) {
             const error: Error & { status?: number } = new Error(
               `Failed to fetch: ${response.statusText}`
@@ -95,9 +94,9 @@
           const data = await response.json()
 
           if (!data.contents) {
-            const error: Error & { status?: number } = new Error('No content received from URL');
-            error.status = 200;
-            throw error;
+            const error: Error & { status?: number } = new Error('No content received from URL')
+            error.status = 200
+            throw error
           }
 
           return data

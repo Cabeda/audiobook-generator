@@ -40,6 +40,11 @@ export async function retryWithBackoff<T>(
     shouldRetry = () => true,
   } = options
 
+  // Validate maxRetries is non-negative
+  if (maxRetries < 0) {
+    throw new Error('maxRetries must be a non-negative number')
+  }
+
   let lastError: Error | undefined
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -61,6 +66,6 @@ export async function retryWithBackoff<T>(
     }
   }
 
-  // This should never be reached, but TypeScript needs it
+  // This should never be reached due to loop logic, but TypeScript needs it
   throw lastError!
 }
