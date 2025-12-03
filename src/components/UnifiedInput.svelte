@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte'
   import { Readability } from '@mozilla/readability'
   import type { Book } from '../lib/types/book'
+  import { retryWithBackoff } from '../lib/retryUtils'
 
   const dispatch = createEventDispatcher()
 
@@ -73,20 +74,53 @@
     error = null
 
     try {
-      // Use allorigins.win as a CORS proxy
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
-      const response = await fetch(proxyUrl)
+      // Use retry with exponential backoff for better resilience
+      const data = await retryWithBackoff(
+        async () => {
+          // Use allorigins.win as a CORS proxy
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
+          const response = await fetch(proxyUrl)
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.statusText}`)
-      }
+          // Store status for shouldRetry check
 
-      const data = await response.json()
+          if (!response.ok) {
+            const error: Error & { status?: number } = new Error(
+              `Failed to fetch: ${response.statusText}`
+            )
+            error.status = response.status
+            throw error
+          }
+
+          const data = await response.json()
+
+          if (!data.contents) {
+            const error: Error & { status?: number } = new Error('No content received from URL')
+            error.status = 200
+            throw error
+          }
+
+          return data
+        },
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          maxDelay: 10000,
+          backoffMultiplier: 2,
+          shouldRetry: (error: Error & { status?: number }) => {
+            // Retry on network errors (no status) or server errors (5xx)
+            // Don't retry on client errors (4xx) as they won't succeed
+            if (!error.status) {
+              // Network error (CORS, timeout, etc.) - should retry
+              return true
+            }
+            // Retry on server errors (5xx) including 522 (Connection timed out)
+            // Don't retry on client errors (4xx)
+            return error.status >= 500
+          },
+        }
+      )
+
       const html = data.contents
-
-      if (!html) {
-        throw new Error('No content received from URL')
-      }
 
       // Parse HTML
       const parser = new DOMParser()
