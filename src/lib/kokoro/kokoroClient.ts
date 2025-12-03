@@ -531,6 +531,7 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
           }
           const ablob = audioBlob as Blob
           logger.info(
+            '[Kokoro]',
             `Stream chunk converted blob: instanceofBlob=${ablob instanceof Blob}; constructor=${ablob?.constructor?.name}; type=${ablob?.type}; size=${ablob?.size}`
           )
         } catch (e) {
