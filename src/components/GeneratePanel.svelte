@@ -10,7 +10,6 @@
   import { onMount, untrack } from 'svelte'
   import { piperClient } from '../lib/piper/piperClient'
   import { type TTSModelType, TTS_MODELS } from '../lib/tts/ttsModels'
-  import { loggerSendToBackend, loggerBackendUrl } from '../stores/loggerStore'
   import {
     concatenateAudioChapters,
     downloadAudioFile,
@@ -687,30 +686,6 @@
             </select>
           </label>
         {/if}
-
-        <!-- Logger Settings -->
-        <div class="logger-settings">
-          <h4>🔍 Logging Settings</h4>
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              bind:checked={$loggerSendToBackend}
-              disabled={running || concatenating}
-            />
-            <span class="label-text">Send error logs to backend (Vercel)</span>
-          </label>
-          {#if $loggerSendToBackend}
-            <label>
-              <span class="label-text">Backend URL</span>
-              <input
-                type="url"
-                bind:value={$loggerBackendUrl}
-                disabled={running || concatenating}
-                placeholder="https://audiobook-logs.vercel.app/api/logs"
-              />
-            </label>
-          {/if}
-        </div>
       </div>
     </div>
   {/if}
@@ -871,63 +846,6 @@
     opacity: 0.6;
     cursor: not-allowed;
     background: var(--bg-color);
-  }
-
-  input[type='url'] {
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: 6px;
-    border: 1px solid var(--input-border);
-    background: var(--input-bg);
-    color: var(--text-color);
-    font-size: 14px;
-    transition: border-color 0.2s;
-  }
-
-  input[type='url']:hover:not(:disabled) {
-    border-color: var(--primary-color);
-  }
-
-  input[type='url']:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
-  }
-
-  input[type='url']:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    background: var(--bg-color);
-  }
-
-  .logger-settings {
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border-color);
-  }
-
-  .logger-settings h4 {
-    margin: 0 0 12px 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-color);
-  }
-
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 12px;
-    cursor: pointer;
-  }
-
-  .checkbox-label input[type='checkbox'] {
-    cursor: pointer;
-  }
-
-  .checkbox-label .label-text {
-    margin: 0;
-    font-weight: normal;
   }
 
   .advanced-toggle {

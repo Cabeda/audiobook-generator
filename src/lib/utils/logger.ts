@@ -1,6 +1,6 @@
 /**
  * Centralized logging utility for the audiobook generator
- * Provides configurable logging with levels and optional remote logging
+ * Provides configurable logging with levels
  */
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
@@ -8,12 +8,8 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 export interface LoggerConfig {
   /** Minimum log level to display */
   level: LogLevel
-  /** Whether to send error logs to remote backend */
-  sendToBackend: boolean
   /** Whether to silence all logs (useful for tests) */
   silent: boolean
-  /** Backend endpoint for remote logging */
-  backendUrl?: string
 }
 
 const LOG_LEVELS: Record<LogLevel, number> = {
@@ -26,7 +22,6 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 class Logger {
   private config: LoggerConfig = {
     level: 'info',
-    sendToBackend: false,
     silent: false,
   }
 
@@ -66,36 +61,6 @@ class Logger {
     return `[${timestamp}] ${levelStr} ${prefix} ${args.map((a) => String(a)).join(' ')}`
   }
 
-  private async sendToBackend(level: LogLevel, message: string, ...args: unknown[]): Promise<void> {
-    if (!this.config.sendToBackend || !this.config.backendUrl) return
-
-    // Only send warnings and errors to backend
-    if (level !== 'warn' && level !== 'error') return
-
-    try {
-      await fetch(this.config.backendUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          level,
-          message,
-          args: args.map((a) => {
-            if (a instanceof Error) {
-              return JSON.stringify({ name: a.name, message: a.message, stack: a.stack });
-            }
-            return typeof a === 'object' ? JSON.stringify(a) : String(a);
-          }),
-          timestamp: new Date().toISOString(),
-          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
-        }),
-      })
-    } catch {
-      // Fail silently - don't want remote logging to break the app or create infinite loops
-    }
-  }
-
   /**
    * Log a debug message
    */
@@ -121,8 +86,6 @@ class Logger {
     if (this.shouldLog('warn')) {
       console.warn(this.formatMessage('warn', prefix, ...args))
     }
-    // Send to backend asynchronously (fire and forget)
-    void this.sendToBackend('warn', prefix, ...args)
   }
 
   /**
@@ -132,8 +95,6 @@ class Logger {
     if (this.shouldLog('error')) {
       console.error(this.formatMessage('error', prefix, ...args))
     }
-    // Send to backend asynchronously (fire and forget)
-    void this.sendToBackend('error', prefix, ...args)
   }
 
   /**
