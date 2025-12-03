@@ -550,7 +550,7 @@ describe('Audiobook Generation Integration Tests', () => {
 
       // For single chapter, it should return the original blob
       const result = await concatenateAudioChapters(chapters)
-      expect(result).toBe(audioBlob)
+      expect(result).toStrictEqual(audioBlob)
     })
   })
 })

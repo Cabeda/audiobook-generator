@@ -440,6 +440,18 @@ export async function concatenateAudioChapters(
     throw new Error('No chapters to concatenate')
   }
 
+  // Optimize: If all inputs are WAV and output is WAV, use efficient Blob composition
+  // This avoids loading the entire audiobook into memory (AudioContext or FFmpeg FS)
+  if (format === 'wav' && chapters.every((c) => c.blob.type.includes('wav'))) {
+    try {
+      console.log('[audioConcat] Using optimized WAV concatenation')
+      return await concatWavBlobs(chapters)
+    } catch (err) {
+      console.warn('[audioConcat] Optimized WAV concat failed, falling back:', err)
+      // Fallthrough to other methods
+    }
+  }
+
   // Note: Even with single chapter, we still process it to ensure correct format
   if (chapters.length === 1 && format === 'wav' && chapters[0].blob.type === 'audio/wav') {
     return chapters[0].blob
@@ -719,136 +731,109 @@ export async function audioBufferToMp3(
 
 /**
  * Lightweight WAV-only concatenation that does not require WebAudio or FFmpeg.
- * This supports only PCM WAV files with identical sampleRate, channels, and bitDepth.
+ * This supports only PCM/Float WAV files with identical sampleRate, channels, and bitDepth.
+ * Optimized to use Blob composition to avoid large memory allocations.
  */
 async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
   if (!chapters || chapters.length === 0) throw new Error('No chapters')
 
-  // Parse WAV header info and extract PCM data for each chapter
-  const parsed: Array<{
-    sampleRate: number
-    numChannels: number
-    bitsPerSample: number
-    pcm: Uint8Array
-  }> = []
+  const parts: BlobPart[] = []
+  let totalDataLength = 0
 
-  for (let i = 0; i < chapters.length; i++) {
-    const blob = chapters[i].blob
-    const arr = new Uint8Array(await blob.arrayBuffer())
-    // Basic WAV header parsing (RIFF/WAVE fmt/data)
-    const view = new DataView(arr.buffer)
-    if (String.fromCharCode(...arr.slice(0, 4)) !== 'RIFF') throw new Error('Not a RIFF WAV file')
-    if (String.fromCharCode(...arr.slice(8, 12)) !== 'WAVE') throw new Error('Not a WAVE file')
+  // Helper to parse WAV header from a blob
+  async function parseWavHeader(blob: Blob) {
+    // Read first 1024 bytes to be safe (headers are usually small)
+    const headerData = new Uint8Array(await blob.slice(0, 1024).arrayBuffer())
+    const view = new DataView(headerData.buffer)
 
-    // Search for 'fmt ' chunk
+    if (String.fromCharCode(...headerData.slice(0, 4)) !== 'RIFF')
+      throw new Error('Not a RIFF WAV file')
+    if (String.fromCharCode(...headerData.slice(8, 12)) !== 'WAVE')
+      throw new Error('Not a WAVE file')
+
     let offset = 12
-    let fmtFound = false
-    let audioFormat = 1
-    let numChannels = 1
-    let sampleRate = 44100
-    let bitsPerSample = 16
+    let fmt: any = null
     let dataOffset = -1
     let dataLength = 0
 
-    while (offset < arr.length) {
-      const chunkId = String.fromCharCode(...arr.slice(offset, offset + 4))
+    while (offset < headerData.length) {
+      const chunkId = String.fromCharCode(...headerData.slice(offset, offset + 4))
       const chunkSize = view.getUint32(offset + 4, true)
+
       if (chunkId === 'fmt ') {
-        fmtFound = true
-        audioFormat = view.getUint16(offset + 8, true)
-        numChannels = view.getUint16(offset + 10, true)
-        sampleRate = view.getUint32(offset + 12, true)
-        bitsPerSample = view.getUint16(offset + 22, true)
+        fmt = {
+          audioFormat: view.getUint16(offset + 8, true),
+          numChannels: view.getUint16(offset + 10, true),
+          sampleRate: view.getUint32(offset + 12, true),
+          byteRate: view.getUint32(offset + 16, true),
+          blockAlign: view.getUint16(offset + 20, true),
+          bitsPerSample: view.getUint16(offset + 22, true),
+        }
       } else if (chunkId === 'data') {
         dataOffset = offset + 8
         dataLength = chunkSize
         break
       }
+
       offset += 8 + chunkSize
     }
 
-    if (!fmtFound || dataOffset < 0) throw new Error('Invalid WAV file: missing fmt/data chunks')
+    if (!fmt || dataOffset === -1) throw new Error('Invalid WAV: missing fmt or data chunk')
 
-    // Support PCM (1) and IEEE Float (3)
-    if (audioFormat !== 1 && audioFormat !== 3) {
-      throw new Error(`Unsupported WAV format: ${audioFormat} (only PCM and IEEE Float supported)`)
-    }
-
-    let pcm = arr.slice(dataOffset, dataOffset + dataLength)
-
-    // specific handling for Float32 (format 3)
-    if (audioFormat === 3) {
-      if (bitsPerSample !== 32) {
-        throw new Error('Unsupported Float WAV bit depth (only 32-bit float supported)')
-      }
-
-      // Convert Float32 to Int16 PCM
-      const floatView = new Float32Array(pcm.buffer, pcm.byteOffset, pcm.byteLength / 4)
-      const int16Buffer = new Int16Array(floatView.length)
-
-      for (let s = 0; s < floatView.length; s++) {
-        // Clamp and convert
-        const sample = Math.max(-1, Math.min(1, floatView[s]))
-        int16Buffer[s] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
-      }
-
-      // Use the converted buffer
-      pcm = new Uint8Array(int16Buffer.buffer)
-
-      // Update metadata to reflect the conversion to 16-bit PCM
-      bitsPerSample = 16
-      // audioFormat is effectively 1 (PCM) now for the purpose of concatenation
-    }
-
-    parsed.push({ sampleRate, numChannels, bitsPerSample, pcm })
+    return { fmt, dataOffset, dataLength }
   }
 
-  // Ensure all WAVs have compatible sample rates / channels / bit depth
-  const first = parsed[0]
-  for (let i = 1; i < parsed.length; i++) {
-    const p = parsed[i]
+  // Parse first chapter to establish format
+  const firstInfo = await parseWavHeader(chapters[0].blob)
+
+  // Add first chapter's data
+  parts.push(
+    chapters[0].blob.slice(firstInfo.dataOffset, firstInfo.dataOffset + firstInfo.dataLength)
+  )
+  totalDataLength += firstInfo.dataLength
+
+  // Process remaining chapters
+  for (let i = 1; i < chapters.length; i++) {
+    const info = await parseWavHeader(chapters[i].blob)
+
+    // Validate format compatibility
     if (
-      p.sampleRate !== first.sampleRate ||
-      p.numChannels !== first.numChannels ||
-      p.bitsPerSample !== first.bitsPerSample
+      info.fmt.audioFormat !== firstInfo.fmt.audioFormat ||
+      info.fmt.numChannels !== firstInfo.fmt.numChannels ||
+      info.fmt.sampleRate !== firstInfo.fmt.sampleRate ||
+      info.fmt.bitsPerSample !== firstInfo.fmt.bitsPerSample
     ) {
-      throw new Error('WAV files have incompatible formats; cannot concatenate without resampling')
+      throw new Error(
+        `Chapter ${i + 1} format mismatch (SR: ${info.fmt.sampleRate} vs ${firstInfo.fmt.sampleRate}, CH: ${info.fmt.numChannels} vs ${firstInfo.fmt.numChannels})`
+      )
     }
+
+    parts.push(chapters[i].blob.slice(info.dataOffset, info.dataOffset + info.dataLength))
+    totalDataLength += info.dataLength
   }
 
-  // Create new WAV header with concatenated PCM
-  const totalPCMLength = parsed.reduce((sum, p) => sum + p.pcm.length, 0)
-  const byteRate = first.sampleRate * first.numChannels * (first.bitsPerSample / 8)
-  const blockAlign = first.numChannels * (first.bitsPerSample / 8)
-  const dataBuffer = new ArrayBuffer(44 + totalPCMLength)
-  const view = new DataView(dataBuffer)
+  // Create new header
+  const headerBuffer = new ArrayBuffer(44)
+  const headerView = new DataView(headerBuffer)
 
-  function writeString(view: DataView, offset: number, str: string) {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
-  }
+  writeString(headerView, 0, 'RIFF')
+  headerView.setUint32(4, 36 + totalDataLength, true)
+  writeString(headerView, 8, 'WAVE')
+  writeString(headerView, 12, 'fmt ')
+  headerView.setUint32(16, 16, true)
+  headerView.setUint16(20, firstInfo.fmt.audioFormat, true)
+  headerView.setUint16(22, firstInfo.fmt.numChannels, true)
+  headerView.setUint32(24, firstInfo.fmt.sampleRate, true)
+  headerView.setUint32(28, firstInfo.fmt.byteRate, true)
+  headerView.setUint16(32, firstInfo.fmt.blockAlign, true)
+  headerView.setUint16(34, firstInfo.fmt.bitsPerSample, true)
+  writeString(headerView, 36, 'data')
+  headerView.setUint32(40, totalDataLength, true)
 
-  writeString(view, 0, 'RIFF')
-  view.setUint32(4, 36 + totalPCMLength, true)
-  writeString(view, 8, 'WAVE')
-  writeString(view, 12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, first.numChannels, true)
-  view.setUint32(24, first.sampleRate, true)
-  view.setUint32(28, byteRate, true)
-  view.setUint16(32, blockAlign, true)
-  view.setUint16(34, first.bitsPerSample, true)
-  writeString(view, 36, 'data')
-  view.setUint32(40, totalPCMLength, true)
+  // Prepend header to parts
+  parts.unshift(headerBuffer)
 
-  // Copy PCM data
-  let offset = 44
-  for (const p of parsed) {
-    new Uint8Array(dataBuffer).set(p.pcm, offset)
-    offset += p.pcm.length
-  }
-
-  return new Blob([dataBuffer], { type: 'audio/wav' })
+  return new Blob(parts, { type: 'audio/wav' })
 }
 
 /**
@@ -874,108 +859,89 @@ async function ffmpegConcatenateBlobs(
     message: 'Loading audio via FFmpeg...',
   })
 
-  // Prepare input files and convert them to standardized WAV files (44100Hz, stereo)
   const tmpFiles: string[] = []
+  let concatList = ''
+
   for (let i = 0; i < chapters.length; i++) {
     const c = chapters[i]
-    const ext = inferExtensionFromMime(c.blob.type)
-    const inFilename = `input_${i}.${ext}`
-    // Use a distinct filename for normalized WAV to avoid FFmpeg in-place editing
-    const wavFilename = `input_${i}.normalized.wav`
-
+    // Use .wav extension as we expect WAV inputs from TTS
+    const filename = `input_${i}.wav`
     const data = new Uint8Array(await c.blob.arrayBuffer())
 
     if (data.length === 0) {
       console.warn(
         `[audioConcat] Chapter ${i + 1} "${c.title}" has empty audio blob. Generating 1s silence for FFmpeg.`
       )
-      // Create a silent WAV file (1s, 44100Hz, mono, 16-bit)
-      // Header (44 bytes) + 88200 bytes of silence (44100 * 2 bytes)
-      const silenceLength = 44100 * 2
-      const buffer = new ArrayBuffer(44 + silenceLength)
-      const view = new DataView(buffer)
-
-      // Write minimal WAV header
-      const writeStr = (offset: number, s: string) => {
-        for (let j = 0; j < s.length; j++) view.setUint8(offset + j, s.charCodeAt(j))
-      }
-
-      writeStr(0, 'RIFF')
-      view.setUint32(4, 36 + silenceLength, true)
-      writeStr(8, 'WAVE')
-      writeStr(12, 'fmt ')
-      view.setUint32(16, 16, true)
-      view.setUint16(20, 1, true) // PCM
-      view.setUint16(22, 1, true) // Mono
-      view.setUint32(24, 44100, true)
-      view.setUint32(28, 44100 * 2, true)
-      view.setUint16(32, 2, true)
-      view.setUint16(34, 16, true)
-      writeStr(36, 'data')
-      view.setUint32(40, silenceLength, true)
-
-      await ffWriteFile(ffmpeg, inFilename, new Uint8Array(buffer))
+      // Create a silent WAV file
+      const silenceBlob = createSilentWav(1)
+      const silenceData = new Uint8Array(await silenceBlob.arrayBuffer())
+      await ffWriteFile(ffmpeg, filename, silenceData)
     } else {
-      await ffWriteFile(ffmpeg, inFilename, data)
+      await ffWriteFile(ffmpeg, filename, data)
     }
 
-    // Normalize to WAV 44100 stereo PCM
-    const args = ['-i', inFilename, '-ar', '44100', '-ac', '2', '-y', wavFilename]
-    await ffRun(ffmpeg, args)
-    tmpFiles.push(wavFilename)
-
-    // Delete original input file to free FFmpeg virtual FS memory when possible
-    try {
-      await ffDeleteFile(ffmpeg, inFilename)
-    } catch {
-      // best-effort; ignore
-    }
+    tmpFiles.push(filename)
+    concatList += `file '${filename}'\n`
 
     onProgress?.({
       current: i + 1,
       total: chapters.length,
-      status: 'decoding',
-      message: `Converted ${c.title}`,
+      status: 'decoding', // technically just writing to FS
+      message: `Prepared ${c.title}`,
     })
   }
+
+  // Write list file for concat demuxer
+  await ffWriteFile(ffmpeg, 'list.txt', new TextEncoder().encode(concatList))
 
   onProgress?.({
     current: 0,
     total: 1,
     status: 'concatenating',
-    message: 'Concatenating via FFmpeg...',
+    message: 'Concatenating and encoding...',
   })
 
-  // Build filter_complex for concat
-  const inputArgs: string[] = []
-  for (const f of tmpFiles) inputArgs.push('-i', f)
-  const concatInputs = tmpFiles.map((_f, idx) => `[${idx}:0]`).join('')
-  const filterComplex = `${concatInputs}concat=n=${tmpFiles.length}:v=0:a=1[out]`
-
-  // Produce a WAV output first
-  const outWav = 'output.wav'
-  const ffArgs = [...inputArgs, '-filter_complex', filterComplex, '-map', '[out]', '-y', outWav]
-  await ffRun(ffmpeg, ffArgs)
-
-  // Convert to final desired format if needed
+  // Determine output filename and args
   const isM4B = format === 'm4b'
   const isMP4 = format === 'mp4'
-  const outFile =
-    format === 'wav'
-      ? outWav
-      : format === 'mp3'
-        ? 'output.mp3'
-        : isM4B
-          ? 'output.m4b'
-          : 'output.mp4'
+  const ext = isM4B ? 'm4b' : isMP4 ? 'mp4' : format === 'mp3' ? 'mp3' : 'wav'
+  const outFile = `output.${ext}`
 
-  if (format === 'mp3' || isM4B || isMP4) {
-    const codec = isM4B || isMP4 ? 'aac' : 'libmp3lame'
-    const args = ['-i', outWav, '-c:a', codec, '-b:a', `${bitrate}k`, '-y', outFile]
-    await ffRun(ffmpeg, args)
+  // Use concat demuxer
+  const args = ['-f', 'concat', '-safe', '0', '-i', 'list.txt']
+
+  // Add metadata input if available (for chapters)
+  if ((isM4B || isMP4) && chapters.length > 0) {
+    // Calculate total duration roughly
+    const totalDuration = chapters.reduce((sum, c) => sum + (c.duration || 0), 0)
+    const metadata = createFFmpegMetadata(chapters, totalDuration)
+    await ffWriteFile(ffmpeg, 'metadata.txt', new TextEncoder().encode(metadata))
+    args.push('-i', 'metadata.txt', '-map_metadata', '1')
   }
 
-  // Read final file
+  // Encoding options
+  // Note: concat demuxer just streams packets. If we want to encode to MP3/AAC, we specify codecs.
+  if (format === 'mp3') {
+    args.push('-c:a', 'libmp3lame', '-b:a', `${bitrate}k`)
+  } else if (isM4B || isMP4) {
+    args.push('-c:a', 'aac', '-b:a', `${bitrate}k`)
+  } else {
+    // WAV: copy if inputs are WAV, or re-encode to PCM
+    // -c:a copy works if inputs are same format.
+    // But to be safe against minor differences, let's use pcm_s16le
+    args.push('-c:a', 'pcm_s16le')
+  }
+
+  // Metadata tags
+  if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
+  if (options.bookAuthor) args.push('-metadata', `artist=${options.bookAuthor}`)
+
+  args.push('-y', outFile)
+
+  console.log('[audioConcat] Running FFmpeg concat:', args)
+  await ffRun(ffmpeg, args)
+
+  // Read output
   const data = await ffReadFile(ffmpeg, outFile)
   const mime =
     format === 'wav'
@@ -989,7 +955,10 @@ async function ffmpegConcatenateBlobs(
   // Cleanup temporary files
   try {
     for (const f of tmpFiles) await ffDeleteFile(ffmpeg, f)
-    await ffDeleteFile(ffmpeg, outWav)
+    await ffDeleteFile(ffmpeg, 'list.txt')
+    if ((isM4B || isMP4) && chapters.length > 0) {
+      await ffDeleteFile(ffmpeg, 'metadata.txt')
+    }
     await ffDeleteFile(ffmpeg, outFile)
   } catch {
     // best effort
