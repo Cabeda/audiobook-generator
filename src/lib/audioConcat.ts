@@ -956,7 +956,9 @@ async function ffmpegConcatenateBlobs(
   try {
     for (const f of tmpFiles) await ffDeleteFile(ffmpeg, f)
     await ffDeleteFile(ffmpeg, 'list.txt')
-    await ffDeleteFile(ffmpeg, 'metadata.txt')
+    if ((isM4B || isMP4) && chapters.length > 0) {
+      await ffDeleteFile(ffmpeg, 'metadata.txt')
+    }
     await ffDeleteFile(ffmpeg, outFile)
   } catch {
     // best effort
