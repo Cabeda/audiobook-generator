@@ -81,7 +81,12 @@ class Logger {
         body: JSON.stringify({
           level,
           message,
-          args: args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))),
+          args: args.map((a) => {
+            if (a instanceof Error) {
+              return JSON.stringify({ name: a.name, message: a.message, stack: a.stack });
+            }
+            return typeof a === 'object' ? JSON.stringify(a) : String(a);
+          }),
           timestamp: new Date().toISOString(),
           userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
         }),
