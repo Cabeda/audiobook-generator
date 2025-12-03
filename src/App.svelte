@@ -22,7 +22,13 @@
   import { audioService } from './lib/audioPlaybackService.svelte'
 
   // Import library functions
-  import { addBook, findBookByTitleAuthor, getBook } from './lib/libraryDB'
+  import {
+    addBook,
+    findBookByTitleAuthor,
+    getBook,
+    saveChapterAudio,
+    getChapterAudio,
+  } from './lib/libraryDB'
   import { onMount } from 'svelte'
   import type { Chapter } from './lib/types/book'
 
@@ -108,6 +114,23 @@
     $currentLibraryBookId = libraryId
     $selectedChapters = new Map(b.chapters.map((c) => [c.id, true]))
     $generatedAudio = new Map()
+
+    // Load persisted audio for this book
+    try {
+      const audioMap = new Map()
+      for (const ch of b.chapters) {
+        const blob = await getChapterAudio(libraryId, ch.id)
+        if (blob) {
+          const url = URL.createObjectURL(blob)
+          audioMap.set(ch.id, { url, blob })
+        }
+      }
+      if (audioMap.size > 0) {
+        $generatedAudio = audioMap
+      }
+    } catch (err) {
+      console.warn('Failed to load persisted audio:', err)
+    }
 
     if (b.language) {
       const bookLang = b.language.toLowerCase().substring(0, 2)
@@ -210,6 +233,12 @@
       // Navigate to book view, ensure it's saved to library first
       // If the book didn't come from library we'll save it — saveBookToLibrary will set $currentLibraryBookId
       await saveBookToLibrary(providedBook, sourceFile, sourceUrl)
+
+      // Initialize state (including loading audio)
+      if ($currentLibraryBookId) {
+        await initializeBookState(providedBook, $currentLibraryBookId)
+      }
+
       currentView = 'book'
       try {
         const id = $currentLibraryBookId ?? 'unsaved'
@@ -501,6 +530,13 @@
     $generatedAudio.set(id, { url, blob })
     // Trigger reactivity for Map
     $generatedAudio = new Map($generatedAudio)
+
+    // Persist to IndexedDB if we have a valid library book ID
+    if ($currentLibraryBookId) {
+      saveChapterAudio($currentLibraryBookId, id, blob).catch((err) =>
+        console.error('Failed to persist generated audio:', err)
+      )
+    }
   }
 
   function downloadBlob(id: string) {
@@ -537,7 +573,7 @@
   import ReloadPrompt from './components/ReloadPrompt.svelte'
 </script>
 
-<main>
+<main class:has-player={$isPlayerActive && currentView !== 'reader'}>
   <ReloadPrompt />
   <Toast />
 
@@ -581,40 +617,16 @@
         />
         <BookInspector
           book={$book}
+          generatedAudioMap={$generatedAudio}
           selectedVoice={$selectedVoice}
           selectedQuantization={$selectedQuantization}
           selectedDevice={$selectedDevice}
           selectedModel={$selectedModel}
           on:selectionchanged={onSelectionChanged}
           on:readchapter={(e) => navigateToReader(e.detail.chapter)}
+          on:downloadwav={(e) => downloadBlob(e.detail.id)}
+          on:downloadmp3={(e) => downloadBlobAsMp3(e.detail.id)}
         />
-
-        {#if $generatedAudio.size > 0}
-          <div class="generated-section" role="region" aria-labelledby="generated-heading">
-            <h3 id="generated-heading">Generated Audio</h3>
-            <div class="generated-list">
-              {#each Array.from($generatedAudio.entries()) as [id, rec]}
-                <div class="generated-item">
-                  <audio controls src={rec.url} aria-label={`Audio for ${getChapterTitle(id)}`}
-                  ></audio>
-                  <div class="chapter-title" title={getChapterTitle(id)}>
-                    {getChapterTitle(id)}
-                  </div>
-                  <div class="actions">
-                    <button
-                      onclick={() => downloadBlob(id)}
-                      aria-label={`Download WAV for ${getChapterTitle(id)}`}>WAV</button
-                    >
-                    <button
-                      onclick={() => downloadBlobAsMp3(id)}
-                      aria-label={`Download MP3 for ${getChapterTitle(id)}`}>MP3</button
-                    >
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
       </div>
     </div>
   {:else if currentView === 'reader' && currentChapter && $book}
@@ -703,48 +715,7 @@
     gap: 24px;
   }
 
-  .generated-section {
-    background: white;
-    padding: 24px;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  }
-
-  .generated-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .generated-item {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 12px;
-    background: #f8f9fa;
-    border-radius: 8px;
-  }
-
-  .chapter-title {
-    flex: 1;
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .actions button {
-    font-size: 0.85rem;
-    padding: 6px 12px;
-    background: white;
-  }
-
-  .actions button:hover {
-    background: #f0f0f0;
+  main.has-player {
+    padding-bottom: 120px;
   }
 </style>
