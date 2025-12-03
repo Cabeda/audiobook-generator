@@ -313,21 +313,16 @@ export async function clearLibrary(): Promise<void> {
     const bookRequest = bookStore.clear()
     const audioRequest = audioStore.clear()
 
-    let completed = 0
-    const checkDone = () => {
-      completed++
-      if (completed === 2) resolve()
-    }
-
-    bookRequest.onsuccess = checkDone
-    audioRequest.onsuccess = checkDone
-
     const handleError = () => reject(new Error('Failed to clear library'))
     bookRequest.onerror = handleError
     audioRequest.onerror = handleError
 
     transaction.oncomplete = () => {
       db.close()
+      resolve()
+    }
+    transaction.onerror = () => {
+      reject(new Error('Failed to clear library'))
     }
   })
 }
