@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte'
   import { Readability } from '@mozilla/readability'
   import type { Book } from '../lib/types/book'
+  import { retryWithBackoff } from '../lib/retryUtils'
 
   const dispatch = createEventDispatcher()
 
@@ -73,20 +74,43 @@
     error = null
 
     try {
-      // Use allorigins.win as a CORS proxy
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
-      const response = await fetch(proxyUrl)
+      // Use retry with exponential backoff for better resilience
+      const data = await retryWithBackoff(
+        async () => {
+          // Use allorigins.win as a CORS proxy
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
+          const response = await fetch(proxyUrl)
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.statusText}`)
-      }
+          if (!response.ok) {
+            throw new Error(`Failed to fetch: ${response.statusText}`)
+          }
 
-      const data = await response.json()
+          const data = await response.json()
+
+          if (!data.contents) {
+            throw new Error('No content received from URL')
+          }
+
+          return data
+        },
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          maxDelay: 10000,
+          backoffMultiplier: 2,
+          shouldRetry: (error: Error) => {
+            // Retry on network errors or server errors (5xx)
+            // Don't retry on client errors (4xx) as they won't succeed
+            return (
+              error.message.includes('Failed to fetch') ||
+              error.message.includes('Network') ||
+              error.message.includes('CORS')
+            )
+          },
+        }
+      )
+
       const html = data.contents
-
-      if (!html) {
-        throw new Error('No content received from URL')
-      }
 
       // Parse HTML
       const parser = new DOMParser()
