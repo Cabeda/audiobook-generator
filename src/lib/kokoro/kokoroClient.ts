@@ -527,7 +527,7 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
               ? String((audioBlob as unknown as { toString?: () => string })?.toString?.())
               : String(audioBlob)
           if (maybeString.includes('JSHandle')) {
-            logger.warn('Stream chunk converted blob looks like JSHandle:', maybeString)
+            logger.warn('[Kokoro]', 'Stream chunk converted blob looks like JSHandle:', maybeString)
           }
           const ablob = audioBlob as Blob
           logger.info(
