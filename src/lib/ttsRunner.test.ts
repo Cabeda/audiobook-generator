@@ -166,8 +166,6 @@ describe('combineAudioBlobs', () => {
 })
 
 describe('combineAudioBlobs edge cases', () => {
-  // No need for beforeAll here - setup is already done in the previous describe block
-
   it('should handle very small blobs', async () => {
     const tinyBlob = new Blob([new ArrayBuffer(100)], { type: 'audio/wav' })
 

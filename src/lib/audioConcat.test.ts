@@ -33,6 +33,11 @@ class MockAudioContext {
   }
 }
 
+// Helper to safely cast MockAudioContext for testing purposes
+function toAudioContext(ctx: MockAudioContext): BaseAudioContext {
+  return ctx as unknown as BaseAudioContext
+}
+
 describe('audioConcat', () => {
   beforeAll(() => {
     // Mock AudioContext globally
@@ -212,7 +217,7 @@ describe('audioConcat', () => {
       // Create a 1-second stereo buffer at 44100
       const stereo44100 = mockContext.createBuffer(2, 44100, 44100)
 
-      const normalized = resampleAndNormalizeAudioBuffers(mockContext as unknown as AudioContext, [
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), [
         mono22050,
         stereo44100,
       ])
@@ -495,10 +500,7 @@ describe('audioConcat', () => {
       const buffers = [buffer22k, buffer44k, buffer16k]
 
       // Use resampleAndNormalizeAudioBuffers to verify resampling
-      const normalized = resampleAndNormalizeAudioBuffers(
-        mockContext as unknown as AudioContext,
-        buffers
-      )
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), buffers)
 
       // All buffers should be resampled to the target sample rate
       expect(normalized[0].sampleRate).toBe(mockContext.sampleRate)
@@ -520,7 +522,7 @@ describe('audioConcat', () => {
       const monoBuffer = mockContext.createBuffer(1, 44100, 44100)
       const stereoBuffer = mockContext.createBuffer(2, 44100, 44100)
 
-      const normalized = resampleAndNormalizeAudioBuffers(mockContext as unknown as AudioContext, [
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), [
         monoBuffer,
         stereoBuffer,
       ])
@@ -538,7 +540,7 @@ describe('audioConcat', () => {
       const mono1 = mockContext.createBuffer(1, 44100, 44100)
       const mono2 = mockContext.createBuffer(1, 44100, 44100)
 
-      const normalized = resampleAndNormalizeAudioBuffers(mockContext as unknown as AudioContext, [
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), [
         mono1,
         mono2,
       ])
@@ -554,7 +556,7 @@ describe('audioConcat', () => {
       const stereo1 = mockContext.createBuffer(2, 44100, 44100)
       const stereo2 = mockContext.createBuffer(2, 44100, 44100)
 
-      const normalized = resampleAndNormalizeAudioBuffers(mockContext as unknown as AudioContext, [
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), [
         stereo1,
         stereo2,
       ])
