@@ -61,6 +61,10 @@
   let showSettings = $state(false)
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
 
+  // Track the current model and voice from the store to detect changes
+  let currentModelFromStore = $state<'kokoro' | 'piper' | 'web_speech'>(selectedModel)
+  let currentVoiceFromStore = $state<string>(voice)
+
   // Initialize
   $effect(() => {
     if (chapter) {
@@ -89,6 +93,83 @@
         audioService.play().catch((err) => {
           console.error('Auto-play failed:', err)
         })
+      }
+    }
+  })
+
+  // React to model changes from the store
+  $effect(() => {
+    const newModel = $modelStore
+
+    // Only react to changes if we're already playing/initialized
+    const store = untrack(() => $audioPlayerStore)
+    if (store.chapterId === chapter.id && newModel !== currentModelFromStore) {
+      currentModelFromStore = newModel
+
+      // Restart from current segment with new model
+      const currentSegment = audioService.currentSegmentIndex
+      const wasPlaying = audioService.isPlaying
+
+      // Re-initialize with new model
+      audioService.initialize(bookId, bookTitle, chapter, {
+        voice: $voiceStore,
+        quantization,
+        device,
+        selectedModel: newModel,
+        playbackSpeed: audioService.playbackSpeed,
+      })
+
+      // Restart from the current segment
+      if (currentSegment >= 0) {
+        audioService.playFromSegment(currentSegment).catch((err) => {
+          console.error('Failed to restart with new model:', err)
+        })
+
+        // If we weren't playing before, pause after starting playback
+        if (!wasPlaying) {
+          setTimeout(() => audioService.pause(), 100)
+        }
+      }
+    }
+  })
+
+  // React to voice changes from the store (for web_speech model)
+  $effect(() => {
+    const newVoice = $voiceStore
+    const currentModel = $modelStore
+
+    // Only react to voice changes if we're using web_speech model
+    const store = untrack(() => $audioPlayerStore)
+    if (
+      store.chapterId === chapter.id &&
+      currentModel === 'web_speech' &&
+      newVoice !== currentVoiceFromStore
+    ) {
+      currentVoiceFromStore = newVoice
+
+      // Restart from current segment with new voice
+      const currentSegment = audioService.currentSegmentIndex
+      const wasPlaying = audioService.isPlaying
+
+      // Re-initialize with new voice
+      audioService.initialize(bookId, bookTitle, chapter, {
+        voice: newVoice,
+        quantization,
+        device,
+        selectedModel: currentModel,
+        playbackSpeed: audioService.playbackSpeed,
+      })
+
+      // Restart from the current segment
+      if (currentSegment >= 0) {
+        audioService.playFromSegment(currentSegment).catch((err) => {
+          console.error('Failed to restart with new voice:', err)
+        })
+
+        // If we weren't playing before, pause after starting playback
+        if (!wasPlaying) {
+          setTimeout(() => audioService.pause(), 100)
+        }
       }
     }
   })
