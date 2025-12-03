@@ -129,7 +129,9 @@
       })
 
       if (needsInit) {
-        // Use store values for consistency with restart logic
+        // Use store values (from $modelStore and $voiceStore) for initialization.
+        // This ensures that the initial values match those tracked by the reactive effect,
+        // preventing unnecessary restarts when the component mounts or when store values change.
         const currentModel = untrack(() => $modelStore)
         const currentVoice = untrack(() => $voiceStore)
 
