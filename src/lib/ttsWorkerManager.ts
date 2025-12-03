@@ -45,6 +45,7 @@ export class TTSWorkerManager {
   private requestCounter = 0
   private ready = false
   private readyPromise: Promise<void>
+  private isRestarting = false
 
   constructor() {
     this.readyPromise = this.initWorker()
@@ -198,9 +199,14 @@ export class TTSWorkerManager {
 
         if (isMemoryError) {
           logger.warn('[TTSWorkerManager] Memory error detected, will retry with worker restart')
-          // Terminate and re-init worker before retry
-          this.terminate()
-          this.readyPromise = this.initWorker()
+          // Synchronize worker restart to avoid race conditions
+          if (!this.isRestarting) {
+            this.isRestarting = true
+            this.terminate()
+            this.readyPromise = this.initWorker().finally(() => {
+              this.isRestarting = false
+            })
+          }
           return true
         }
 

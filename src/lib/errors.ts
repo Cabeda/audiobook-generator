@@ -157,9 +157,30 @@ export class FFmpegError extends AppError {
 }
 
 /**
- * Helper to determine if an error is retryable
+ * Default patterns that indicate a transient (retryable) error
  */
-export function isRetryableError(error: unknown): boolean {
+export const DEFAULT_TRANSIENT_PATTERNS = [
+  'network',
+  'timeout',
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'rate limit',
+  'too many requests',
+  'service unavailable',
+  'temporarily unavailable',
+  'failed to allocate',
+  "Can't create a session",
+  'Out of memory',
+  'Aborted()',
+]
+
+/**
+ * Helper to determine if an error is retryable
+ * @param error Error to check
+ * @param additionalPatterns Additional patterns to consider transient (optional)
+ */
+export function isRetryableError(error: unknown, additionalPatterns?: string[]): boolean {
   if (error instanceof TransientError) {
     return true
   }
@@ -182,23 +203,9 @@ export function isRetryableError(error: unknown): boolean {
 
   // Check error message for known transient patterns
   const message = error instanceof Error ? error.message : String(error)
-  const transientPatterns = [
-    'network',
-    'timeout',
-    'ECONNREFUSED',
-    'ENOTFOUND',
-    'ETIMEDOUT',
-    'rate limit',
-    'too many requests',
-    'service unavailable',
-    'temporarily unavailable',
-    'failed to allocate',
-    "Can't create a session",
-    'Out of memory',
-    'Aborted()',
-  ]
+  const patterns = [...DEFAULT_TRANSIENT_PATTERNS, ...(additionalPatterns || [])]
 
-  return transientPatterns.some((pattern) => message.toLowerCase().includes(pattern.toLowerCase()))
+  return patterns.some((pattern) => message.toLowerCase().includes(pattern.toLowerCase()))
 }
 
 /**

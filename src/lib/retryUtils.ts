@@ -46,7 +46,9 @@ export async function retryWithBackoff<T>(
     initialDelay = 1000,
     maxDelay = 10000,
     backoffMultiplier = 2,
-    shouldRetry = () => true, // Default to always retry for backward compatibility
+    // Default to always retry for backward compatibility with existing code.
+    // For new code, prefer using isRetryableError to intelligently classify errors.
+    shouldRetry = () => true,
     timeoutMs,
     onRetry,
   } = options
