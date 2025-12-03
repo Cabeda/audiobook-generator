@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  lint-and-typecheck:
-    name: Lint and Type Check
+  ci:
+    name: CI
     runs-on: ubuntu-latest
 
     steps:
@@ -43,72 +43,18 @@ jobs:
       - name: Run type check
         run: pnpm run type-check
 
-  test:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24.x
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Run tests
         run: pnpm test run
 
+      - name: Run integration tests
+        if: github.event_name == 'pull_request'
+        run: pnpm test run src/lib/audiobook.integration.test.ts
+
       - name: Upload test results
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: |
-            coverage/
-            test-results/
-          retention-days: 30
-
-  integration-test:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24.x
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run integration tests
-        run: pnpm test run src/lib/audiobook.integration.test.ts
-
-      - name: Upload integration test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-test-results
           path: |
             coverage/
             test-results/
