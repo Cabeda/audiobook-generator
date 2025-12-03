@@ -40,7 +40,7 @@ export async function retryWithBackoff<T>(
     shouldRetry = () => true,
   } = options
 
-  let lastError: Error
+  let lastError: Error | undefined
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -55,10 +55,6 @@ export async function retryWithBackoff<T>(
 
       // Calculate delay with exponential backoff
       const delay = Math.min(initialDelay * Math.pow(backoffMultiplier, attempt), maxDelay)
-
-      console.log(
-        `Attempt ${attempt + 1}/${maxRetries + 1} failed: ${lastError.message}. Retrying in ${delay}ms...`
-      )
 
       // Wait before next retry
       await new Promise((resolve) => setTimeout(resolve, delay))

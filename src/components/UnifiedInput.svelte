@@ -81,8 +81,15 @@
           const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
           const response = await fetch(proxyUrl)
 
+          // Store status for shouldRetry check
+          const status = response.status
+
           if (!response.ok) {
-            throw new Error(`Failed to fetch: ${response.statusText}`)
+            const error: Error & { status?: number } = new Error(
+              `Failed to fetch: ${response.statusText}`
+            )
+            error.status = status
+            throw error
           }
 
           const data = await response.json()
@@ -98,14 +105,16 @@
           initialDelay: 1000,
           maxDelay: 10000,
           backoffMultiplier: 2,
-          shouldRetry: (error: Error) => {
-            // Retry on network errors or server errors (5xx)
+          shouldRetry: (error: Error & { status?: number }) => {
+            // Retry on network errors (no status) or server errors (5xx)
             // Don't retry on client errors (4xx) as they won't succeed
-            return (
-              error.message.includes('Failed to fetch') ||
-              error.message.includes('Network') ||
-              error.message.includes('CORS')
-            )
+            if (!error.status) {
+              // Network error (CORS, timeout, etc.) - should retry
+              return true
+            }
+            // Retry on server errors (5xx) including 522 (Connection timed out)
+            // Don't retry on client errors (4xx)
+            return error.status >= 500
           },
         }
       )
