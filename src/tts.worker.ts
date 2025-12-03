@@ -1,9 +1,9 @@
 /**
-import logger from './lib/utils/logger'
  * Web Worker for TTS generation to prevent UI blocking
  * This worker handles TTS generation off the main thread
  */
 
+import logger from './lib/utils/logger'
 import { getTTSEngine, type TTSModelType } from './lib/tts/ttsModels.ts'
 
 // Message types

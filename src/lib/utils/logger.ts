@@ -86,9 +86,8 @@ class Logger {
           userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
         }),
       })
-    } catch (error) {
-      // Fail silently - don't want remote logging to break the app
-      console.error('Failed to send log to backend:', error)
+    } catch {
+      // Fail silently - don't want remote logging to break the app or create infinite loops
     }
   }
 

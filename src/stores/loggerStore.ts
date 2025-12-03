@@ -30,6 +30,8 @@ function persistedWritable<T>(key: string, defaultValue: T): Writable<T> {
       try {
         localStorage.setItem(key, JSON.stringify(value))
       } catch (e) {
+        // Use console directly here to avoid circular dependency with logger
+        // This is intentional as the logger depends on this store
         console.warn(`Failed to save ${key} to localStorage:`, e)
       }
     })

@@ -1,9 +1,9 @@
 /*
-import logger from './utils/logger'
  * TTS Worker Manager
  * Single authoritative implementation.
  */
 
+import logger from './utils/logger'
 import type { TTSModelType } from './tts/ttsModels'
 
 type WorkerRequest = {
