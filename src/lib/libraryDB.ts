@@ -29,7 +29,7 @@ export interface BookMetadata {
 }
 
 const DB_NAME = 'AudiobookLibrary'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_NAME = 'books'
 const AUDIO_STORE_NAME = 'chapterAudio'
 
@@ -50,6 +50,7 @@ async function openDB(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result
+      const oldVersion = event.oldVersion
 
       // Create books store if it doesn't exist
       if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -65,7 +66,7 @@ async function openDB(): Promise<IDBDatabase> {
         objectStore.createIndex('lastAccessed', 'lastAccessed', { unique: false })
       }
 
-      // Create audio store if it doesn't exist (v2)
+      // Create audio store if it doesn't exist (v2+)
       if (!db.objectStoreNames.contains(AUDIO_STORE_NAME)) {
         const audioStore = db.createObjectStore(AUDIO_STORE_NAME, {
           keyPath: ['bookId', 'chapterId'],
@@ -73,6 +74,9 @@ async function openDB(): Promise<IDBDatabase> {
         // Index for querying by bookId to delete all audio for a book
         audioStore.createIndex('bookId', 'bookId', { unique: false })
       }
+
+      // v3: No schema changes needed, existing records will have undefined settings
+      // which is handled gracefully in the code
     }
   })
 }
@@ -330,20 +334,30 @@ export async function clearLibrary(): Promise<void> {
 
 // --- Audio Persistence Helpers ---
 
+export interface AudioGenerationSettings {
+  model: string
+  voice: string
+  quantization?: string
+  device?: string
+}
+
 export interface ChapterAudioRecord {
   bookId: number
   chapterId: string
   audioBlob: Blob
   timestamp: number
+  // Generation settings (v3+)
+  settings?: AudioGenerationSettings
 }
 
 /**
- * Save generated audio for a chapter
+ * Save generated audio for a chapter with generation settings
  */
 export async function saveChapterAudio(
   bookId: number,
   chapterId: string,
-  audioBlob: Blob
+  audioBlob: Blob,
+  settings?: AudioGenerationSettings
 ): Promise<void> {
   const db = await openDB()
 
@@ -352,6 +366,7 @@ export async function saveChapterAudio(
     chapterId,
     audioBlob,
     timestamp: Date.now(),
+    settings,
   }
 
   return new Promise((resolve, reject) => {
@@ -366,7 +381,7 @@ export async function saveChapterAudio(
 }
 
 /**
- * Get generated audio for a chapter
+ * Get generated audio for a chapter (blob only, for backward compatibility)
  */
 export async function getChapterAudio(bookId: number, chapterId: string): Promise<Blob | null> {
   const db = await openDB()
@@ -379,6 +394,29 @@ export async function getChapterAudio(bookId: number, chapterId: string): Promis
     request.onsuccess = () => {
       const result = request.result as ChapterAudioRecord | undefined
       resolve(result ? result.audioBlob : null)
+    }
+    request.onerror = () => reject(new Error('Failed to get chapter audio'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
+ * Get generated audio with settings for a chapter
+ */
+export async function getChapterAudioWithSettings(
+  bookId: number,
+  chapterId: string
+): Promise<{ blob: Blob; settings?: AudioGenerationSettings } | null> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(AUDIO_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(AUDIO_STORE_NAME)
+    const request = store.get([bookId, chapterId])
+
+    request.onsuccess = () => {
+      const result = request.result as ChapterAudioRecord | undefined
+      resolve(result ? { blob: result.audioBlob, settings: result.settings } : null)
     }
     request.onerror = () => reject(new Error('Failed to get chapter audio'))
     transaction.oncomplete = () => db.close()

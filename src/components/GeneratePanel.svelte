@@ -21,9 +21,11 @@
   } from '../lib/audioConcat'
   import { createEventDispatcher } from 'svelte'
   import { EpubGenerator, type EpubMetadata } from '../lib/epub/epubGenerator'
+  import { getChapterAudioWithSettings, type AudioGenerationSettings } from '../lib/libraryDB'
 
   let {
     book,
+    bookId = null,
     selectedMap,
     selectedVoice,
     selectedQuantization,
@@ -31,6 +33,7 @@
     selectedModel = 'kokoro',
   } = $props<{
     book: EPubBook
+    bookId?: number | null
     selectedMap: Map<string, boolean>
     selectedVoice: string
     selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
@@ -202,13 +205,13 @@
     return book.chapters.filter((ch: Chapter) => selectedMap.get(ch.id))
   }
 
-  async function generate() {
+  async function generate(chaptersToProcess?: Chapter[]) {
     if (selectedModel === 'web_speech') {
       alert('Web Speech API does not support audio file generation.')
       return
     }
 
-    const chapters = getSelectedChapters()
+    const chapters = chaptersToProcess || getSelectedChapters()
     if (chapters.length === 0) {
       alert('No chapters selected')
       return
@@ -306,13 +309,52 @@
       return
     }
 
-    // Check if all selected chapters are already generated
     const selectedChapters = getSelectedChapters()
-    const allGenerated = selectedChapters.every((ch) => generatedChapters.has(ch.id))
 
-    // Only generate if we don't have all the chapters
-    if (!allGenerated) {
-      await generate()
+    // Check if we have existing audio and which chapters need (re)generation
+    const currentSettings: AudioGenerationSettings = {
+      model: selectedModel,
+      voice: selectedVoice,
+      quantization: selectedModel === 'kokoro' ? selectedQuantization : undefined,
+      device: selectedModel === 'kokoro' ? selectedDevice : undefined,
+    }
+
+    // Load existing audio and check settings
+    const chaptersToGenerate: Chapter[] = []
+    if (bookId) {
+      for (const ch of selectedChapters) {
+        const existingAudio = await getChapterAudioWithSettings(bookId, ch.id)
+        if (existingAudio) {
+          // Check if settings match
+          const settingsMatch =
+            existingAudio.settings &&
+            existingAudio.settings.model === currentSettings.model &&
+            existingAudio.settings.voice === currentSettings.voice &&
+            existingAudio.settings.quantization === currentSettings.quantization &&
+            existingAudio.settings.device === currentSettings.device
+
+          if (settingsMatch) {
+            // Reuse existing audio
+            if (!generatedChapters.has(ch.id)) {
+              generatedChapters.set(ch.id, existingAudio.blob)
+            }
+          } else {
+            // Settings don't match, needs regeneration
+            chaptersToGenerate.push(ch)
+          }
+        } else {
+          // No existing audio
+          chaptersToGenerate.push(ch)
+        }
+      }
+    } else {
+      // No bookId, generate all selected chapters
+      chaptersToGenerate.push(...selectedChapters)
+    }
+
+    // Only generate if we have chapters that need generation
+    if (chaptersToGenerate.length > 0) {
+      await generate(chaptersToGenerate)
     }
 
     if (!canceled && generatedChapters.size > 0) {

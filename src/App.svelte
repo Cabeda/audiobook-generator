@@ -28,6 +28,7 @@
     getBook,
     saveChapterAudio,
     getChapterAudio,
+    type AudioGenerationSettings,
   } from './lib/libraryDB'
   import { onMount } from 'svelte'
   import type { Chapter } from './lib/types/book'
@@ -533,7 +534,13 @@
 
     // Persist to IndexedDB if we have a valid library book ID
     if ($currentLibraryBookId) {
-      saveChapterAudio($currentLibraryBookId, id, blob).catch((err) =>
+      const settings: AudioGenerationSettings = {
+        model: $selectedModel,
+        voice: $selectedVoice,
+        quantization: $selectedModel === 'kokoro' ? $selectedQuantization : undefined,
+        device: $selectedModel === 'kokoro' ? $selectedDevice : undefined,
+      }
+      saveChapterAudio($currentLibraryBookId, id, blob, settings).catch((err) =>
         console.error('Failed to persist generated audio:', err)
       )
     }
@@ -604,6 +611,7 @@
       <div class="main-content">
         <GeneratePanel
           book={$book}
+          bookId={$currentLibraryBookId}
           selectedMap={$selectedChapters}
           selectedVoice={$selectedVoice}
           selectedQuantization={$selectedQuantization}
