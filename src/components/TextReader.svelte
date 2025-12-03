@@ -66,6 +66,9 @@
   let currentModelFromStore = $state<'kokoro' | 'piper' | 'web_speech'>($modelStore)
   let currentVoiceFromStore = $state<string>($voiceStore)
 
+  // Delay before checking audio state after restart
+  const AUDIO_READY_DELAY_MS = 50
+
   // Helper function to restart playback with new settings
   function restartWithNewSettings(newModel: 'kokoro' | 'piper' | 'web_speech', newVoice: string) {
     const currentSegment = audioService.currentSegmentIndex
@@ -89,12 +92,12 @@
         playPromise
           .then(() => {
             // Small delay to ensure audio element is ready
-            return new Promise((resolve) => setTimeout(resolve, 50))
+            return new Promise((resolve) => setTimeout(resolve, AUDIO_READY_DELAY_MS))
           })
           .then(() => {
-            // Double-check the service is still not supposed to be playing
-            // (user might have pressed play in the meantime)
-            if (audioService.isPlaying && !wasPlaying) {
+            // Pause if the audio started playing
+            // Note: User might have manually pressed play during the delay, which is okay
+            if (audioService.isPlaying) {
               audioService.pause()
             }
           })
