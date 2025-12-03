@@ -731,10 +731,6 @@ export async function audioBufferToMp3(
 
 /**
  * Lightweight WAV-only concatenation that does not require WebAudio or FFmpeg.
- * This supports only PCM WAV files with identical sampleRate, channels, and bitDepth.
- */
-/**
- * Lightweight WAV-only concatenation that does not require WebAudio or FFmpeg.
  * This supports only PCM/Float WAV files with identical sampleRate, channels, and bitDepth.
  * Optimized to use Blob composition to avoid large memory allocations.
  */
