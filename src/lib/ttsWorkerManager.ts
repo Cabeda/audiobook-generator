@@ -203,9 +203,14 @@ export class TTSWorkerManager {
           if (!this.isRestarting) {
             this.isRestarting = true
             this.terminate()
-            this.readyPromise = this.initWorker().finally(() => {
-              this.isRestarting = false
-            })
+            this.readyPromise = this.initWorker()
+              .catch((err) => {
+                logger.error('[TTSWorkerManager] Worker restart failed:', err)
+                throw err
+              })
+              .finally(() => {
+                this.isRestarting = false
+              })
           }
           return true
         }

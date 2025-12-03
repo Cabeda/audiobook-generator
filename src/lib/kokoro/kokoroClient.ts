@@ -226,7 +226,7 @@ async function getKokoroInstance(
       // Mark as non-transient since retries have already been exhausted
       const modelError = new ModelLoadError(
         `Failed to load Kokoro model after retries: ${error instanceof Error ? error.message : String(error)}`,
-        'kokoro',
+        modelId, // Use the actual modelId parameter
         false, // Not transient - retries already exhausted
         error instanceof Error ? error : undefined
       )
