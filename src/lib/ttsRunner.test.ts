@@ -166,22 +166,7 @@ describe('combineAudioBlobs', () => {
 })
 
 describe('combineAudioBlobs edge cases', () => {
-  beforeAll(() => {
-    ;(globalThis as any).OfflineAudioContext = MockOfflineAudioContext
-
-    // Add arrayBuffer method to Blob prototype if not present
-    if (!Blob.prototype.arrayBuffer) {
-      Blob.prototype.arrayBuffer = function () {
-        return new Promise((resolve) => {
-          const reader = new FileReader()
-          reader.onloadend = () => {
-            resolve(reader.result as ArrayBuffer)
-          }
-          reader.readAsArrayBuffer(this)
-        })
-      }
-    }
-  })
+  // No need for beforeAll here - setup is already done in the previous describe block
 
   it('should handle very small blobs', async () => {
     const tinyBlob = new Blob([new ArrayBuffer(100)], { type: 'audio/wav' })
