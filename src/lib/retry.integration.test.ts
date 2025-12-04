@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { retryWithBackoff, isRetryableError, withTimeout } from './retryUtils'
+import { retryWithBackoff, isRetryableError } from './retryUtils'
 import {
   TransientError,
   PermanentError,
