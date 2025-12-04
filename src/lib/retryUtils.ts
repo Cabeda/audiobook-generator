@@ -1,4 +1,4 @@
-import { TimeoutError, isRetryableError } from './errors'
+import { TimeoutError } from './errors'
 
 // Re-export for convenience
 export { isRetryableError } from './errors'
