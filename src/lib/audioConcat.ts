@@ -4,7 +4,7 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import logger from './utils/logger'
 import { retryWithBackoff, isRetryableError } from './retryUtils'
-import { FFmpegError, normalizeError } from './errors'
+import { FFmpegError } from './errors'
 
 // Singleton FFmpeg instance
 let ffmpegInstance: FFmpeg | null = null
