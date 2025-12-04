@@ -480,7 +480,7 @@ export async function concatenateAudioChapters(
   // loading the entire audiobook into memory as an AudioBuffer (which can cause
   // RangeError: Array buffer allocation failed for long audiobooks).
   // FFmpeg's concat demuxer is memory-efficient for these formats.
-  if ((format === 'mp3' || format === 'm4b' || format === 'mp4') && chapters.length > 0) {
+  if (format === 'mp3' || format === 'm4b' || format === 'mp4') {
     try {
       logger.info('[audioConcat]', `Using FFmpeg-based concatenation for ${format.toUpperCase()}`)
       return await ffmpegConcatenateBlobs(chapters, format, bitrate, options, onProgress)
