@@ -33,6 +33,11 @@ class MockAudioContext {
   }
 }
 
+// Helper to safely cast MockAudioContext for testing purposes
+function toAudioContext(ctx: MockAudioContext): BaseAudioContext {
+  return ctx as unknown as BaseAudioContext
+}
+
 describe('audioConcat', () => {
   beforeAll(() => {
     // Mock AudioContext globally
@@ -212,7 +217,7 @@ describe('audioConcat', () => {
       // Create a 1-second stereo buffer at 44100
       const stereo44100 = mockContext.createBuffer(2, 44100, 44100)
 
-      const normalized = resampleAndNormalizeAudioBuffers(mockContext as unknown as AudioContext, [
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), [
         mono22050,
         stereo44100,
       ])
@@ -437,6 +442,247 @@ describe('audioConcat', () => {
       expect(mockAppendChild).toHaveBeenCalled()
       expect(mockRemoveChild).toHaveBeenCalled()
       expect(mockRevokeObjectURL).toHaveBeenCalled()
+    })
+  })
+
+  describe('Edge Cases: PCM Length and Sample Rate Verification', () => {
+    it('should concatenate 3 chapters and verify length equals sum', async () => {
+      const mockContext = new MockAudioContext()
+
+      // Create 3 chapters with different lengths
+      const chapters: AudioChapter[] = [
+        {
+          id: 'ch1',
+          title: 'Chapter 1',
+          blob: new Blob([new ArrayBuffer(4000)], { type: 'audio/wav' }),
+        },
+        {
+          id: 'ch2',
+          title: 'Chapter 2',
+          blob: new Blob([new ArrayBuffer(8000)], { type: 'audio/wav' }),
+        },
+        {
+          id: 'ch3',
+          title: 'Chapter 3',
+          blob: new Blob([new ArrayBuffer(6000)], { type: 'audio/wav' }),
+        },
+      ]
+
+      // Decode each original chunk to determine expected total length
+      const decodedBuffers: AudioBuffer[] = []
+      for (const c of chapters) {
+        const array = await c.blob.arrayBuffer()
+        const db = await mockContext.decodeAudioData(array)
+        decodedBuffers.push(db)
+      }
+
+      const expectedLength = decodedBuffers.reduce((s, b) => s + b.length, 0)
+
+      // Concatenate using the function under test
+      const result = await concatenateAudioChapters(chapters, { format: 'wav' })
+      const outArray = await result.arrayBuffer()
+      const outBuf = await mockContext.decodeAudioData(outArray)
+
+      // Allow a small tolerance due to resampling / channel mixing
+      const diff = Math.abs(outBuf.length - expectedLength)
+      expect(diff).toBeLessThanOrEqual(16)
+      expect(outBuf.numberOfChannels).toBe(decodedBuffers[0].numberOfChannels)
+    })
+
+    it('should handle input blobs with different sample rates through resampling', async () => {
+      const mockContext = new MockAudioContext()
+
+      // Create buffers with different sample rates
+      const buffer22k = mockContext.createBuffer(1, 22050, 22050)
+      const buffer44k = mockContext.createBuffer(1, 44100, 44100)
+      const buffer16k = mockContext.createBuffer(1, 16000, 16000)
+
+      const buffers = [buffer22k, buffer44k, buffer16k]
+
+      // Use resampleAndNormalizeAudioBuffers to verify resampling
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), buffers)
+
+      // All buffers should be resampled to the target sample rate
+      expect(normalized[0].sampleRate).toBe(mockContext.sampleRate)
+      expect(normalized[1].sampleRate).toBe(mockContext.sampleRate)
+      expect(normalized[2].sampleRate).toBe(mockContext.sampleRate)
+
+      // Verify lengths are adjusted proportionally
+      expect(normalized[0].length).toBe(Math.round(22050 * (mockContext.sampleRate / 22050)))
+      expect(normalized[1].length).toBe(44100)
+      expect(normalized[2].length).toBe(Math.round(16000 * (mockContext.sampleRate / 16000)))
+    })
+  })
+
+  describe('Edge Cases: Channel Count Mismatch', () => {
+    it('should normalize stereo and mono channels correctly', () => {
+      const mockContext = new MockAudioContext()
+
+      // Create mono and stereo buffers
+      const monoBuffer = mockContext.createBuffer(1, 44100, 44100)
+      const stereoBuffer = mockContext.createBuffer(2, 44100, 44100)
+
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), [
+        monoBuffer,
+        stereoBuffer,
+      ])
+
+      // Both should be normalized to max channels (2)
+      expect(normalized[0].numberOfChannels).toBe(2)
+      expect(normalized[1].numberOfChannels).toBe(2)
+      expect(normalized[0].length).toBe(44100)
+      expect(normalized[1].length).toBe(44100)
+    })
+
+    it('should keep all mono buffers as mono', () => {
+      const mockContext = new MockAudioContext()
+
+      const mono1 = mockContext.createBuffer(1, 44100, 44100)
+      const mono2 = mockContext.createBuffer(1, 44100, 44100)
+
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), [
+        mono1,
+        mono2,
+      ])
+
+      // Should remain mono since all inputs are mono
+      expect(normalized[0].numberOfChannels).toBe(1)
+      expect(normalized[1].numberOfChannels).toBe(1)
+    })
+
+    it('should keep all stereo buffers as stereo', () => {
+      const mockContext = new MockAudioContext()
+
+      const stereo1 = mockContext.createBuffer(2, 44100, 44100)
+      const stereo2 = mockContext.createBuffer(2, 44100, 44100)
+
+      const normalized = resampleAndNormalizeAudioBuffers(toAudioContext(mockContext), [
+        stereo1,
+        stereo2,
+      ])
+
+      expect(normalized[0].numberOfChannels).toBe(2)
+      expect(normalized[1].numberOfChannels).toBe(2)
+    })
+  })
+
+  describe('Edge Cases: Missing AudioContext', () => {
+    it('should produce clear error when Web Audio API is unavailable and fallbacks fail', async () => {
+      // Save current contexts
+      const savedAudioContext = (globalThis as any).AudioContext
+      const savedOfflineAudioContext = (globalThis as any).OfflineAudioContext
+      const savedWebkitAudioContext = (globalThis as any).webkitAudioContext
+
+      try {
+        // Remove all audio contexts
+        delete (globalThis as any).AudioContext
+        delete (globalThis as any).OfflineAudioContext
+        delete (globalThis as any).webkitAudioContext
+        delete (globalThis as any).webkitOfflineAudioContext
+
+        const chapters: AudioChapter[] = [
+          {
+            id: 'ch1',
+            title: 'Chapter 1',
+            blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+          },
+          {
+            id: 'ch2',
+            title: 'Chapter 2',
+            blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+          },
+        ]
+
+        // Should either succeed with WAV-only fallback or throw clear error
+        try {
+          const result = await concatenateAudioChapters(chapters, { format: 'wav' })
+          // If it succeeds, verify it's a valid blob
+          expect(result).toBeInstanceOf(Blob)
+          expect(result.type).toBe('audio/wav')
+        } catch (err) {
+          // If it fails, verify error message is clear
+          expect(err).toBeInstanceOf(Error)
+          expect((err as Error).message).toMatch(
+            /Web Audio API not available|cannot concatenate audio|OfflineAudioContext is not available/
+          )
+        }
+      } finally {
+        // Restore contexts
+        ;(globalThis as any).AudioContext = savedAudioContext
+        ;(globalThis as any).OfflineAudioContext = savedOfflineAudioContext
+        ;(globalThis as any).webkitAudioContext = savedWebkitAudioContext
+      }
+    })
+
+    it('should use OfflineAudioContext fallback when AudioContext is missing', async () => {
+      const savedAudioContext = (globalThis as any).AudioContext
+
+      // Mock OfflineAudioContext
+      class TestOfflineAudioContext {
+        sampleRate = 44100
+        constructor(_channels: number, _length: number, sampleRate: number) {
+          this.sampleRate = sampleRate
+        }
+        createBuffer(numberOfChannels: number, length: number, sampleRate: number) {
+          return {
+            numberOfChannels,
+            length,
+            sampleRate,
+            duration: length / sampleRate,
+            getChannelData: (_channel: number) => new Float32Array(length),
+          } as AudioBuffer
+        }
+        decodeAudioData(arrayBuffer: ArrayBuffer) {
+          const length = Math.floor(arrayBuffer.byteLength / 4)
+          return Promise.resolve(this.createBuffer(2, length, this.sampleRate))
+        }
+      }
+
+      try {
+        delete (globalThis as any).AudioContext
+        ;(globalThis as any).OfflineAudioContext = TestOfflineAudioContext
+
+        const chapters: AudioChapter[] = [
+          {
+            id: 'ch1',
+            title: 'Chapter 1',
+            blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+          },
+        ]
+
+        const result = await concatenateAudioChapters(chapters, { format: 'wav' })
+        expect(result).toBeInstanceOf(Blob)
+        expect(result.type).toBe('audio/wav')
+      } finally {
+        ;(globalThis as any).AudioContext = savedAudioContext
+        delete (globalThis as any).OfflineAudioContext
+      }
+    })
+  })
+
+  describe('Edge Cases: Empty and Invalid Input', () => {
+    it('should throw clear error for empty chapters array', async () => {
+      await expect(concatenateAudioChapters([])).rejects.toThrow('No chapters to concatenate')
+    })
+
+    it('should handle chapters with empty blobs gracefully', async () => {
+      const chapters: AudioChapter[] = [
+        {
+          id: 'ch1',
+          title: 'Empty Chapter',
+          blob: new Blob([], { type: 'audio/wav' }),
+        },
+        {
+          id: 'ch2',
+          title: 'Valid Chapter',
+          blob: new Blob([new ArrayBuffer(1000)], { type: 'audio/wav' }),
+        },
+      ]
+
+      // Should insert silence for empty chapters instead of failing
+      const result = await concatenateAudioChapters(chapters, { format: 'wav' })
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/wav')
     })
   })
 })
