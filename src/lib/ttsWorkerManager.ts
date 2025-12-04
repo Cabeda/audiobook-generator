@@ -197,29 +197,47 @@ export class TTSWorkerManager {
           errorMsg.includes('Out of memory') ||
           errorMsg.includes('Aborted()')
 
+        // Only indicate whether we should retry; actual restart is handled in onRetry
         if (isMemoryError) {
           logger.warn('[TTSWorkerManager] Memory error detected, will retry with worker restart')
-          // Synchronize worker restart to avoid race conditions
-          if (!this.isRestarting) {
-            this.isRestarting = true
-            this.terminate()
-            this.readyPromise = this.initWorker()
-              .catch((err) => {
-                logger.error('[TTSWorkerManager] Worker restart failed:', err)
-                throw err
-              })
-              .finally(() => {
-                this.isRestarting = false
-              })
-          }
           return true
         }
 
         // Use standard retry logic for other errors
         return isRetryableError(error)
       },
-      onRetry: (attempt, maxRetries, error) => {
+      onRetry: async (attempt, maxRetries, error) => {
         logger.warn(`[TTSWorkerManager] Retry attempt ${attempt}/${maxRetries}:`, error.message)
+        const errorMsg = error.message
+        const isMemoryError =
+          errorMsg.includes('failed to allocate') ||
+          errorMsg.includes("Can't create a session") ||
+          errorMsg.includes('Out of memory') ||
+          errorMsg.includes('Aborted()')
+        if (isMemoryError) {
+          logger.warn('[TTSWorkerManager] Restarting worker due to memory error')
+          if (!this.isRestarting) {
+            this.isRestarting = true
+            this.terminate()
+            try {
+              this.readyPromise = this.initWorker()
+              await this.readyPromise
+            } catch (err) {
+              logger.error('[TTSWorkerManager] Worker restart failed:', err)
+              throw err
+            } finally {
+              this.isRestarting = false
+            }
+          } else {
+            // Wait for ongoing restart to finish
+            try {
+              await this.readyPromise
+            } catch (err) {
+              logger.error('[TTSWorkerManager] Worker restart failed during wait:', err)
+              throw err
+            }
+          }
+        }
         if (options.onProgress) {
           options.onProgress(`Retrying... (attempt ${attempt}/${maxRetries})`)
         }
