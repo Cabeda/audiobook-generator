@@ -1,7 +1,7 @@
 import { KokoroTTS } from 'kokoro-js'
 import logger from '../utils/logger'
 import { retryWithBackoff, isRetryableError } from '../retryUtils'
-import { ModelLoadError, AudioGenerationError, normalizeError } from '../errors'
+import { ModelLoadError, AudioGenerationError } from '../errors'
 
 // Valid Kokoro voice IDs based on the official kokoro-js library
 export type VoiceId =
