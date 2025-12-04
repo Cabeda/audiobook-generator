@@ -476,6 +476,24 @@ export async function concatenateAudioChapters(
     return chapters[0].blob
   }
 
+  // For MP3/M4B/MP4 formats, prioritize FFmpeg-based concatenation to avoid
+  // loading the entire audiobook into memory as an AudioBuffer (which can cause
+  // RangeError: Array buffer allocation failed for long audiobooks).
+  // FFmpeg's concat demuxer is memory-efficient for these formats.
+  if (format === 'mp3' || format === 'm4b' || format === 'mp4') {
+    try {
+      logger.info('[audioConcat]', `Using FFmpeg-based concatenation for ${format.toUpperCase()}`)
+      return await ffmpegConcatenateBlobs(chapters, format, bitrate, options, onProgress)
+    } catch (err) {
+      logger.warn(
+        '[audioConcat]',
+        `FFmpeg concatenation for ${format} failed, falling back to Web Audio:`,
+        err
+      )
+      // Fallthrough to Web Audio path
+    }
+  }
+
   // Create audio context for processing when available. Some environments
   // (e.g., Web Workers, headless) may not expose `AudioContext` or
   // `OfflineAudioContext`. When Web Audio is unavailable, we fall back to an
