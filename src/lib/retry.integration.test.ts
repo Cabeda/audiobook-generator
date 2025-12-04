@@ -268,7 +268,6 @@ describe('Retry Integration Tests', () => {
 
   describe('Backoff behavior', () => {
     it('should apply exponential backoff between retries', async () => {
-      const delays: number[] = []
       let attempts = 0
 
       const failingOp = async () => {
