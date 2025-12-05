@@ -126,7 +126,8 @@ export class TTSWorkerManager {
         }
 
         this.worker.onerror = (err) => {
-          logger.error('TTS worker error', err)
+          logger.error('TTS worker error event:', err)
+          console.error('TTS worker internal error:', err.message, err.filename, err.lineno)
         }
 
         setTimeout(() => {

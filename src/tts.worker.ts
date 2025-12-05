@@ -1,10 +1,13 @@
-/**
- * Web Worker for TTS generation to prevent UI blocking
- * This worker handles TTS generation off the main thread
- */
-
 import logger from './lib/utils/logger'
-import { getTTSEngine, type TTSModelType } from './lib/tts/ttsModels.ts'
+import { getTTSEngine, type TTSModelType } from './lib/tts/ttsModels'
+
+console.log('[Worker] Worker script loaded')
+
+// Global error handler
+self.onerror = function (msg, url, lineNo, columnNo, error) {
+  console.error('[Worker] Global error:', msg, 'at', lineNo, ':', columnNo, error)
+  return false
+}
 
 // Message types
 type WorkerRequest = {
@@ -59,6 +62,8 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     device = 'auto',
   } = event.data
 
+  console.log('[Worker] Received message:', type, id)
+
   if (type === 'generate') {
     try {
       // Log device selection
@@ -110,6 +115,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         blob,
       } as WorkerResponse)
     } catch (error) {
+      console.error('[Worker] Generation error:', error)
       // Send error response
       self.postMessage({
         id,
@@ -164,6 +170,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         segments,
       } as WorkerResponse)
     } catch (error) {
+      console.error('[Worker] Segment generation error:', error)
       self.postMessage({
         id,
         type: 'error',
@@ -174,4 +181,5 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 }
 
 // Signal that worker is ready
+console.log('[Worker] Sending ready signal')
 self.postMessage({ type: 'ready' })

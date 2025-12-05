@@ -168,7 +168,7 @@ async function getKokoroInstance(
   // state can persist between tests). When not testing, keep the cache for
   // performance.
   const isTestEnv =
-    process.env.NODE_ENV === 'test' ||
+    (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
     (globalThis as unknown as { __vitest__?: boolean }).__vitest__ === true
   if (!ttsInstance || isTestEnv) {
     logger.info('[KokoroClient]', `Initializing instance. Model: ${modelId}`)

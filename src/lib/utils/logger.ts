@@ -28,7 +28,7 @@ class Logger {
   constructor() {
     // Detect test environment and silence logs by default
     const isTestEnv =
-      process.env.NODE_ENV === 'test' ||
+      (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
       (globalThis as { __vitest__?: boolean }).__vitest__ === true
 
     if (isTestEnv) {
