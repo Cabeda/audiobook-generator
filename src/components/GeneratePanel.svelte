@@ -10,6 +10,7 @@
   import { onMount, untrack } from 'svelte'
   import { piperClient } from '../lib/piper/piperClient'
   import { type TTSModelType, TTS_MODELS } from '../lib/tts/ttsModels'
+  import { lastKokoroVoice, lastPiperVoice, lastWebSpeechVoice } from '../stores/ttsStore'
   import {
     concatenateAudioChapters,
     downloadAudioFile,
@@ -126,13 +127,25 @@
       }))
       // Only change voice if it's invalid - use untrack to prevent circular updates
       untrack(() => {
-        if (!kokoroVoices.includes(selectedVoice as VoiceId) && selectedVoice !== 'af_heart') {
+        // Try to restore last used Kokoro voice
+        const lastVoice = $lastKokoroVoice
+        if (kokoroVoices.includes(lastVoice as VoiceId)) {
+          if (selectedVoice !== lastVoice) {
+            selectedVoice = lastVoice
+            dispatch('voicechanged', { voice: selectedVoice })
+          }
+        } else if (
+          !kokoroVoices.includes(selectedVoice as VoiceId) &&
+          selectedVoice !== 'af_heart'
+        ) {
           selectedVoice = 'af_heart'
           // Notify parent of voice change
           dispatch('voicechanged', { voice: selectedVoice })
         }
       })
     } else if (currentModel === 'piper') {
+      // Clear voices immediately to prevent stale data usage during async load
+      availableVoices = []
       // Load Piper voices
       piperClient.getVoices().then((voices) => {
         // Only update if still on piper model (model may have changed while loading)
@@ -145,16 +158,28 @@
         // Set default if current selection is invalid or empty
         // We need to check against the NEW availableVoices list
         const currentVoiceExists = availableVoices.find((v) => v.id === selectedVoice)
-        if (!currentVoiceExists) {
-          // Default to a known good voice or the first one
-          const defaultVoice =
-            availableVoices.find((v) => v.id === 'en_US-hfc_female-medium') || availableVoices[0]
-          if (defaultVoice && selectedVoice !== defaultVoice.id) {
-            selectedVoice = defaultVoice.id
-            // Notify parent of voice change
-            dispatch('voicechanged', { voice: selectedVoice })
+
+        untrack(() => {
+          // Try to restore last used Piper voice
+          const lastVoice = $lastPiperVoice
+          const lastVoiceExists = availableVoices.find((v) => v.id === lastVoice)
+
+          if (lastVoiceExists) {
+            if (selectedVoice !== lastVoice) {
+              selectedVoice = lastVoice
+              dispatch('voicechanged', { voice: selectedVoice })
+            }
+          } else if (!currentVoiceExists) {
+            // Default to a known good voice or the first one
+            const defaultVoice =
+              availableVoices.find((v) => v.id === 'en_US-hfc_female-medium') || availableVoices[0]
+            if (defaultVoice && selectedVoice !== defaultVoice.id) {
+              selectedVoice = defaultVoice.id
+              // Notify parent of voice change
+              dispatch('voicechanged', { voice: selectedVoice })
+            }
           }
-        }
+        })
       })
     } else if (currentModel === 'web_speech') {
       // Load Web Speech voices (non-reactive to avoid infinite loop)
@@ -166,7 +191,16 @@
 
       // Set default if needed (only if we actually have voices and voice needs changing)
       untrack(() => {
-        if (availableVoices.length > 0) {
+        // Try to restore last used Web Speech voice
+        const lastVoice = $lastWebSpeechVoice
+        const lastVoiceExists = availableVoices.find((v) => v.id === lastVoice)
+
+        if (lastVoiceExists) {
+          if (selectedVoice !== lastVoice) {
+            selectedVoice = lastVoice
+            dispatch('voicechanged', { voice: selectedVoice })
+          }
+        } else if (availableVoices.length > 0) {
           const currentVoiceExists = availableVoices.find((v) => v.id === selectedVoice)
           if (!currentVoiceExists) {
             const newVoice = availableVoices[0].id
@@ -179,6 +213,26 @@
       })
     } else {
       availableVoices = []
+    }
+  })
+
+  // Persist voice selection changes to the appropriate store
+  $effect(() => {
+    if (selectedModel === 'kokoro') {
+      // Only persist if it's a valid Kokoro voice
+      if (kokoroVoices.includes(selectedVoice as VoiceId)) {
+        $lastKokoroVoice = selectedVoice
+      }
+    } else if (selectedModel === 'piper') {
+      // Only persist if it's a valid Piper voice (in the current list)
+      // This prevents overwriting with a Kokoro voice ID during transition
+      if (availableVoices.some((v) => v.id === selectedVoice)) {
+        $lastPiperVoice = selectedVoice
+      }
+    } else if (selectedModel === 'web_speech') {
+      if (availableVoices.some((v) => v.id === selectedVoice)) {
+        $lastWebSpeechVoice = selectedVoice
+      }
     }
   })
 

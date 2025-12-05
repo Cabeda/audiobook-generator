@@ -1,5 +1,16 @@
 import * as tts from '@diffusionstudio/vits-web'
+import * as ort from 'onnxruntime-web'
 import logger from '../utils/logger'
+
+// Configure ONNX Runtime for the worker environment
+// If crossOriginIsolated is false, we must disable multi-threading to avoid crashes
+if (typeof self !== 'undefined' && !self.crossOriginIsolated) {
+  logger.info('Running in non-isolated context, forcing single-threaded execution')
+  ort.env.wasm.numThreads = 1
+  ort.env.wasm.proxy = false
+} else {
+  logger.info('Running in crossOriginIsolated context, allowing multi-threading')
+}
 
 export interface PiperVoice {
   key: string
@@ -62,17 +73,93 @@ export class PiperClient {
     options.onProgress?.('Generating audio...')
 
     try {
-      logger.info('Calling tts.predict with:', { text, voiceId })
-      const wav = await tts.predict({
-        text,
-        voiceId: voiceId as any,
-      })
+      // Split text into sentences to avoid memory issues with large inputs
+      // Simple regex split on punctuation followed by whitespace
+      const sentences = text.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [text]
+      const blobs: Blob[] = []
 
-      return wav
+      logger.info(`Splitting text into ${sentences.length} segments for generation`)
+
+      for (let i = 0; i < sentences.length; i++) {
+        const sentence = sentences[i].trim()
+        if (!sentence) continue
+
+        if (sentences.length > 1) {
+          options.onProgress?.(`Generating segment ${i + 1}/${sentences.length}...`)
+        }
+
+        // Skip empty or very short segments that might cause issues
+        if (sentence.length < 2) continue
+
+        const wav = await tts.predict({
+          text: sentence,
+          voiceId: voiceId as any,
+        })
+        blobs.push(wav)
+      }
+
+      if (blobs.length === 0) {
+        throw new Error('No audio generated')
+      }
+
+      if (blobs.length === 1) {
+        return blobs[0]
+      }
+
+      // Concatenate blobs
+      // Note: These are WAV blobs with headers. We need to strip headers from subsequent blobs
+      // and update the header of the first blob (or create a new one).
+      // For simplicity, we can use a helper or just naively concatenate if we accept some header noise,
+      // BUT valid WAV concatenation requires stripping headers.
+
+      return await this.concatenateWavBlobs(blobs)
     } catch (err) {
       logger.error('Piper generation failed:', err)
       throw err
     }
+  }
+
+  private async concatenateWavBlobs(blobs: Blob[]): Promise<Blob> {
+    const buffers = await Promise.all(blobs.map((b) => b.arrayBuffer()))
+
+    // Calculate total length (excluding headers of all but first)
+    // WAV header is 44 bytes
+    const headerLength = 44
+    let totalDataLength = 0
+
+    for (const buffer of buffers) {
+      if (buffer.byteLength > headerLength) {
+        totalDataLength += buffer.byteLength - headerLength
+      }
+    }
+
+    if (totalDataLength === 0) return blobs[0] // Should not happen if check above passes
+
+    const resultBuffer = new Uint8Array(headerLength + totalDataLength)
+
+    // Copy header from first valid buffer
+    const firstBuffer = buffers.find((b) => b.byteLength > headerLength) || buffers[0]
+    resultBuffer.set(new Uint8Array(firstBuffer.slice(0, headerLength)), 0)
+
+    // Update total size in header (bytes 4-7) = 36 + SubChunk2Size
+    const totalSize = 36 + totalDataLength
+    const view = new DataView(resultBuffer.buffer)
+    view.setUint32(4, totalSize, true)
+
+    // Update data size in header (bytes 40-43) = SubChunk2Size
+    view.setUint32(40, totalDataLength, true)
+
+    // Copy data
+    let offset = headerLength
+    for (const buffer of buffers) {
+      if (buffer.byteLength > headerLength) {
+        const data = new Uint8Array(buffer.slice(headerLength))
+        resultBuffer.set(data, offset)
+        offset += data.length
+      }
+    }
+
+    return new Blob([resultBuffer], { type: 'audio/wav' })
   }
 }
 

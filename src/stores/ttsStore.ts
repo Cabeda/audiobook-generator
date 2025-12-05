@@ -49,3 +49,11 @@ export const selectedVoice = persistedWritable<string>(VOICE_KEY, 'af_heart')
 export const selectedQuantization = persistedWritable<Quantization>(QUANT_KEY, 'q8')
 export const selectedDevice = persistedWritable<Device>(DEVICE_KEY, 'auto')
 export const selectedModel = persistedWritable<TTSModel>(MODEL_KEY, 'kokoro')
+
+// Model-specific voice persistence
+export const lastKokoroVoice = persistedWritable<string>('audiobook_voice_kokoro', 'af_heart')
+export const lastPiperVoice = persistedWritable<string>(
+  'audiobook_voice_piper',
+  'en_US-hfc_female-medium'
+)
+export const lastWebSpeechVoice = persistedWritable<string>('audiobook_voice_webspeech', '')

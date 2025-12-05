@@ -22,6 +22,13 @@
   function copy() {
     navigator.clipboard?.writeText(chapter.content).catch(() => alert('Clipboard not available'))
   }
+  let audioElement = $state<HTMLAudioElement | null>(null)
+
+  $effect(() => {
+    if (audioElement && audioData?.url) {
+      audioElement.load()
+    }
+  })
 </script>
 
 <div class="chapter-card" class:selected role="listitem">
@@ -64,7 +71,12 @@
 
   {#if audioData}
     <div class="audio-controls">
-      <audio controls src={audioData.url} aria-label={`Audio for ${chapter.title}`}></audio>
+      <audio
+        bind:this={audioElement}
+        controls
+        src={audioData.url}
+        aria-label={`Audio for ${chapter.title}`}
+      ></audio>
       <div class="download-actions">
         <button
           class="action-btn small"
