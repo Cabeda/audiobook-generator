@@ -22,6 +22,8 @@
   let sortBy = $state<'recent' | 'title' | 'author'>('recent')
   let storageInfo = $state<{ usage: number; quota: number; percentage: number } | null>(null)
 
+  let viewMode = $state<'grid' | 'list'>('grid')
+
   // Debounce search to avoid filtering on every keystroke
   $effect(() => {
     const timeout = setTimeout(() => {
@@ -29,6 +31,21 @@
     }, 300)
 
     return () => clearTimeout(timeout)
+  })
+
+  // Initialize view mode from local storage
+  onMount(async () => {
+    const savedView = localStorage.getItem('library_view_mode')
+    if (savedView === 'list' || savedView === 'grid') {
+      viewMode = savedView
+    }
+    await refreshLibrary()
+    await updateStorageInfo()
+  })
+
+  // Persist view mode
+  $effect(() => {
+    localStorage.setItem('library_view_mode', viewMode)
   })
 
   // Computed filtered and sorted books
@@ -55,11 +72,6 @@
     }
 
     return sorted
-  })
-
-  onMount(async () => {
-    await refreshLibrary()
-    await updateStorageInfo()
   })
 
   async function updateStorageInfo() {
@@ -112,11 +124,64 @@
         bind:value={searchQuery}
       />
 
-      <select class="sort-select" bind:value={sortBy}>
-        <option value="recent">Recently Accessed</option>
-        <option value="title">Title A-Z</option>
-        <option value="author">Author A-Z</option>
-      </select>
+      <div class="view-controls">
+        <select class="sort-select" bind:value={sortBy}>
+          <option value="recent">Recently Accessed</option>
+          <option value="title">Title A-Z</option>
+          <option value="author">Author A-Z</option>
+        </select>
+
+        <div class="view-toggle">
+          <button
+            class="toggle-btn"
+            class:active={viewMode === 'grid'}
+            onclick={() => (viewMode = 'grid')}
+            aria-label="Grid view"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+          </button>
+          <button
+            class="toggle-btn"
+            class:active={viewMode === 'list'}
+            onclick={() => (viewMode = 'list')}
+            aria-label="List view"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="8" y1="6" x2="21" y2="6"></line>
+              <line x1="8" y1="12" x2="21" y2="12"></line>
+              <line x1="8" y1="18" x2="21" y2="18"></line>
+              <line x1="3" y1="6" x2="3.01" y2="6"></line>
+              <line x1="3" y1="12" x2="3.01" y2="12"></line>
+              <line x1="3" y1="18" x2="3.01" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -145,9 +210,9 @@
         {/if}
       </div>
     {:else}
-      <div class="books-grid">
+      <div class="books-grid" class:list-view={viewMode === 'list'}>
         {#each filteredBooks as book (book.id)}
-          <BookCard {book} onload={handleBookLoad} ondelete={handleBookDelete} />
+          <BookCard {book} {viewMode} onload={handleBookLoad} ondelete={handleBookDelete} />
         {/each}
       </div>
       <div class="library-stats">
@@ -216,28 +281,37 @@
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .view-controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
   }
 
   .search-input {
     flex: 1;
-    min-width: 250px;
-    padding: 12px 16px;
-    border: 2px solid #e5e7eb;
+    min-width: 200px;
+    padding: 10px 16px;
+    border: 1px solid #e5e7eb;
     border-radius: 8px;
-    font-size: 1rem;
+    font-size: 0.95rem;
     transition: border-color 0.2s;
   }
 
   .search-input:focus {
     outline: none;
     border-color: #3b82f6;
+    border-width: 2px;
+    padding: 9px 15px; /* Adjust padding to prevent shift */
   }
 
   .sort-select {
-    padding: 12px 16px;
-    border: 2px solid #e5e7eb;
+    padding: 10px 12px;
+    border: 1px solid #e5e7eb;
     border-radius: 8px;
-    font-size: 1rem;
+    font-size: 0.95rem;
     background: white;
     cursor: pointer;
     transition: border-color 0.2s;
@@ -246,6 +320,40 @@
   .sort-select:focus {
     outline: none;
     border-color: #3b82f6;
+    border-width: 2px;
+    padding: 9px 11px;
+  }
+
+  .view-toggle {
+    display: flex;
+    background: #f3f4f6;
+    border-radius: 8px;
+    padding: 2px;
+    border: 1px solid #e5e7eb;
+  }
+
+  .toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .toggle-btn:hover {
+    color: #374151;
+  }
+
+  .toggle-btn.active {
+    background: white;
+    color: #3b82f6;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
 
   .library-content {
@@ -254,9 +362,18 @@
 
   .books-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 24px;
+    /* Optimized for smaller items: ~180px min width */
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 20px;
     margin-bottom: 24px;
+    transition: all 0.3s ease;
+  }
+
+  /* List View Overrides */
+  .books-grid.list-view {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
 
   .library-stats {
@@ -380,10 +497,24 @@
     }
 
     .search-input,
-    .sort-select {
+    .sort-select,
+    .view-toggle {
       background: #1f2937;
       color: #f9fafb;
       border-color: #374151;
+    }
+
+    .toggle-btn {
+      color: #9ca3af;
+    }
+
+    .toggle-btn:hover {
+      color: #e5e7eb;
+    }
+
+    .toggle-btn.active {
+      background: #374151;
+      color: #60a5fa;
     }
 
     .empty-state h3 {

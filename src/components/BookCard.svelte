@@ -3,11 +3,12 @@
 
   interface Props {
     book: BookMetadata
+    viewMode?: 'grid' | 'list'
     onload: (book: BookMetadata) => void
     ondelete: (book: BookMetadata) => void
   }
 
-  let { book, onload, ondelete }: Props = $props()
+  let { book, viewMode = 'grid', onload, ondelete }: Props = $props()
 
   let deleting = $state(false)
 
@@ -69,7 +70,14 @@
   }
 </script>
 
-<div class="book-card" onclick={handleLoad} onkeydown={handleKeydown} role="button" tabindex="0">
+<div
+  class="book-card"
+  class:list-view={viewMode === 'list'}
+  onclick={handleLoad}
+  onkeydown={handleKeydown}
+  role="button"
+  tabindex="0"
+>
   <div class="book-cover">
     {#if book.cover}
       <img src={book.cover} alt={`Cover of ${book.title}`} loading="lazy" decoding="async" />
@@ -89,17 +97,22 @@
   </div>
 
   <div class="book-info">
-    <h3 class="book-title">{book.title}</h3>
-    <p class="book-author">{book.author}</p>
-    <div class="book-meta">
-      <span class="format-badge">{book.format?.toUpperCase() || 'UNKNOWN'}</span>
-      <span class="chapter-count">{book.chapterCount} chapters</span>
+    <div class="info-header">
+      <h3 class="book-title">{book.title}</h3>
+      <p class="book-author">{book.author}</p>
     </div>
-    <div class="book-footer">
-      <span class="last-accessed">{formatDate(book.lastAccessed)}</span>
-      {#if book.fileSize}
-        <span class="file-size">{formatSize(book.fileSize)}</span>
-      {/if}
+
+    <div class="info-details">
+      <div class="book-meta">
+        <span class="format-badge">{book.format?.toUpperCase() || 'UNKNOWN'}</span>
+        <span class="chapter-count">{book.chapterCount} chapters</span>
+      </div>
+      <div class="book-footer">
+        <span class="last-accessed">{formatDate(book.lastAccessed)}</span>
+        {#if book.fileSize}
+          <span class="file-size">{formatSize(book.fileSize)}</span>
+        {/if}
+      </div>
     </div>
   </div>
 </div>
@@ -113,6 +126,9 @@
     transition: all 0.2s ease;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
   }
 
   .book-card:hover {
@@ -124,12 +140,35 @@
     transform: translateY(-2px);
   }
 
+  /* List View Overrides */
+  .book-card.list-view {
+    flex-direction: row;
+    height: auto;
+    align-items: center;
+    padding: 12px;
+    gap: 16px;
+    border-radius: 8px; /* Slightly less rounded in list */
+  }
+
+  .book-card.list-view:hover {
+    transform: translateX(4px); /* Valid visual feedback for row */
+  }
+
   .book-cover {
     position: relative;
     width: 100%;
     aspect-ratio: 2 / 3;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     overflow: hidden;
+  }
+
+  .book-card.list-view .book-cover {
+    width: 60px;
+    height: 90px;
+    min-width: 60px;
+    /* Maintain proper aspect ratio without full width */
+    aspect-ratio: auto;
+    border-radius: 4px;
   }
 
   .book-cover img {
@@ -144,6 +183,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .book-card.list-view .book-icon {
+    font-size: 2rem;
   }
 
   .book-icon {
@@ -166,12 +209,34 @@
     z-index: 10;
   }
 
+  /* In list view, make delete button always visible */
+  .book-card.list-view .delete-btn {
+    position: static;
+    opacity: 1; /* Always visible */
+    background: transparent;
+    color: #ef4444; /* Red color */
+    padding: 8px;
+    margin-left: auto; /* Push to right */
+    transition: all 0.2s;
+  }
+
+  .book-card.list-view:hover .delete-btn {
+    opacity: 1;
+    background: rgba(239, 68, 68, 0.1);
+  }
+
   .book-card:hover .delete-btn {
     opacity: 1;
   }
 
   .delete-btn:hover {
     background: rgba(220, 38, 38, 0.9);
+    color: white;
+  }
+
+  .book-card.list-view .delete-btn:hover {
+    background: rgba(220, 38, 38, 0.9);
+    color: white;
   }
 
   .delete-btn:disabled {
@@ -184,6 +249,36 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    flex: 1;
+  }
+
+  .book-card.list-view .book-info {
+    padding: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .info-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+  }
+
+  .info-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .book-card.list-view .info-details {
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+    min-width: 300px;
+    justify-content: flex-end;
   }
 
   .book-title {
@@ -241,8 +336,26 @@
     margin-top: 4px;
   }
 
+  .book-card.list-view .book-footer {
+    margin-top: 0;
+    gap: 16px;
+  }
+
   .last-accessed {
     font-weight: 500;
+  }
+
+  /* Responsive for list view */
+  @media (max-width: 640px) {
+    .book-card.list-view .info-details {
+      display: none; /* Hide details on very small screens in list mode to keep strict layout? or stack? */
+    }
+
+    .book-card.list-view .book-info {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+    }
   }
 
   /* Dark mode support */

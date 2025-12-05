@@ -108,6 +108,11 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         }
       )
 
+      // Validate output
+      if (blob.size === 0) {
+        throw new Error('Generated audio is empty')
+      }
+
       // Send success response
       self.postMessage({
         id,

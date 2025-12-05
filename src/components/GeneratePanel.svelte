@@ -18,7 +18,6 @@
     type AudioChapter,
     type ConcatenationProgress,
     type AudioFormat,
-    createSilentWav,
   } from '../lib/audioConcat'
   import { createEventDispatcher } from 'svelte'
   import { EpubGenerator, type EpubMetadata } from '../lib/epub/epubGenerator'
@@ -302,6 +301,12 @@
       try {
         // Update status to processing
         chapterStatus.set(ch.id, 'processing')
+
+        // Validate content
+        if (!ch.content || !ch.content.trim()) {
+          throw new Error('Chapter content is empty')
+        }
+
         // Use worker for TTS generation (non-blocking)
         const effectiveModel: TTSModelType = selectedModel
         // If Kokoro is selected ensure the voice is valid for Kokoro
@@ -334,12 +339,7 @@
 
         if (canceled) break
 
-        if (blob.size === 0) {
-          console.warn(`Generated empty blob for chapter "${ch.title}"`)
-          progressText = `Warning: Chapter ${currentChapter} generated empty audio (replaced with silence)`
-          // Replace empty blob with 1s silence so downloads/concatenation work
-          blob = createSilentWav(1)
-        }
+        if (canceled) break
 
         generatedChapters.set(ch.id, blob)
         chapterStatus.set(ch.id, 'done')
@@ -664,6 +664,35 @@
     worker.cancelAll()
     progressText = 'Cancelling...'
   }
+
+  let showExportMenu = $state(false)
+
+  function selectProcessedAndExport() {
+    // 1. Select all processed chapters
+    for (const [id, status] of chapterStatus) {
+      if (status === 'done' && generatedChapters.has(id)) {
+        selectedMap.set(id, true)
+      } else {
+        // Optional: Deselect others? User asked to "select all ... processed",
+        // implying we might want to ONLY export processed ones.
+        // Let's assume we want to ONLY select processed ones for this action.
+        selectedMap.set(id, false)
+      }
+    }
+    // Force reactivity for the map if needed (Svelte 5 Map reactivity is usually fine if using $bindable or State)
+    // But since selectedMap is a Prop, updating it might require re-assignment or it's a Map so it's mutable.
+    // However, for the UI to update, we might need to trigger reactivity if it's passed down.
+    // Since it's a Map object, Svelte 5 $state on a Map works fine for internal mutations if the map itself is reactive.
+    // If selectedMap comes from parent as a prop, we need to be careful.
+    // Assuming Svelte 5 reactivity handles Map mutations if it was created with $state in parent.
+
+    // 2. Close menu
+    showExportMenu = false
+
+    // 3. Trigger export
+    // We export immediately. Since we selected only processed ones, it should jump to concatenation.
+    exportAudio()
+  }
 </script>
 
 <div class="panel">
@@ -801,18 +830,42 @@
           {running ? '⏳ Generating...' : '🎧 Generate Audio'}
         </button>
 
-        <button
-          class="secondary"
-          onclick={exportAudio}
-          disabled={running || concatenating || selectedChapters.length === 0}
-          aria-busy={concatenating}
-        >
-          {concatenating
-            ? '📦 Exporting...'
-            : allGenerated
-              ? `📥 Export ${selectedFormat.toUpperCase()}`
-              : `⚡ Generate & Export ${selectedFormat.toUpperCase()}`}
-        </button>
+        <div class="export-group">
+          <button
+            class="secondary export-btn"
+            onclick={exportAudio}
+            disabled={running || concatenating || selectedChapters.length === 0}
+            aria-busy={concatenating}
+          >
+            {concatenating
+              ? '📦 Exporting...'
+              : allGenerated
+                ? `📥 Export ${selectedFormat.toUpperCase()}`
+                : `⚡ Generate & Export ${selectedFormat.toUpperCase()}`}
+          </button>
+          <div class="export-menu-wrapper">
+            <button
+              class="secondary icon-btn"
+              onclick={() => (showExportMenu = !showExportMenu)}
+              disabled={running || concatenating}
+              aria-label="Export options"
+              aria-expanded={showExportMenu}
+            >
+              ⚙️
+            </button>
+            {#if showExportMenu}
+              <div class="export-menu">
+                <button onclick={selectProcessedAndExport}> ✅ Select Processed & Export </button>
+              </div>
+              <!-- Backdrop to close menu -->
+              <div
+                class="menu-backdrop"
+                onclick={() => (showExportMenu = false)}
+                role="presentation"
+              ></div>
+            {/if}
+          </div>
+        </div>
       </div>
     {/if}
     {#if running}
@@ -1128,5 +1181,80 @@
     margin-bottom: 12px;
     font-size: 14px;
     line-height: 1.5;
+  }
+
+  .export-group {
+    display: flex;
+    gap: 4px;
+  }
+
+  /* Remove radius from corners where buttons join */
+  .export-btn {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-right: -1px; /* overlap border */
+  }
+
+  .icon-btn {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    padding: 0 12px;
+    font-size: 16px;
+  }
+
+  .export-menu-wrapper {
+    position: relative;
+  }
+
+  .export-menu {
+    position: absolute;
+    bottom: 100%; /* Show above button because it's at bottom of panel */
+    right: 0;
+    margin-bottom: 8px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    min-width: 220px;
+    animation: fadeIn 0.15s ease-out;
+  }
+
+  .export-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    color: var(--text-color);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: normal;
+  }
+
+  .export-menu button:hover {
+    background: var(--bg-color);
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Invisible backdrop to simplify clicking outside */
+  .menu-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 99;
   }
 </style>
