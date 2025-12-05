@@ -854,15 +854,24 @@
               ⚙️
             </button>
             {#if showExportMenu}
-              <div class="export-menu">
-                <button onclick={selectProcessedAndExport}> ✅ Select Processed & Export </button>
-              </div>
               <!-- Backdrop to close menu -->
               <div
                 class="menu-backdrop"
                 onclick={() => (showExportMenu = false)}
                 role="presentation"
               ></div>
+              <div class="export-menu">
+                <div class="menu-header">
+                  <span>Export Options</span>
+                  <button class="close-btn" onclick={() => (showExportMenu = false)}>×</button>
+                </div>
+                <div class="menu-list">
+                  <button class="menu-item" onclick={selectProcessedAndExport}>
+                    <span class="icon">✅</span>
+                    <span class="text">Select Processed & Export</span>
+                  </button>
+                </div>
+              </div>
             {/if}
           </div>
         </div>
@@ -1056,6 +1065,13 @@
     flex-wrap: wrap;
   }
 
+  .button-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1; /* Allow group to take available space */
+  }
+
   button {
     padding: 12px 20px;
     border-radius: 8px;
@@ -1185,56 +1201,107 @@
 
   .export-group {
     display: flex;
-    gap: 4px;
+    align-items: stretch;
   }
 
-  /* Remove radius from corners where buttons join */
+  /* Split Button Styling */
   .export-btn {
     border-top-right-radius: 0;
     border-bottom-right-radius: 0;
-    margin-right: -1px; /* overlap border */
+    border-right: 1px solid rgba(0, 0, 0, 0.1);
+    margin-right: 0;
   }
 
   .icon-btn {
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
-    padding: 0 12px;
+    padding: 0 10px;
     font-size: 16px;
+    border-left: none; /* managed by export-btn border-right usually, or just visually merged */
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .export-menu-wrapper {
     position: relative;
   }
 
+  /* Dropdown Menu - GitHub Style */
   .export-menu {
     position: absolute;
-    bottom: 100%; /* Show above button because it's at bottom of panel */
+    bottom: 100%;
     right: 0;
     margin-bottom: 8px;
-    background: var(--surface-color);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 100;
-    min-width: 220px;
-    animation: fadeIn 0.15s ease-out;
+    background: #1c2128; /* Dark GitHub-like bg */
+    border: 1px solid #444c56;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    min-width: 250px;
+    animation: fadeIn 0.1s ease-out;
+    color: #adbac7; /* GitHub text color */
+    overflow: hidden;
   }
 
-  .export-menu button {
-    display: block;
+  .menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #2d333b; /* Slightly lighter header */
+    border-bottom: 1px solid #444c56;
+    color: #adbac7;
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    color: #adbac7;
+    font-size: 16px;
+    padding: 0;
+    cursor: pointer;
+    line-height: 1;
+    width: auto;
+    height: auto;
+    opacity: 0.7;
+  }
+
+  .close-btn:hover {
+    opacity: 1;
+    background: none;
+  }
+
+  .menu-list {
+    padding: 4px 0;
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     width: 100%;
     text-align: left;
     background: transparent;
-    color: var(--text-color);
-    padding: 10px 12px;
-    border-radius: 6px;
+    color: #adbac7;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 0;
     font-size: 14px;
     font-weight: normal;
+    cursor: pointer;
   }
 
-  .export-menu button:hover {
-    background: var(--bg-color);
+  .menu-item:hover {
+    background: #316dca; /* GitHub selection blue */
+    color: white;
+  }
+
+  .menu-item .icon {
+    font-size: 16px;
+    min-width: 20px;
   }
 
   @keyframes fadeIn {
@@ -1248,13 +1315,39 @@
     }
   }
 
-  /* Invisible backdrop to simplify clicking outside */
   .menu-backdrop {
     position: fixed;
     top: 0;
     left: 0;
     width: 100vw;
     height: 100vh;
-    z-index: 99;
+    z-index: 999;
+  }
+
+  /* Light mode override for split button borders if needed, 
+     though usually secondary buttons handle it. 
+     For the menu, GitHub usually implies strict design, but let's support light mode variables if app is light. 
+  */
+  @media (prefers-color-scheme: light) {
+    .export-menu {
+      background: #ffffff;
+      border-color: #d0d7de;
+      color: #24292f;
+    }
+    .menu-header {
+      background: #f6f8fa;
+      border-bottom-color: #d0d7de;
+      color: #24292f;
+    }
+    .close-btn {
+      color: #57606a;
+    }
+    .menu-item {
+      color: #24292f;
+    }
+    .menu-item:hover {
+      background: #0969da;
+      color: white;
+    }
   }
 </style>

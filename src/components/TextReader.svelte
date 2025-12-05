@@ -261,7 +261,6 @@
   })
 </script>
 
-```ts
 <div class="reader-page" data-theme={currentTheme}>
   <div class="reader-container">
     <!-- Header -->
