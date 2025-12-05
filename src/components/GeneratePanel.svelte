@@ -32,6 +32,8 @@
     selectedQuantization,
     selectedDevice,
     selectedModel = 'kokoro',
+    chapterStatus = $bindable(new Map()),
+    chapterErrors = $bindable(new Map()),
   } = $props<{
     book: EPubBook
     bookId?: number | null
@@ -40,6 +42,8 @@
     selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     selectedDevice: 'auto' | 'wasm' | 'webgpu' | 'cpu'
     selectedModel?: TTSModelType
+    chapterStatus?: Map<string, 'pending' | 'processing' | 'done' | 'error'>
+    chapterErrors?: Map<string, string>
   }>()
 
   const dispatch = createEventDispatcher()
@@ -243,6 +247,9 @@
   let totalChunks = $state(0)
   let overallProgress = $state(0)
 
+  // Chapter status tracking for UI feedback
+  // (Props defined at top of file)
+
   // Check WebGPU availability
   let webgpuAvailable = $state(isWebGPUAvailable())
 
@@ -293,6 +300,8 @@
       console.log(`Chapter ${i + 1} "${ch.title}": ${ch.content.length} characters`)
 
       try {
+        // Update status to processing
+        chapterStatus.set(ch.id, 'processing')
         // Use worker for TTS generation (non-blocking)
         const effectiveModel: TTSModelType = selectedModel
         // If Kokoro is selected ensure the voice is valid for Kokoro
@@ -333,13 +342,24 @@
         }
 
         generatedChapters.set(ch.id, blob)
+        chapterStatus.set(ch.id, 'done')
+        // Clear any previous error
+        if (chapterErrors.has(ch.id)) {
+          chapterErrors.delete(ch.id)
+        }
         dispatch('generated', { id: ch.id, blob })
       } catch (err) {
         if (canceled) break
         console.error('Synth error', err)
         const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+
+        // Update error state
+        chapterStatus.set(ch.id, 'error')
+        chapterErrors.set(ch.id, errorMsg)
+
+        // Don't alert blocking the pipeline, just log it
         if (!errorMsg.includes('Cancelled')) {
-          alert('Synthesis failed for chapter: ' + ch.title)
+          console.error(`Synthesis failed for chapter: ${ch.title}`, err)
         }
       }
     }
@@ -355,13 +375,8 @@
     else dispatch('done')
   }
 
-  async function generateAndConcatenate() {
+  async function generateAudio() {
     if (selectedModel === 'web_speech') return
-
-    if (selectedFormat === 'epub') {
-      await exportEpub()
-      return
-    }
 
     const selectedChapters = getSelectedChapters()
 
@@ -409,10 +424,6 @@
     // Only generate if we have chapters that need generation
     if (chaptersToGenerate.length > 0) {
       await generate(chaptersToGenerate)
-    }
-
-    if (!canceled && generatedChapters.size > 0) {
-      await concatenateAndDownload()
     }
   }
 
@@ -624,6 +635,29 @@
     }
   }
 
+  export async function retryChapter(chapterId: string) {
+    const chapter = book.chapters.find((c: Chapter) => c.id === chapterId)
+    if (chapter) {
+      // Clear error state before retrying
+      chapterStatus.set(chapterId, 'pending')
+      chapterErrors.delete(chapterId)
+      await generate([chapter])
+    }
+  }
+
+  async function exportAudio() {
+    // Ensure all audio is generated before exporting
+    await generateAudio()
+
+    if (canceled) return
+
+    if (selectedFormat === 'epub') {
+      await exportEpub()
+    } else {
+      await concatenateAndDownload()
+    }
+  }
+
   function cancel() {
     canceled = true
     const worker = getTTSWorker()
@@ -754,19 +788,32 @@
       <button class="primary" disabled> Generate Disabled </button>
     {:else}
       {@const selectedChapters = getSelectedChapters()}
-      {@const allGenerated = selectedChapters.every((ch) => generatedChapters.has(ch.id))}
-      <button
-        class="primary"
-        onclick={generateAndConcatenate}
-        disabled={running || concatenating || getSelectedChapters().length === 0}
-        aria-busy={running || concatenating}
-      >
-        {running || concatenating
-          ? '⏳ Processing...'
-          : allGenerated && generatedChapters.size > 0
-            ? '📥 Export with Current Format'
-            : '🎧 Generate & Download'}
-      </button>
+      {@const allGenerated =
+        selectedChapters.length > 0 && selectedChapters.every((ch) => generatedChapters.has(ch.id))}
+
+      <div class="button-group">
+        <button
+          class="primary"
+          onclick={generateAudio}
+          disabled={running || concatenating || selectedChapters.length === 0}
+          aria-busy={running}
+        >
+          {running ? '⏳ Generating...' : '🎧 Generate Audio'}
+        </button>
+
+        <button
+          class="secondary"
+          onclick={exportAudio}
+          disabled={running || concatenating || selectedChapters.length === 0}
+          aria-busy={concatenating}
+        >
+          {concatenating
+            ? '📦 Exporting...'
+            : allGenerated
+              ? `📥 Export ${selectedFormat.toUpperCase()}`
+              : `⚡ Generate & Export ${selectedFormat.toUpperCase()}`}
+        </button>
+      </div>
     {/if}
     {#if running}
       <button class="secondary" onclick={cancel} aria-label="Cancel generation"> ✕ Cancel </button>

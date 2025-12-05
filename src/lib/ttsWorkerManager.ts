@@ -186,7 +186,7 @@ export class TTSWorkerManager {
 
     // Use retry with backoff for generation
     return retryWithBackoff(execute, {
-      maxRetries: 2,
+      maxRetries: 3,
       initialDelay: 1000,
       maxDelay: 5000,
       shouldRetry: (error: Error) => {

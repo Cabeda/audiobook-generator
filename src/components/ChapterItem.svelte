@@ -9,14 +9,20 @@
     onRead,
     onDownloadWav,
     onDownloadMp3,
+    status,
+    error,
+    onRetry,
   } = $props<{
     chapter: Chapter
     selected?: boolean
     audioData?: { url: string; blob: Blob }
+    status?: 'pending' | 'processing' | 'done' | 'error'
+    error?: string | null
     onToggle: (id: string) => void
     onRead: (chapter: Chapter) => void
     onDownloadWav: (id: string) => void
     onDownloadMp3: (id: string) => void
+    onRetry?: (id: string) => void
   }>()
 
   function copy() {
@@ -68,6 +74,13 @@
       </button>
     </div>
   </div>
+
+  {#if status === 'error' && error}
+    <div class="error-container">
+      <span class="error-message">❌ {error}</span>
+      <button class="retry-btn" onclick={() => onRetry?.(chapter.id)}> 🔄 Retry </button>
+    </div>
+  {/if}
 
   {#if audioData}
     <div class="audio-controls">
@@ -259,5 +272,38 @@
     .download-actions {
       justify-content: flex-end;
     }
+  }
+
+  .error-container {
+    padding: 12px;
+    background-color: rgba(255, 59, 48, 0.1);
+    border: 1px solid var(--error-color, #ff3b30);
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .error-message {
+    color: var(--error-color, #ff3b30);
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+
+  .retry-btn {
+    background-color: var(--error-color, #ff3b30);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  .retry-btn:hover {
+    opacity: 0.9;
   }
 </style>

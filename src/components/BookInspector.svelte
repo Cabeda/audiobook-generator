@@ -10,6 +10,8 @@
     selectedQuantization,
     selectedDevice = 'auto',
     selectedModel = 'kokoro',
+    chapterStatus,
+    chapterErrors,
   } = $props<{
     book: Book
     generatedAudioMap?: Map<string, { url: string; blob: Blob }>
@@ -17,6 +19,8 @@
     selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     selectedDevice?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
     selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+    chapterStatus?: Map<string, 'pending' | 'processing' | 'done' | 'error'>
+    chapterErrors?: Map<string, string>
   }>()
 
   const dispatch = createEventDispatcher()
@@ -114,10 +118,13 @@
         chapter={ch}
         selected={selected.get(ch.id)}
         audioData={generatedAudioMap.get(ch.id)}
+        status={chapterStatus?.get(ch.id)}
+        error={chapterErrors?.get(ch.id)}
         onToggle={toggleChapter}
         onRead={openReader}
         onDownloadWav={(id) => dispatch('downloadwav', { id })}
         onDownloadMp3={(id) => dispatch('downloadmp3', { id })}
+        onRetry={(id) => dispatch('retry', { id })}
       />
     {/each}
   </div>

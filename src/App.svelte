@@ -7,6 +7,7 @@
   import TextReader from './components/TextReader.svelte'
   import type { Book } from './lib/types/book'
   import { piperClient } from './lib/piper/piperClient'
+  import type { TTSModelType } from './lib/tts/ttsModels'
 
   // Import stores
   import { book, selectedChapters, generatedAudio } from './stores/bookStore'
@@ -37,6 +38,11 @@
   type ViewType = 'landing' | 'book' | 'reader'
   let currentView = $state<ViewType>('landing')
   let currentChapter = $state<Chapter | null>(null)
+
+  // Chapter status tracking (lifted state)
+  let chapterStatus = $state(new Map<string, 'pending' | 'processing' | 'done' | 'error'>())
+  let chapterErrors = $state(new Map<string, string>())
+  let generatePanel = $state<ReturnType<typeof GeneratePanel> | null>(null)
 
   // Navigation handlers
   function navigateToReader(chapter: Chapter) {
@@ -300,7 +306,7 @@
   }
 
   // Helper to extract language from voice ID
-  function getVoiceLanguage(voice: string, model: 'kokoro' | 'piper'): string {
+  function getVoiceLanguage(voice: string, model: TTSModelType): string {
     if (model === 'kokoro') {
       return 'en' // All Kokoro voices are English
     } else {
@@ -479,10 +485,9 @@
     currentChapter = null
   }
 
-  onMount(async () => {
-    // Initialize route on load - MUST await this to prevent race condition
-    // where saved player state overrides the URL-based book loading
-    await applyRouteFromHash()
+  onMount(() => {
+    // Initialize route on load
+    applyRouteFromHash()
 
     // And handle back/forward navigation
     const handler = () => applyRouteFromHash()
@@ -624,6 +629,7 @@
 
       <div class="main-content">
         <GeneratePanel
+          bind:this={generatePanel}
           book={$book}
           bookId={$currentLibraryBookId}
           selectedMap={$selectedChapters}
@@ -631,6 +637,8 @@
           selectedQuantization={$selectedQuantization}
           selectedDevice={$selectedDevice}
           selectedModel={$selectedModel}
+          bind:chapterStatus
+          bind:chapterErrors
           on:generated={onGenerated}
           on:voicechanged={(e) => ($selectedVoice = e.detail.voice)}
           on:quantizationchanged={(e) => ($selectedQuantization = e.detail.quantization)}
@@ -644,10 +652,13 @@
           selectedQuantization={$selectedQuantization}
           selectedDevice={$selectedDevice}
           selectedModel={$selectedModel}
+          {chapterStatus}
+          {chapterErrors}
           on:selectionchanged={onSelectionChanged}
           on:readchapter={(e) => navigateToReader(e.detail.chapter)}
           on:downloadwav={(e) => downloadBlob(e.detail.id)}
           on:downloadmp3={(e) => downloadBlobAsMp3(e.detail.id)}
+          on:retry={(e) => generatePanel?.retryChapter(e.detail.id)}
         />
       </div>
     </div>
