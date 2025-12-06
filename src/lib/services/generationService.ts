@@ -705,6 +705,9 @@ class GenerationService {
         // Or calculate it here.
 
         // Use stored timing data from segments
+        // SMIL file is at: OEBPS/smil/{chapter.id}.smil
+        // XHTML is at: OEBPS/{chapter.id}.xhtml
+        // Audio is at: OEBPS/audio/{chapter.id}.mp3
         const smilPars = []
         for (let j = 0; j < segments.length; j++) {
           const s = segments[j]
@@ -712,7 +715,9 @@ class GenerationService {
           const clipEnd = s.startTime + s.duration
 
           smilPars.push({
+            // Path from smil/ folder: go up one level (..) then to the xhtml
             textSrc: `../${ch.id}.xhtml#seg-${s.index}`,
+            // Path from smil/ folder: go up one level then to audio/
             audioSrc: `../audio/${ch.id}.mp3`,
             clipBegin,
             clipEnd,
