@@ -57,3 +57,40 @@ export const lastPiperVoice = persistedWritable<string>(
   'en_US-hfc_female-medium'
 )
 export const lastWebSpeechVoice = persistedWritable<string>('audiobook_voice_webspeech', '')
+
+export interface VoiceOption {
+  id: string
+  label: string
+}
+
+export const availableVoices = writable<VoiceOption[]>([])
+
+export const voiceLabels: Record<string, string> = {
+  af_heart: '❤️ Heart (Female American)',
+  af_alloy: '🎵 Alloy (Female American)',
+  af_aoede: '🎭 Aoede (Female American)',
+  af_bella: '💫 Bella (Female American)',
+  af_jessica: '🌸 Jessica (Female American)',
+  af_kore: '🌺 Kore (Female American)',
+  af_nicole: '✨ Nicole (Female American)',
+  af_nova: '⭐ Nova (Female American)',
+  af_river: '🌊 River (Female American)',
+  af_sarah: '🌹 Sarah (Female American)',
+  af_sky: '☁️ Sky (Female American)',
+  am_adam: '👨 Adam (Male American)',
+  am_echo: '📢 Echo (Male American)',
+  am_eric: '🎤 Eric (Male American)',
+  am_liam: '🎸 Liam (Male American)',
+  am_michael: '🎩 Michael (Male American)',
+  am_onyx: '💎 Onyx (Male American)',
+  am_puck: '🎭 Puck (Male American)',
+  am_santa: '🎅 Santa (Male American)',
+  bf_emma: '🇬🇧 Emma (Female British)',
+  bf_isabella: '🇬🇧 Isabella (Female British)',
+  bf_alice: '🇬🇧 Alice (Female British)',
+  bf_lily: '🇬🇧 Lily (Female British)',
+  bm_george: '🇬🇧 George (Male British)',
+  bm_lewis: '🇬🇧 Lewis (Male British)',
+  bm_daniel: '🇬🇧 Daniel (Male British)',
+  bm_fable: '🇬🇧 Fable (Male British)',
+}
