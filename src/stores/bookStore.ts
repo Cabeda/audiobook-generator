@@ -17,6 +17,13 @@ export type ChapterStatus = 'pending' | 'processing' | 'done' | 'error'
 export const chapterStatus = writable(new Map<string, ChapterStatus>())
 export const chapterErrors = writable(new Map<string, string>())
 
+export interface ChapterProgress {
+  current: number
+  total: number
+  message?: string
+}
+export const chapterProgress = writable(new Map<string, ChapterProgress>())
+
 // Helper to get selected chapter IDs
 export const selectedChapterIds = derived(selectedChapters, ($selectedChapters) => {
   return Array.from($selectedChapters.entries())
@@ -45,11 +52,13 @@ book.subscribe((b) => {
     // Clear other maps
     generatedAudio.set(new Map())
     chapterErrors.set(new Map())
+    chapterProgress.set(new Map())
     selectedChapters.set(new Map(b.chapters.map((c) => [c.id, true])))
   } else {
     chapterStatus.set(new Map())
     generatedAudio.set(new Map())
     chapterErrors.set(new Map())
+    chapterProgress.set(new Map())
     selectedChapters.set(new Map())
   }
 })

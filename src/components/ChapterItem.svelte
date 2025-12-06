@@ -12,6 +12,7 @@
     status,
     error,
     onRetry,
+    progress,
   } = $props<{
     chapter: Chapter
     selected?: boolean
@@ -23,6 +24,7 @@
     onDownloadWav: (id: string) => void
     onDownloadMp3: (id: string) => void
     onRetry?: (id: string) => void
+    progress?: { current: number; total: number; message?: string }
   }>()
 
   function copy() {
@@ -56,6 +58,11 @@
     </div>
 
     <div class="card-actions">
+      {#if status === 'processing'}
+        <div class="spinner-container">
+          <span class="spinner" aria-hidden="true"></span>
+        </div>
+      {/if}
       <button
         class="action-btn"
         onclick={() => onRead(chapter)}
@@ -74,6 +81,29 @@
       </button>
     </div>
   </div>
+
+  {#if status === 'processing'}
+    <div class="progress-details">
+      {#if progress?.total}
+        <div class="progress-bar-bg">
+          <div
+            class="progress-fill"
+            style="width: {(progress.current / progress.total) * 100}%"
+          ></div>
+        </div>
+        <div class="progress-text">
+          <span>Generating chunk {progress.current} of {progress.total}</span>
+          {#if progress.message}
+            <span class="progress-sub">{progress.message}</span>
+          {/if}
+        </div>
+      {:else}
+        <div class="progress-text">
+          {progress?.message || 'Preparing generation...'}
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   {#if status === 'error' && error}
     <div class="error-container">
@@ -305,5 +335,62 @@
 
   .retry-btn:hover {
     opacity: 0.9;
+  }
+
+  .spinner-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color, #3b82f6);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  .progress-details {
+    margin-top: 8px;
+    padding: 12px;
+    background: var(--bg-color);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+  }
+
+  .progress-bar-bg {
+    height: 6px;
+    background: var(--border-color);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--primary-color, #3b82f6);
+    transition: width 0.3s ease;
+  }
+
+  .progress-text {
+    font-size: 0.85rem;
+    color: var(--secondary-text);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .progress-sub {
+    font-size: 0.8rem;
+    opacity: 0.8;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

@@ -6,6 +6,7 @@
     selectedChapters,
     chapterStatus,
     chapterErrors,
+    chapterProgress,
     generatedAudio,
     selectedChapterIds,
   } from '../stores/bookStore'
@@ -159,6 +160,19 @@
               <option value={voice.id}>{voice.label}</option>
             {/each}
           </select>
+
+          {#if $selectedModel === 'kokoro'}
+            <select
+              bind:value={$selectedDevice}
+              disabled={isGenerating}
+              class="premium-select"
+              title="Execution Device"
+            >
+              <option value="auto">Auto (Best)</option>
+              <option value="webgpu">WebGPU (Fast)</option>
+              <option value="wasm">WASM (CPU)</option>
+            </select>
+          {/if}
         </div>
       </div>
 
@@ -188,6 +202,7 @@
             selected={selections.get(chapter.id)}
             status={statusMap.get(chapter.id)}
             error={errorsMap.get(chapter.id)}
+            progress={$chapterProgress.get(chapter.id)}
             audioData={audioMap.get(chapter.id)}
             onToggle={toggleChapter}
             onRead={handleRead}

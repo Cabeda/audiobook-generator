@@ -10,7 +10,13 @@ import {
   availableVoices,
   voiceLabels,
 } from '../../stores/ttsStore'
-import { chapterStatus, chapterErrors, generatedAudio } from '../../stores/bookStore'
+import {
+  chapterStatus,
+  chapterErrors,
+  generatedAudio,
+  chapterProgress,
+  book,
+} from '../../stores/bookStore'
 import { listVoices as listKokoroVoices } from '../kokoro/kokoroClient'
 import {
   concatenateAudioChapters,
@@ -21,6 +27,9 @@ import {
 import { EpubGenerator, type EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { audioLikeToBlob } from '../audioConcat'
+import { saveChapterSegments } from '../libraryDB'
+import type { AudioSegment } from '../types/audio'
+import { generateVoiceStream } from '../kokoro/kokoroClient'
 
 class GenerationService {
   private running = false
@@ -82,31 +91,141 @@ class GenerationService {
         }
 
         try {
-          const blob = await worker.generateVoice({
-            text: ch.content,
-            modelType: model as 'kokoro' | 'piper',
-            voice: effectiveVoice,
-            dtype: model === 'kokoro' ? currentQuantization : undefined,
-            device: currentDevice,
-            onProgress: (msg) => {
-              // We could expose fine-grained progress in a store if needed
-            },
-          })
+          if (model === 'kokoro') {
+            // Segment-based generation for Kokoro
+            // Cast effectiveVoice to VoiceId to satisfy type, assuming validation happened earlier
+            logger.info(
+              `[Generation] Starting Kokoro stream for chapter ${ch.id} with voice ${effectiveVoice}`
+            )
 
-          if (this.canceled) break
-
-          // Success
-          generatedAudio.update((m) => {
-            const newMap = new Map(m)
-            if (m.has(ch.id)) {
-              URL.revokeObjectURL(m.get(ch.id)!.url)
-            }
-            newMap.set(ch.id, {
-              url: URL.createObjectURL(blob),
-              blob,
+            const stream = generateVoiceStream({
+              text: ch.content,
+              voice: effectiveVoice as VoiceId,
+              speed: 1.0,
+              dtype: currentQuantization,
+              device: currentDevice,
             })
-            return newMap
-          })
+
+            const segments: AudioSegment[] = []
+            let index = 0
+
+            // Estimate sentence count for progress (rough estimate)
+            const estimatedSentences = ch.content.split(/[.!?]+/).length
+
+            chapterProgress.update((m) =>
+              new Map(m).set(ch.id, {
+                current: 0,
+                total: estimatedSentences,
+                message: 'Initializing stream...',
+              })
+            )
+
+            for await (const chunk of stream) {
+              if (this.canceled) break
+
+              const segment: AudioSegment = {
+                id: `${ch.id}-${index}`,
+                chapterId: ch.id,
+                index: index++,
+                text: chunk.text,
+                audioBlob: chunk.audio,
+              }
+              segments.push(segment)
+
+              // Update progress with more detail
+              chapterProgress.update((m) => {
+                return new Map(m).set(ch.id, {
+                  current: index,
+                  total: estimatedSentences,
+                  message: `Generating sentence ${index} of ~${estimatedSentences}`,
+                })
+              })
+            }
+
+            if (this.canceled) break
+
+            chapterProgress.update((m) =>
+              new Map(m).set(ch.id, {
+                current: segments.length,
+                total: segments.length,
+                message: 'Finalizing audio...',
+              })
+            )
+
+            // Save segments to DB
+            // Use type assertion for book ID as we know it exists if we are generating
+            const currentBook = get(book)
+            if (currentBook) {
+              // The LibraryBook interface has optional number id, but Book has string id.
+              // We will try to parse it, or default to 0 (which might fail DB constraint, but let's assume valid ID)
+              // If the book is from file import it might not have numeric ID yet?
+              // Wait, saving segments requires a numeric bookId for the IndexedDB key.
+              // If currentBook.id is a string UUID (from import) and not saved to library, we have a problem.
+              // However, onBookLoaded now saves to library so we should have numeric ID.
+              // We'll rely on currentBook having an 'id' that is numeric or string-numeric.
+              // Let's cast loosely for now or check if it is "LibraryBook"
+              const bookId = Number(currentBook.id) || 0
+              await saveChapterSegments(bookId, ch.id, segments)
+            }
+
+            // Concatenate for backward compatibility (Play/Download)
+            const audioChapters: AudioChapter[] = segments.map((s) => ({
+              id: s.id,
+              title: `Segment ${s.index}`,
+              blob: s.audioBlob,
+            }))
+
+            const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
+
+            // Save full audio
+            generatedAudio.update((m) => {
+              const newMap = new Map(m)
+              if (m.has(ch.id)) {
+                URL.revokeObjectURL(m.get(ch.id)!.url)
+              }
+              newMap.set(ch.id, {
+                url: URL.createObjectURL(fullBlob),
+                blob: fullBlob,
+              })
+              return newMap
+            })
+          } else {
+            // Legacy/Worker path for Piper (or fallback)
+            const blob = await worker.generateVoice({
+              text: ch.content,
+              modelType: model as 'kokoro' | 'piper',
+              voice: effectiveVoice,
+              dtype: model === 'kokoro' ? currentQuantization : undefined,
+              device: currentDevice,
+              onProgress: (msg) => {
+                chapterProgress.update((m) => {
+                  const current = m.get(ch.id) || { current: 0, total: 0 }
+                  return new Map(m).set(ch.id, { ...current, message: msg })
+                })
+              },
+              onChunkProgress: (current, total) => {
+                chapterProgress.update((m) => {
+                  const existing = m.get(ch.id) || { message: 'Generating...' }
+                  return new Map(m).set(ch.id, { ...existing, current, total })
+                })
+              },
+            })
+
+            if (this.canceled) break
+
+            // Success
+            generatedAudio.update((m) => {
+              const newMap = new Map(m)
+              if (m.has(ch.id)) {
+                URL.revokeObjectURL(m.get(ch.id)!.url)
+              }
+              newMap.set(ch.id, {
+                url: URL.createObjectURL(blob),
+                blob,
+              })
+              return newMap
+            })
+          }
 
           chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
           chapterErrors.update((m) => {
