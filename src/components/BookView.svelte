@@ -85,6 +85,11 @@
     }
   }
 
+  function handleCancel() {
+    generationService.cancel()
+    isGenerating = false
+  }
+
   function handleRetry(id: string) {
     if (!$book) return
     const ch = $book.chapters.find((c) => c.id === id)
@@ -200,7 +205,12 @@
           <option value="wav">WAV</option>
           <option value="epub">EPUB (Media Overlays)</option>
         </select>
-        <button class="text-btn export-btn" onclick={handleExport}> 📥 Export </button>
+        <button class="text-btn export-btn" onclick={handleExport} disabled={isGenerating}>
+          📥 Export
+        </button>
+        {#if isGenerating}
+          <button class="cancel-btn" onclick={handleCancel}> ✕ Cancel </button>
+        {/if}
         <button
           class="primary-btn generate-btn"
           class:loading={isGenerating}
@@ -502,5 +512,21 @@
   .setting-group label span {
     font-size: 0.85rem;
     color: var(--secondary-text);
+  }
+
+  .cancel-btn {
+    background: var(--error-bg, #fee);
+    color: var(--error-text, #c00);
+    border: 1px solid var(--error-border, #fcc);
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .cancel-btn:hover {
+    background: var(--error-text, #c00);
+    color: white;
   }
 </style>
