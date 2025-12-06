@@ -225,6 +225,42 @@ export async function updateLastAccessed(id: number): Promise<void> {
 }
 
 /**
+ * Update the content of a specific chapter
+ */
+export async function updateChapterContent(
+  bookId: number,
+  chapterId: string,
+  newContent: string
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get(bookId)
+
+    request.onsuccess = () => {
+      const book = request.result as LibraryBook
+      if (book) {
+        const chapterIndex = book.chapters.findIndex((c) => c.id === chapterId)
+        if (chapterIndex !== -1) {
+          book.chapters[chapterIndex].content = newContent
+          store.put(book)
+          resolve()
+        } else {
+          reject(new Error('Chapter not found'))
+        }
+      } else {
+        reject(new Error('Book not found'))
+      }
+    }
+
+    request.onerror = () => reject(new Error('Failed to get book for updating content'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
  * Delete a book from the library
  */
 export async function deleteBook(id: number): Promise<void> {
@@ -264,6 +300,44 @@ export async function searchBooks(query: string): Promise<BookMetadata[]> {
       book.title.toLowerCase().includes(lowerQuery) ||
       book.author.toLowerCase().includes(lowerQuery)
   )
+}
+/**
+ * Check generation status for all chapters in a book
+ * Returns a Set of chapter IDs that have generated segments
+ */
+export async function getBookGenerationStatus(bookId: number): Promise<Set<string>> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    // Check segments store
+    if (!db.objectStoreNames.contains(SEGMENT_STORE_NAME)) {
+      resolve(new Set())
+      return
+    }
+
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    const index = store.index('bookId')
+    const request = index.getAllKeys(IDBKeyRange.only(bookId))
+
+    request.onsuccess = () => {
+      const result = request.result
+      const generatedChapterIds = new Set<string>()
+
+      // Result is array of keys: [bookId, chapterId, index]
+      for (const key of result) {
+        if (Array.isArray(key) && key.length >= 2) {
+          generatedChapterIds.add(key[1] as string)
+        }
+      }
+      resolve(generatedChapterIds)
+    }
+
+    request.onerror = () => {
+      console.warn('Failed to check generation status', request.error)
+      resolve(new Set()) // Fail safe
+    }
+  })
 }
 
 /**

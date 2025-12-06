@@ -2,6 +2,8 @@ import { getTTSWorker } from './ttsWorkerManager'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import type { Chapter } from './types/book'
+import { getChapterSegments } from './libraryDB'
+import type { AudioSegment } from './types/audio'
 
 interface TextSegment {
   index: number
@@ -14,11 +16,12 @@ class AudioPlaybackService {
   currentSegmentIndex = $state(-1)
   currentTime = $state(0)
   duration = $state(0)
+  segments = $state<TextSegment[]>([])
 
   // Audio & Data
   private audio: HTMLAudioElement | null = null
   private speechUtterance: SpeechSynthesisUtterance | null = null
-  private segments: TextSegment[] = []
+  // private segments: TextSegment[] = [] // Moved to state public property
   private audioSegments = new Map<number, string>() // index -> blob URL
   private segmentDurations = new Map<number, number>() // index -> seconds
   private wordsPerSegment: number[] = []
@@ -55,7 +58,7 @@ class AudioPlaybackService {
   }
 
   // Initialize with a chapter
-  initialize(
+  async initialize(
     bookId: number | null,
     bookTitle: string,
     chapter: Chapter,
@@ -75,24 +78,51 @@ class AudioPlaybackService {
   ) {
     this.stop() // Stop previous playback
 
-    this.segments = this.splitIntoSegments(chapter.content)
-    // Compute words per segment & estimated chapter duration
-    this.wordsPerSegment = this.segments.map(
-      (s) => s.text.trim().split(/\s+/).filter(Boolean).length
-    )
-    this.totalWords = this.wordsPerSegment.reduce((a, b) => a + b, 0)
-    this.wordsMeasured = 0
-    this.segmentDurations.clear()
-    // Heuristic words per minute for speech (adjustable/tunable)
-    const WORDS_PER_MINUTE = 160
-    const wordsPerSecond = WORDS_PER_MINUTE / 60
-    const estimateSeconds = this.totalWords / (wordsPerSecond || 1)
-    audioPlayerStore.setChapterDuration(estimateSeconds)
     this.voice = settings.voice
     this.quantization = settings.quantization
     this.device = settings.device || 'auto'
     this.selectedModel = settings.selectedModel || 'kokoro'
     this.playbackSpeed = settings.playbackSpeed || 1.0
+
+    // Check for existing segments in DB
+    let dbSegments: AudioSegment[] = []
+    if (bookId) {
+      try {
+        dbSegments = await getChapterSegments(bookId, chapter.id)
+      } catch (e) {
+        logger.warn('Failed to load segments from DB', e)
+      }
+    }
+
+    if (dbSegments.length > 0) {
+      logger.info(`Loaded ${dbSegments.length} segments from DB for chapter ${chapter.id}`)
+      this.segments = dbSegments.map((s) => ({ index: s.index, text: s.text }))
+
+      // Hydrate audio map
+      for (const s of dbSegments) {
+        this.audioSegments.set(s.index, URL.createObjectURL(s.audioBlob))
+        // We'll lazy load durations as we play or if we walk them
+      }
+    } else {
+      // Fallback to local splitting logic
+      this.segments = this.splitIntoSegments(chapter.content)
+    }
+
+    // Compute words per segment & estimated chapter duration
+    this.wordsPerSegment = this.segments.map(
+      (s) => s.text.trim().split(/\s+/).filter(Boolean).length
+    )
+    this.totalWords = this.wordsPerSegment.reduce((a, b) => a + b, 0)
+    // ... rest of init logic (reset state, store init)
+
+    this.wordsMeasured = 0
+    this.segmentDurations.clear()
+
+    // Heuristic words per minute for speech (adjustable/tunable)
+    const WORDS_PER_MINUTE = 160
+    const wordsPerSecond = WORDS_PER_MINUTE / 60
+    const estimateSeconds = this.totalWords / (wordsPerSecond || 1)
+    audioPlayerStore.setChapterDuration(estimateSeconds)
 
     this.currentSegmentIndex = 0
     this.currentTime = 0
@@ -104,10 +134,6 @@ class AudioPlaybackService {
     this.duration = 0
     this.isPlaying = false
 
-    // Clear old audio segments
-    this.audioSegments.clear()
-    this.segmentDurations.clear()
-
     // Initialize store
     audioPlayerStore.startPlayback(
       bookId,
@@ -118,23 +144,27 @@ class AudioPlaybackService {
       options?.startMinimized ?? false
     )
 
-    // If we have a starting segment index, ensure it's generated and create an audio element
+    // If we have a starting segment index, ensure it's generated (if not already loaded) and create audio element
     if (options?.startSegmentIndex !== undefined) {
       const index = options.startSegmentIndex
 
       if (this.selectedModel === 'web_speech') {
         // For web speech, we just set the index and let play() handle it
-        // No pre-generation needed
       } else {
-        // Generate segment in background
-        this.generateSegment(index).catch((e) =>
-          logger.debug('Failed to generate initial segment:', e)
-        )
+        // Generate segment in background if needed (already loaded if from DB)
+        if (!this.audioSegments.has(index)) {
+          this.generateSegment(index).catch((e) =>
+            logger.debug('Failed to generate initial segment:', e)
+          )
+        }
+
         // Prepare audio element but do not play
         const prepareAudio = async () => {
           try {
             // We need to wait for the segment to be available
-            await this.generateSegment(index)
+            if (!this.audioSegments.has(index)) {
+              await this.generateSegment(index)
+            }
             const url = this.audioSegments.get(index)
             if (!url) return
             if (this.audio) {

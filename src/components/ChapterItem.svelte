@@ -65,7 +65,12 @@
       {/if}
       <button
         class="action-btn"
+        class:disabled={status !== 'done'}
+        disabled={status !== 'done'}
         onclick={() => onRead(chapter)}
+        title={status === 'done'
+          ? `Read chapter: ${chapter.title}`
+          : 'Generate audio to read with sync'}
         aria-label={`Read chapter: ${chapter.title}`}
       >
         <span class="icon" aria-hidden="true">📖</span> Read
@@ -107,7 +112,24 @@
 
   {#if status === 'error' && error}
     <div class="error-container">
-      <span class="error-message">❌ {error}</span>
+      <details class="error-details">
+        <summary class="error-summary">
+          <span class="error-icon">❌</span>
+          <span class="error-title">Generation Failed</span>
+        </summary>
+        <div class="error-content">
+          <pre class="error-text">{error}</pre>
+          <button
+            class="copy-error-btn"
+            onclick={(e) => {
+              e.stopPropagation() // Prevent row selection if needed
+              navigator.clipboard.writeText(error).then(() => alert('Error copied to clipboard'))
+            }}
+          >
+            📋 Copy Error
+          </button>
+        </div>
+      </details>
       <button class="retry-btn" onclick={() => onRetry?.(chapter.id)}> 🔄 Retry </button>
     </div>
   {/if}
@@ -225,6 +247,20 @@
     color: var(--text-color);
   }
 
+  .action-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--surface-color);
+    border-color: var(--border-color);
+    color: var(--secondary-text);
+  }
+
+  .action-btn:disabled:hover {
+    background: var(--surface-color);
+    border-color: var(--border-color);
+    color: var(--secondary-text);
+  }
+
   .action-btn.icon-only {
     padding: 8px;
   }
@@ -337,6 +373,62 @@
     opacity: 0.9;
   }
 
+  .error-container {
+    margin-top: 8px;
+    padding: 8px;
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    color: #ef4444;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .error-details {
+    width: 100%;
+  }
+
+  .error-summary {
+    cursor: pointer;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .error-content {
+    margin-top: 8px;
+    background: #fff;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #fca5a5;
+  }
+
+  .error-text {
+    font-family: monospace;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 150px;
+    overflow-y: auto;
+    margin: 0 0 8px 0;
+    color: #b91c1c;
+  }
+
+  .copy-error-btn {
+    font-size: 0.8rem;
+    padding: 4px 8px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #b91c1c;
+  }
+
+  .copy-error-btn:hover {
+    background: #fee2e2;
+  }
   .spinner-container {
     display: flex;
     align-items: center;

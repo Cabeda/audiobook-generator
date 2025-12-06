@@ -22,6 +22,7 @@ type WorkerRequest = {
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   model?: string
   device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
+  advancedSettings?: Record<string, any>
 }
 
 type ChunkProgress = {
@@ -60,6 +61,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     model,
     dtype,
     device = 'auto',
+    advancedSettings = {},
   } = event.data
 
   console.log('[Worker] Received message:', type, id)
@@ -89,6 +91,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           model,
           dtype,
           device,
+          ...advancedSettings,
         },
         (current, total) => {
           // Send chunk progress update
@@ -152,6 +155,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           model,
           dtype,
           device,
+          ...advancedSettings,
         },
         (current, total) => {
           self.postMessage({

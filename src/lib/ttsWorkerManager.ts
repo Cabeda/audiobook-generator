@@ -20,6 +20,7 @@ type WorkerRequest = {
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   model?: string
   device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
+  advancedSettings?: Record<string, any>
 }
 
 type WorkerResponse =
@@ -150,6 +151,7 @@ export class TTSWorkerManager {
     dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     model?: string
     device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
+    advancedSettings?: Record<string, any>
   }): Promise<Blob> {
     // Helper to execute the request
     const execute = async () => {
@@ -178,6 +180,7 @@ export class TTSWorkerManager {
           dtype: options.dtype,
           model: options.model,
           device: options.device,
+          advancedSettings: options.advancedSettings,
         }
 
         this.worker!.postMessage(request)

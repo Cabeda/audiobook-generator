@@ -42,6 +42,14 @@ export const selectedChaptersWithData = derived(
 
 // Reset derived stores when book changes
 // Must be defined after all stores are initialized
+// Helper to get selected chapter IDs
+// ... imports need to be updated to include getBookGenerationStatus and currentLibraryBookId logic if we want auto-hydration
+// But we cannot easily import currentLibraryBookId here due to potential circular dependencies if libraryStore imports bookStore.
+// Instead, let's expose a rehydration function.
+import { getBookGenerationStatus } from '../lib/libraryDB'
+
+// ... existing code ...
+
 book.subscribe((b) => {
   if (b) {
     // Initialize status for new book
@@ -54,6 +62,39 @@ book.subscribe((b) => {
     chapterErrors.set(new Map())
     chapterProgress.set(new Map())
     selectedChapters.set(new Map(b.chapters.map((c) => [c.id, true])))
+
+    // Hydrate status from DB (if book has an ID that matches library)
+    // We assume if book object has 'id' property that matches library ID, we can check.
+    // The `Book` interface in types/book usually doesn't have `id` as database ID, but `LibraryBook` does.
+    // Let's cast and check.
+    const libBook = b as any
+    if (libBook.id && typeof libBook.id === 'number') {
+      getBookGenerationStatus(libBook.id).then((generatedIds) => {
+        chapterStatus.update((map) => {
+          generatedIds.forEach((id) => map.set(id, 'done'))
+          return map
+        })
+        // Also need to update generatedAudio map?
+        // Actually, generatedAudio contains Blobs. We don't want to load them all.
+        // But UI might depend on 'generatedAudio.has(id)' for some buttons (like Play locally).
+        // The new TextReader uses audioService which loads from DB.
+        // The GeneratePanel uses generatedAudio to enable "Download" or "Play".
+        // If we don't populate generatedAudio, "Play" button in ChapterItem might not appear or work?
+        // ChapterItem checks `audioData={audioMap.get(chapter.id)}`.
+        // So for purely visual "Done" status, chapterStatus is enough.
+        // For playback, we might need a way to say "it's available".
+        // However, loading ALL blobs is heavy.
+        // Ideally, ChapterItem should knowing it CAN play if status is done, and verify with audioService.
+        // But ChapterItem uses <audio src=blob>.
+        // We should arguably NOT load all audio blobs.
+        // Let's stick to chapterStatus for now, effectively enabling "Read" in TextReader, which loads segments on demand.
+        // For "Play" in list view (ChapterItem), it expects a Blob URL.
+        // If we want that to work without re-generating, we'd need to fetch audio.
+        // But we have segments now, not a single mp3/wav blob per chapter (unless we concat).
+        // So ChapterItem's local player might be legacy or need update.
+        // TextReader is the primary experience now.
+      })
+    }
   } else {
     chapterStatus.set(new Map())
     generatedAudio.set(new Map())

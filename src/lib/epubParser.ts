@@ -28,15 +28,40 @@ export class EpubParser implements BookParser {
 }
 
 function cleanHtml(html: string): string {
-  let text = html.replace(/<[^>]*>/g, ' ')
-  text = text
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-  return text.replace(/\s+/g, ' ').trim()
+  // We now preserve structure tags but strip potentially dangerous or structural-breaking ones (like script, style, nav, footer, header if needed, but usually guide refs point to body content)
+  // Simple sanitation: remove script, style, object, embed, iframe, form, input, button
+  // We keep: p, div, h1-h6, span, br, b, i, em, strong, u, ul, ol, li, blockquote, img (maybe?)
+
+  // First, parse it to DOM to process safely
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(html, 'text/html')
+
+  // Remove unwanted elements
+  const toRemove = doc.querySelectorAll(
+    'script, style, link, meta, title, head, iframe, object, embed, form, button, input, textarea, select, svg'
+  )
+  toRemove.forEach((el) => el.remove())
+
+  // Unwrap unwanted containers but keep text? Or just remove?
+  // Let's keep it simple: The body innerHTML is mostly what we want, but cleaned.
+
+  // Remove attributes that might interfere (onclick, style usually not needed but maybe keep style?)
+  // For safety and clean look: strip all attributes except maybe src for images?
+  // Let's strip attributes for now to ensure clean styling via our CSS.
+  // Exception: keep 'src', 'href' if we want links (links might navigate away, so maybe strip href too or target blank?)
+  // For 'TextReader', simple structure is best.
+
+  const allElements = doc.body.querySelectorAll('*')
+  allElements.forEach((el) => {
+    // Keep only specific attributes if needed
+    // Remove inline styles to respect our theme
+    el.removeAttribute('style')
+    el.removeAttribute('class') // Strip classes to use our own or default
+    el.removeAttribute('id') // We will generate our own IDs
+    el.removeAttribute('onclick')
+  })
+
+  return doc.body.innerHTML
 }
 
 function extractChapterTitle(

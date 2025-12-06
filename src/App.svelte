@@ -181,10 +181,63 @@
       }
     }
 
-    // Hash Routing (simplified)
-    const handleHash = () => {
-      // Basic hash handling to restore view
+    // Hash Routing for persistence
+    const handleHash = async () => {
+      const hash = location.hash
+      if (!hash || hash === '#/') {
+        // Landing page
+        if (currentView !== 'landing' && !$book) {
+          currentView = 'landing'
+        }
+        return
+      }
+
+      // Parse hash: #/book/:id or #/reader/:id/:chapterId
+      const match = hash.match(/^#\/(book|reader)\/([^/]+)(?:\/(.+))?$/)
+      if (!match) return
+
+      const [, view, bookId, chapterId] = match
+
+      // Load book if not already loaded or different book
+      if (bookId !== 'unsaved') {
+        const id = parseInt(bookId, 10)
+        if (!isNaN(id)) {
+          // Check if we need to load
+          const needsLoad = !$book || $currentLibraryBookId !== id
+          if (needsLoad) {
+            try {
+              const { getBook } = await import('./lib/libraryDB')
+              const loadedBook = await getBook(id)
+              if (loadedBook) {
+                book.set(loadedBook)
+                currentLibraryBookId.set(id)
+              }
+            } catch (e) {
+              console.error('Failed to load book from hash:', e)
+              location.hash = '#/'
+              return
+            }
+          }
+        }
+      }
+
+      // Navigate to the correct view
+      if (view === 'book') {
+        currentView = 'book'
+        currentChapter = null
+      } else if (view === 'reader' && chapterId && $book) {
+        const decodedChapterId = decodeURIComponent(chapterId)
+        const chapter = $book.chapters.find((c) => c.id === decodedChapterId)
+        if (chapter) {
+          currentChapter = chapter
+          currentView = 'reader'
+        }
+      }
     }
+
+    // Initial hash handling
+    handleHash()
+
     window.addEventListener('hashchange', handleHash)
     return () => window.removeEventListener('hashchange', handleHash)
   })

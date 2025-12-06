@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack, onMount } from 'svelte'
   import { fade } from 'svelte/transition'
+  import { get } from 'svelte/store'
   import type { Chapter } from '../lib/types/book'
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
@@ -29,13 +30,6 @@
     onChapterChange?: (chapter: Chapter) => void
   }>()
 
-  interface TextSegment {
-    index: number
-    text: string
-  }
-
-  // Local state for rendering
-  let segments = $state<TextSegment[]>([])
   const SPEED_KEY = 'text_reader_speed'
 
   // Initialize from localStorage if available
@@ -47,16 +41,6 @@
     // ignore
   }
 
-  // Split text into segments (sentences)
-  function splitIntoSegments(text: string): TextSegment[] {
-    const sentences = text.split(/(?<=[.!?])\s+/)
-    return sentences
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .map((text, index) => ({ index, text }))
-  }
-
-  // Initialize
   // Settings menu state
   let showSettings = $state(false)
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
@@ -96,14 +80,15 @@
   // Initialize
   $effect(() => {
     if (chapter) {
-      segments = splitIntoSegments(chapter.content)
+      const cId = chapter.id
+      const bId = bookId
 
       // Check if we need to initialize the service
-      // Use untrack to read store without subscribing (prevents infinite loop)
+      // Use untrack and get() to read store without subscribing
       const needsInit = untrack(() => {
-        const store = $audioPlayerStore
+        const store = get(audioPlayerStore)
         // If the player is already set up for this chapter, don't re-initialize
-        if (store.bookId === bookId && store.chapterId === chapter.id) {
+        if (store.bookId === bId && store.chapterId === cId) {
           return false
         }
         return true
@@ -116,7 +101,7 @@
         const currentModel = untrack(() => $modelStore)
         const currentVoice = untrack(() => $voiceStore)
 
-        audioService.initialize(bookId, bookTitle, chapter, {
+        audioService.initialize(bId, bookTitle, chapter, {
           voice: currentVoice,
           quantization,
           device,
@@ -142,7 +127,7 @@
     const newVoice = $voiceStore
 
     // Only react to changes if we're already playing/initialized
-    const store = untrack(() => $audioPlayerStore)
+    const store = untrack(() => get(audioPlayerStore))
     if (store.chapterId !== chapter.id) return
 
     // Skip if tracked values haven't been initialized yet (first run)
@@ -176,14 +161,34 @@
   $effect(() => {
     const index = audioService.currentSegmentIndex
     if (index >= 0) {
+      updateActiveSegment(index)
       scrollToSegment(index)
     }
   })
 
+  // Ensure initial highlight if already playing
+  $effect(() => {
+    if (audioService.isPlaying && audioService.currentSegmentIndex >= 0) {
+      updateActiveSegment(audioService.currentSegmentIndex)
+    }
+  })
+
+  function updateActiveSegment(index: number) {
+    // Remove active class from all segments
+    const active = document.querySelectorAll('.segment.active')
+    active.forEach((el) => el.classList.remove('active'))
+
+    // Add to current
+    const el = document.getElementById(`seg-${index}`)
+    if (el) {
+      el.classList.add('active')
+    }
+  }
+
   function scrollToSegment(index: number) {
     requestAnimationFrame(() => {
-      const element = document.getElementById(`segment-${index}`)
-      const container = document.querySelector('.reader-container') // Updated selector
+      const element = document.getElementById(`seg-${index}`)
+      const container = document.querySelector('.reader-container')
 
       if (element && container) {
         const elementRect = element.getBoundingClientRect()
@@ -203,16 +208,17 @@
     })
   }
 
-  function togglePlayPause() {
-    audioService.togglePlayPause()
-  }
-
-  function pause() {
-    audioService.pause()
-  }
-
-  function stop() {
-    audioService.stop()
+  function handleContentClick(event: MouseEvent) {
+    showSettings = false
+    const target = event.target as HTMLElement
+    // Check if clicked element is a segment or inside one
+    const segmentEl = target.closest('.segment')
+    if (segmentEl && segmentEl.id.startsWith('seg-')) {
+      const index = parseInt(segmentEl.id.replace('seg-', ''), 10)
+      if (!isNaN(index)) {
+        audioService.playFromSegment(index)
+      }
+    }
   }
 
   function handleClose() {
@@ -273,28 +279,12 @@
     <!-- Text Content -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="text-content" role="main" onclick={() => (showSettings = false)}>
-      {#each segments as segment (segment.index)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <span
-          id="segment-{segment.index}"
-          class="segment"
-          class:active={audioService.currentSegmentIndex === segment.index}
-          class:unprocessed={segment.index > audioService.currentSegmentIndex}
-          onclick={(e) => {
-            e.stopPropagation()
-            audioService.playFromSegment(segment.index)
-          }}
-          role="button"
-          tabindex="0"
-          aria-current={audioService.currentSegmentIndex === segment.index ? 'true' : undefined}
-        >
-          {segment.text}{' '}
-        </span>
-      {/each}
+    <div class="text-content" role="main" onclick={handleContentClick}>
+      <!-- We render the full HTML content. Highlighted segments are handled by CSS targeting ids/classes 
+           driven by a reactivity effect in script -->
+      {@html chapter.content}
     </div>
 
-    <!-- Bottom Bar -->
     <!-- Bottom Bar -->
     <AudioPlayerBar
       mode="reader"
@@ -540,6 +530,25 @@
     transition: color 0.3s;
   }
 
+  /* Style for injected segments */
+  :global(.segment) {
+    cursor: pointer;
+    border-radius: 2px;
+    transition:
+      background-color 0.2s,
+      color 0.2s;
+  }
+
+  :global(.segment:hover) {
+    background-color: var(--hover-bg);
+  }
+
+  :global(.segment.active) {
+    background-color: var(--active-bg);
+    color: var(--active-text);
+    box-shadow: 0 0 0 2px var(--highlight-border, #ffb74d);
+  }
+
   /* Settings Menu */
   .settings-menu {
     position: fixed;
@@ -620,48 +629,6 @@
     background: var(--bg-color);
     color: var(--text-color);
     font-size: 14px;
-  }
-
-  .segment {
-    cursor: pointer;
-    transition:
-      color 0.6s cubic-bezier(0.4, 0, 0.2, 1),
-      background-color 0.3s ease,
-      transform 0.2s ease,
-      box-shadow 0.3s ease;
-    border-radius: 4px;
-    padding: 2px 4px;
-    margin: -2px -4px;
-  }
-
-  .segment:hover {
-    background: var(--hover-bg);
-    transform: translateY(-1px);
-  }
-
-  .segment.unprocessed {
-    color: var(--unprocessed-text);
-    font-weight: 500;
-  }
-
-  .segment.active {
-    background: var(--highlight-bg, #ffe0b2);
-    color: var(--highlight-text, #000);
-    box-shadow: 0 0 0 2px var(--highlight-border, #ffb74d);
-    border-radius: 4px;
-    animation: highlightPulse 0.4s ease-out;
-  }
-
-  @keyframes highlightPulse {
-    0% {
-      transform: scale(1);
-    }
-    50% {
-      transform: scale(1.02);
-    }
-    100% {
-      transform: scale(1);
-    }
   }
 
   /* Subtle indicator for buffered segments */

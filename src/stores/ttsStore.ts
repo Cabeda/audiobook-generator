@@ -58,6 +58,23 @@ export const lastPiperVoice = persistedWritable<string>(
 )
 export const lastWebSpeechVoice = persistedWritable<string>('audiobook_voice_webspeech', '')
 
+import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
+
+// Initialize default advanced settings
+const defaultAdvancedSettings: Record<string, any> = {}
+// Populate defaults from schema
+for (const [modelId, settings] of Object.entries(ADVANCED_SETTINGS_SCHEMA)) {
+  defaultAdvancedSettings[modelId] = {}
+  for (const setting of settings) {
+    defaultAdvancedSettings[modelId][setting.key] = setting.defaultValue
+  }
+}
+
+export const advancedSettings = persistedWritable<Record<string, any>>(
+  'audiobook_advanced_settings',
+  defaultAdvancedSettings
+)
+
 export interface VoiceOption {
   id: string
   label: string
