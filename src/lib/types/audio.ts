@@ -4,8 +4,8 @@ export interface AudioSegment {
   index: number
   text: string
   audioBlob: Blob
-  duration?: number
-  timestamp?: number
+  duration: number // Duration in seconds
+  startTime: number // Offset from chapter start in seconds
 }
 
 export interface AudioChapterMetadata {

@@ -50,100 +50,49 @@
   let currentModelFromStore = $state<'kokoro' | 'piper' | 'web_speech' | null>(null)
   let currentVoiceFromStore = $state<string | null>(null)
 
-  // Helper function to restart TTS playback with new settings
-  function restartTTSWithNewSettings(
-    newModel: 'kokoro' | 'piper' | 'web_speech',
-    newVoice: string
-  ) {
-    const currentSegment = audioService.currentSegmentIndex
-    const wasPlaying = audioService.isPlaying
+  // State for initialization
+  let loadError = $state(false)
+  let isLoading = $state(true)
 
-    // Re-initialize with new settings
-    audioService.initialize(bookId, bookTitle, chapter, {
-      voice: newVoice,
-      quantization,
-      device,
-      selectedModel: newModel,
-      playbackSpeed: audioService.playbackSpeed,
-    })
-
-    // Restart from the current segment
-    // playFromSegment preserves the playing state (sets isPlaying = wasPlaying)
-    // so if we weren't playing, it won't start playing
-    if (currentSegment >= 0) {
-      audioService.playFromSegment(currentSegment).catch((err) => {
-        console.error('Failed to restart with new settings:', err)
-      })
-    }
-  }
-
-  // Initialize
+  // Initialize by loading pre-generated data from DB
   $effect(() => {
-    if (chapter) {
+    if (chapter && bookId) {
       const cId = chapter.id
       const bId = bookId
 
-      // Check if we need to initialize the service
-      // Use untrack and get() to read store without subscribing
-      const needsInit = untrack(() => {
+      // Check if already loaded for this chapter
+      const needsLoad = untrack(() => {
         const store = get(audioPlayerStore)
-        // If the player is already set up for this chapter, don't re-initialize
-        if (store.bookId === bId && store.chapterId === cId) {
-          return false
-        }
-        return true
+        return !(store.bookId === bId && store.chapterId === cId)
       })
 
-      if (needsInit) {
-        // Use store values (from $modelStore and $voiceStore) for initialization.
-        // This ensures that the initial values match those tracked by the reactive effect,
-        // preventing unnecessary restarts when the component mounts or when store values change.
-        const currentModel = untrack(() => $modelStore)
-        const currentVoice = untrack(() => $voiceStore)
+      if (needsLoad) {
+        isLoading = true
+        loadError = false
 
-        audioService.initialize(bId, bookTitle, chapter, {
-          voice: currentVoice,
-          quantization,
-          device,
-          selectedModel: currentModel,
-          playbackSpeed: initialSpeed,
-        })
-
-        // Initialize tracked values after successful initialization to avoid false change detection
-        currentModelFromStore = currentModel
-        currentVoiceFromStore = currentVoice
-
-        // Auto-play when opening a new chapter (async without blocking effect)
-        audioService.play().catch((err) => {
-          console.error('Auto-play failed:', err)
-        })
+        // Load chapter from DB using pure playback method
+        audioService
+          .loadChapter(bId, bookTitle, chapter)
+          .then((success) => {
+            isLoading = false
+            if (success) {
+              // Auto-play when chapter loads
+              audioService.play().catch((err) => {
+                console.error('Auto-play failed:', err)
+              })
+            } else {
+              loadError = true
+              console.warn('Chapter audio not available - generate audio first')
+            }
+          })
+          .catch((err) => {
+            isLoading = false
+            loadError = true
+            console.error('Failed to load chapter:', err)
+          })
+      } else {
+        isLoading = false
       }
-    }
-  })
-
-  // React to model or voice changes from the store
-  $effect(() => {
-    const newModel = $modelStore
-    const newVoice = $voiceStore
-
-    // Only react to changes if we're already playing/initialized
-    const store = untrack(() => get(audioPlayerStore))
-    if (store.chapterId !== chapter.id) return
-
-    // Skip if tracked values haven't been initialized yet (first run)
-    if (currentModelFromStore === null || currentVoiceFromStore === null) return
-
-    // Check if model or voice changed
-    const modelChanged = newModel !== currentModelFromStore
-    const voiceChanged = newVoice !== currentVoiceFromStore
-
-    // Always update tracked values to stay in sync
-    currentModelFromStore = newModel
-    currentVoiceFromStore = newVoice
-
-    // Restart if either model or voice changed
-    if (modelChanged || voiceChanged) {
-      restartTTSWithNewSettings(newModel, newVoice)
     }
   })
 
@@ -280,9 +229,22 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div class="text-content" role="main" onclick={handleContentClick}>
-      <!-- We render the full HTML content. Highlighted segments are handled by CSS targeting ids/classes 
-           driven by a reactivity effect in script -->
-      {@html chapter.content}
+      {#if isLoading}
+        <div class="loading-indicator">
+          <div class="spinner"></div>
+          <p>Loading chapter audio...</p>
+        </div>
+      {:else if loadError}
+        <div class="error-message">
+          <p>⚠️ Audio not available</p>
+          <p>Generate audio for this chapter first.</p>
+          <button class="back-link" onclick={handleClose}>← Back to book</button>
+        </div>
+      {:else}
+        <!-- We render the full HTML content. Highlighted segments are handled by CSS targeting ids/classes 
+             driven by a reactivity effect in script -->
+        {@html chapter.content}
+      {/if}
     </div>
 
     <!-- Bottom Bar -->

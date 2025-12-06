@@ -2,12 +2,14 @@ import { getTTSWorker } from './ttsWorkerManager'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import type { Chapter } from './types/book'
-import { getChapterSegments } from './libraryDB'
+import { getChapterSegments, getChapterAudio } from './libraryDB'
 import type { AudioSegment } from './types/audio'
 
 interface TextSegment {
   index: number
   text: string
+  duration?: number
+  startTime?: number
 }
 
 class AudioPlaybackService {
@@ -225,6 +227,106 @@ class AudioPlaybackService {
         resolve(0)
       }
     })
+  }
+
+  /**
+   * Load a pre-generated chapter for pure playback.
+   * This method uses stored segments with timing data and a single concatenated audio file.
+   * No on-demand generation is performed.
+   */
+  async loadChapter(bookId: number, bookTitle: string, chapter: Chapter): Promise<boolean> {
+    this.stop()
+
+    // Load segments with timing data
+    let dbSegments: AudioSegment[] = []
+    try {
+      dbSegments = await getChapterSegments(bookId, chapter.id)
+    } catch (e) {
+      logger.warn('Failed to load segments from DB', e)
+      return false
+    }
+
+    if (dbSegments.length === 0) {
+      logger.info('No segments found in DB for chapter', chapter.id)
+      return false
+    }
+
+    // Load concatenated chapter audio
+    let chapterAudioBlob: Blob | null = null
+    try {
+      chapterAudioBlob = await getChapterAudio(bookId, chapter.id)
+    } catch (e) {
+      logger.warn('Failed to load chapter audio from DB', e)
+      return false
+    }
+
+    if (!chapterAudioBlob) {
+      logger.info('No chapter audio found in DB for chapter', chapter.id)
+      return false
+    }
+
+    // Populate segments with timing data
+    this.segments = dbSegments.map((s) => ({
+      index: s.index,
+      text: s.text,
+      duration: s.duration,
+      startTime: s.startTime,
+    }))
+
+    // Create audio element from chapter blob
+    const chapterAudioUrl = URL.createObjectURL(chapterAudioBlob)
+    this.audio = new Audio(chapterAudioUrl)
+    this.audio.playbackRate = this.playbackSpeed
+
+    // Calculate total duration from last segment
+    const lastSeg = this.segments[this.segments.length - 1]
+    const totalDuration = (lastSeg.startTime || 0) + (lastSeg.duration || 0)
+    audioPlayerStore.setChapterDuration(totalDuration)
+    this.duration = totalDuration
+
+    // Set up time-based segment tracking
+    this.audio.ontimeupdate = () => {
+      if (!this.audio) return
+      this.currentTime = this.audio.currentTime
+
+      // Find which segment we're in based on currentTime
+      const seg = this.segments.find(
+        (s) =>
+          s.startTime !== undefined &&
+          s.duration !== undefined &&
+          this.audio!.currentTime >= s.startTime &&
+          this.audio!.currentTime < s.startTime + s.duration
+      )
+      if (seg && seg.index !== this.currentSegmentIndex) {
+        this.currentSegmentIndex = seg.index
+      }
+    }
+
+    this.audio.onended = () => {
+      this.isPlaying = false
+      audioPlayerStore.pause()
+    }
+
+    this.audio.onerror = (e) => {
+      logger.error('Chapter audio playback error:', e)
+      this.isPlaying = false
+    }
+
+    this.currentSegmentIndex = 0
+    this.currentTime = 0
+
+    // Initialize store
+    audioPlayerStore.startPlayback(
+      bookId,
+      bookTitle,
+      chapter,
+      { voice: '', quantization: 'q8' },
+      false,
+      false
+    )
+
+    logger.info(`Loaded chapter ${chapter.id} with ${dbSegments.length} segments for pure playback`)
+    return true
   }
 
   // Playback Control

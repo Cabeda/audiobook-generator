@@ -36,6 +36,20 @@ class GenerationService {
   private running = false
   private canceled = false
 
+  // Helper to calculate duration of a WAV blob
+  // WAV header is 44 bytes, Kokoro outputs 24kHz float32 mono
+  private calculateWavDuration(blob: Blob): number {
+    const headerSize = 44
+    const sampleRate = 24000
+    const bytesPerSample = 4 // float32
+    const channels = 1
+
+    const pcmDataSize = blob.size - headerSize
+    if (pcmDataSize <= 0) return 0
+
+    return pcmDataSize / (sampleRate * bytesPerSample * channels)
+  }
+
   // Helper to segment HTML content into sentences and wrap them with spans
   private segmentHtml(
     chapterId: string,
@@ -338,6 +352,7 @@ class GenerationService {
             // Yes.
 
             const worker = getTTSWorker()
+            let cumulativeTime = 0
 
             for (let i = 0; i < textSegments.length; i++) {
               if (this.canceled) break
@@ -355,11 +370,6 @@ class GenerationService {
               )
 
               // Generate audio for this specific sentence
-              // We use 'kokoro' directly here via worker for simplicity, or stream if needed?
-              // Worker's `generateVoice` uses basic generation.
-              // We want to use `kokoroClient` directly?
-              // `worker.generateVoice` bridges to `kokoroClient`.
-
               const blob = await worker.generateVoice({
                 text: segText,
                 modelType: 'kokoro',
@@ -367,8 +377,9 @@ class GenerationService {
                 dtype: currentQuantization,
                 device: currentDevice,
                 advancedSettings: currentAdvancedSettings,
-                // No progress callback needed per segment
               })
+
+              const duration = this.calculateWavDuration(blob)
 
               audioSegments.push({
                 id: textSegments[i].id,
@@ -376,7 +387,11 @@ class GenerationService {
                 index: i,
                 text: segText,
                 audioBlob: blob as Blob,
+                duration,
+                startTime: cumulativeTime,
               })
+
+              cumulativeTime += duration
             }
 
             if (this.canceled) break
@@ -386,7 +401,7 @@ class GenerationService {
               await saveChapterSegments(bookId, ch.id, audioSegments)
             }
 
-            // Concatenate for backward compatibility
+            // Concatenate for chapter audio
             const audioChapters: AudioChapter[] = audioSegments.map((s) => ({
               id: s.id,
               title: `Segment ${s.index}`,
@@ -395,7 +410,18 @@ class GenerationService {
 
             const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
 
-            // Save full audio
+            // Save concatenated audio to DB for TextReader playback
+            if (bookId) {
+              const { saveChapterAudio } = await import('../libraryDB')
+              await saveChapterAudio(bookId, ch.id, fullBlob, {
+                model,
+                voice: effectiveVoice,
+                quantization: currentQuantization,
+                device: currentDevice,
+              })
+            }
+
+            // Update in-memory store
             generatedAudio.update((m) => {
               const newMap = new Map(m)
               if (m.has(ch.id)) {
@@ -430,6 +456,7 @@ class GenerationService {
             // 3. Generate
             const audioSegments: AudioSegment[] = []
             const worker = getTTSWorker()
+            let cumulativeTime = 0
 
             for (let i = 0; i < textSegments.length; i++) {
               if (this.canceled) break
@@ -451,13 +478,20 @@ class GenerationService {
                 advancedSettings: currentAdvancedSettings,
               })
 
+              // Piper outputs WAV too, use same calculation
+              const duration = this.calculateWavDuration(blob)
+
               audioSegments.push({
                 id: textSegments[i].id,
                 chapterId: ch.id,
                 index: i,
                 text: segText,
                 audioBlob: blob as Blob,
+                duration,
+                startTime: cumulativeTime,
               })
+
+              cumulativeTime += duration
             }
 
             if (this.canceled) break
@@ -470,7 +504,18 @@ class GenerationService {
               title: '',
               blob: s.audioBlob,
             }))
-            const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'mp3' }) // Piper is mp3 usually
+            const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
+
+            // Save chapter audio to DB
+            if (bookId) {
+              const { saveChapterAudio } = await import('../libraryDB')
+              await saveChapterAudio(bookId, ch.id, fullBlob, {
+                model,
+                voice: effectiveVoice,
+                device: currentDevice,
+              })
+            }
+
             generatedAudio.update((m) => {
               const newMap = new Map(m)
               if (m.has(ch.id)) URL.revokeObjectURL(m.get(ch.id)!.url)
@@ -659,38 +704,12 @@ class GenerationService {
         // Or easier: update `concatenateAudioChapters` to return timing info?
         // Or calculate it here.
 
-        // Logic to calculate durations:
-        const durations: number[] = []
-        let currentTime = 0
+        // Use stored timing data from segments
         const smilPars = []
-
-        // We'll iterate and measure. This might be slow for many segments.
-        // Optimization: Assume WAV input from Kokoro?
-        // If segments are WAV, size dictates duration.
-
         for (let j = 0; j < segments.length; j++) {
           const s = segments[j]
-          let dur = 0
-          // Hacky estimation if WAV
-          if (s.audioBlob.type.includes('wav')) {
-            // 44 header + 4 bytes per sample (float32) * channels * rate
-            // Kokoro default: 24000Hz, 1 channel?
-            const pcmSize = s.audioBlob.size - 44
-            dur = pcmSize / (24000 * 4)
-            // This assumes 24khz float32 wav.
-          } else {
-            // fallback to an html audio element check?
-            // or just use 0 and break sync?
-            // Let's hope for WAV.
-            // If not, we might need to fix generation to store duration.
-            // Let's proceed with WAV assumption or placeholder.
-            const pcmSize = s.audioBlob.size // rough
-            dur = pcmSize / (24000 * 4) // approximation
-          }
-
-          const clipBegin = currentTime
-          const clipEnd = currentTime + dur
-          currentTime = clipEnd
+          const clipBegin = s.startTime
+          const clipEnd = s.startTime + s.duration
 
           smilPars.push({
             textSrc: `../${ch.id}.xhtml#seg-${s.index}`,
@@ -699,6 +718,10 @@ class GenerationService {
             clipEnd,
           })
         }
+
+        // Calculate total duration from last segment
+        const lastSeg = segments[segments.length - 1]
+        const totalDuration = lastSeg.startTime + lastSeg.duration
 
         // Generate XHTML with matching IDs
         const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
@@ -716,7 +739,7 @@ class GenerationService {
           audioBlob: combinedBlob,
           smilData: {
             id: `${ch.id}-smil`,
-            duration: currentTime,
+            duration: totalDuration,
             pars: smilPars,
           },
         })
