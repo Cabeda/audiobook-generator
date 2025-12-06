@@ -145,13 +145,27 @@
   }
 
   // Book Loading
-  function onBookLoaded(event: CustomEvent) {
+  async function onBookLoaded(event: CustomEvent) {
     const b = event.detail.book
     if (b) {
       book.set(b) // Store handles state reset
+
       if (event.detail.libraryId) {
         currentLibraryBookId.set(event.detail.libraryId)
+      } else {
+        // New import - save to library automatically
+        try {
+          const { addBook } = await import('./lib/libraryDB')
+          const id = await addBook(b)
+          currentLibraryBookId.set(id)
+          // Also refresh library list if we are listener
+          const { refreshLibrary } = await import('./stores/libraryStore')
+          refreshLibrary()
+        } catch (e) {
+          console.error('Failed to save book to library', e)
+        }
       }
+
       currentView = 'book'
     }
   }

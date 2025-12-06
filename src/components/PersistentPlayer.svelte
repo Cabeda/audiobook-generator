@@ -1,7 +1,8 @@
 <script lang="ts">
   import AudioPlayerBar from './AudioPlayerBar.svelte'
-  import { audioPlayerStore } from '../stores/audioPlayerStore'
+  import { audioPlayerStore, isPlayerActive } from '../stores/audioPlayerStore'
   import { audioService } from '../lib/audioPlaybackService.svelte'
+  import { fade } from 'svelte/transition'
 
   let { onMaximize } = $props<{
     onMaximize: () => void
@@ -14,4 +15,8 @@
   }
 </script>
 
-<AudioPlayerBar mode="persistent" {onMaximize} onClose={handleClose} />
+{#if $isPlayerActive}
+  <div in:fade={{ duration: 200 }}>
+    <AudioPlayerBar mode="persistent" {onMaximize} onClose={handleClose} />
+  </div>
+{/if}

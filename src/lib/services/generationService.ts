@@ -1,6 +1,6 @@
 import { get } from 'svelte/store'
 import type { Chapter } from '../types/book'
-import type { TTSModelType, VoiceId } from '../kokoro/kokoroClient'
+import type { VoiceId } from '../kokoro/kokoroClient'
 import { getTTSWorker } from '../ttsWorkerManager'
 import {
   selectedModel,
