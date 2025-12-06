@@ -29,6 +29,9 @@
   // Local state for UI
   let showSettings = $state(false)
   let isGenerating = $state(false)
+  let showAdvanced = $state(false)
+  let selectedFormat = $state<'mp3' | 'mp4' | 'm4b' | 'wav' | 'epub'>('mp3')
+  let selectedBitrate = $state(192)
 
   // Derived state from stores
   let currentBook = $derived($book)
@@ -101,12 +104,25 @@
       return
     }
 
-    // Default to MP3 192kbps for now (simplified)
-    // Could add a dropdown for format later
-    await generationService.exportAudio(relevantChapters, 'mp3', 192, {
-      title: $book.title,
-      author: $book.author,
-    })
+    if (selectedFormat === 'epub') {
+      // EPUB with Media Overlays
+      await generationService.exportEpub(relevantChapters, {
+        title: $book.title,
+        author: $book.author,
+        // Cover is optional in Book type
+      })
+    } else {
+      // Audio formats (mp3, mp4, m4b, wav)
+      await generationService.exportAudio(
+        relevantChapters,
+        selectedFormat as any,
+        selectedBitrate,
+        {
+          title: $book.title,
+          author: $book.author,
+        }
+      )
+    }
   }
 
   function handleRead(chapter: Chapter) {
@@ -177,7 +193,14 @@
       </div>
 
       <div class="toolbar-right">
-        <button class="text-btn export-btn" onclick={handleExport}> 📥 Export MP3 </button>
+        <select bind:value={selectedFormat} disabled={isGenerating} class="premium-select">
+          <option value="mp3">MP3</option>
+          <option value="mp4">MP4 (Chapters)</option>
+          <option value="m4b">M4B (Audiobook)</option>
+          <option value="wav">WAV</option>
+          <option value="epub">EPUB (Media Overlays)</option>
+        </select>
+        <button class="text-btn export-btn" onclick={handleExport}> 📥 Export </button>
         <button
           class="primary-btn generate-btn"
           class:loading={isGenerating}
@@ -192,6 +215,38 @@
         </button>
       </div>
     </div>
+
+    <!-- Advanced Settings Toggle -->
+    <button class="advanced-toggle" onclick={() => (showAdvanced = !showAdvanced)}>
+      {showAdvanced ? '▼' : '▶'} Advanced Options
+    </button>
+
+    {#if showAdvanced}
+      <div class="advanced-panel glass-panel">
+        <div class="setting-group">
+          <label>
+            <span>Quality (Bitrate)</span>
+            <select bind:value={selectedBitrate} class="premium-select">
+              <option value={128}>128 kbps</option>
+              <option value={192}>192 kbps</option>
+              <option value={256}>256 kbps</option>
+              <option value={320}>320 kbps</option>
+            </select>
+          </label>
+          {#if $selectedModel === 'kokoro'}
+            <label>
+              <span>Quantization</span>
+              <select bind:value={$selectedQuantization} class="premium-select">
+                <option value="fp32">FP32 (Best Quality)</option>
+                <option value="fp16">FP16 (Balanced)</option>
+                <option value="q8">Q8 (Faster)</option>
+                <option value="q4">Q4 (Fastest)</option>
+              </select>
+            </label>
+          {/if}
+        </div>
+      </div>
+    {/if}
 
     <!-- Chapter List -->
     <div class="content-area">
@@ -408,5 +463,44 @@
     .quick-settings {
       flex-direction: column;
     }
+  }
+
+  .advanced-toggle {
+    background: none;
+    border: none;
+    color: var(--secondary-text);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 8px 16px;
+    text-align: left;
+    margin: 8px;
+  }
+
+  .advanced-toggle:hover {
+    color: var(--primary-color);
+  }
+
+  .advanced-panel {
+    margin: 0 8px 16px 8px;
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .setting-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .setting-group label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 150px;
+  }
+
+  .setting-group label span {
+    font-size: 0.85rem;
+    color: var(--secondary-text);
   }
 </style>

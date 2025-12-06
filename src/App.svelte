@@ -7,9 +7,7 @@
   import BookView from './components/BookView.svelte'
   import TextReader from './components/TextReader.svelte'
   import Toast from './components/Toast.svelte'
-  import PersistentPlayer from './components/PersistentPlayer.svelte'
   import ReloadPrompt from './components/ReloadPrompt.svelte'
-  import AudioPlayerBar from './components/AudioPlayerBar.svelte' // Use if needed globally? Setup suggests inline/persistent.
 
   // APIs & Logic
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroClient'
@@ -277,14 +275,6 @@
   {/if}
 
   <!-- Persistent Player (always present if audio is playing) -->
-  <PersistentPlayer
-    onMaximize={() => {
-      // Handle maximize logic (navigate to reader if possible)
-      if (currentChapter) {
-        currentView = 'reader'
-      }
-    }}
-  />
 </main>
 
 <style>

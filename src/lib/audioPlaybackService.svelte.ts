@@ -333,9 +333,21 @@ class AudioPlaybackService {
   async play() {
     if (this.isPlaying) return
 
+    // If audio element exists (loaded by loadChapter or other means), play it directly
+    if (this.audio) {
+      this.isPlaying = true
+      try {
+        await this.audio.play()
+      } catch (e) {
+        logger.error('Failed to play audio:', e)
+        this.isPlaying = false
+      }
+      return
+    }
+
+    // Web Speech fallback
     if (this.selectedModel === 'web_speech') {
       this.isPlaying = true
-      // Resume if paused, otherwise play current segment
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume()
       } else {
@@ -344,15 +356,8 @@ class AudioPlaybackService {
       return
     }
 
-    if (this.audio && this.audio.paused && !this.audio.ended) {
-      this.isPlaying = true
-      try {
-        await this.audio.play()
-      } catch (e) {
-        logger.error('Failed to resume audio:', e)
-        this.isPlaying = false
-      }
-    } else if (this.currentSegmentIndex >= 0) {
+    // Fallback: try to play from first segment (legacy on-demand mode)
+    if (this.currentSegmentIndex >= 0) {
       this.isPlaying = true
       await this.playCurrentSegment()
     } else {
@@ -390,7 +395,26 @@ class AudioPlaybackService {
   async playFromSegment(index: number) {
     if (index < 0 || index >= this.segments.length) return
 
-    // Remember if we were playing
+    const segment = this.segments[index]
+
+    // If audio was loaded via loadChapter (single audio file with timing data), seek to segment position
+    if (this.audio && segment && segment.startTime !== undefined) {
+      this.currentSegmentIndex = index
+      this.audio.currentTime = segment.startTime
+
+      if (!this.isPlaying) {
+        this.isPlaying = true
+        try {
+          await this.audio.play()
+        } catch (e) {
+          logger.error('Failed to play from segment:', e)
+          this.isPlaying = false
+        }
+      }
+      return
+    }
+
+    // Legacy on-demand generation mode
     const wasPlaying = this.isPlaying
 
     // Stop current audio completely to prevent race condition
@@ -412,7 +436,7 @@ class AudioPlaybackService {
     this.pendingGenerations.clear()
 
     this.currentSegmentIndex = index
-    this.isPlaying = wasPlaying // Preserve playing state
+    this.isPlaying = wasPlaying
 
     if (this.selectedModel === 'web_speech') {
       if (this.isPlaying) {
@@ -423,7 +447,6 @@ class AudioPlaybackService {
 
     // Ensure generated
     if (!this.audioSegments.has(index)) {
-      // Indicate buffering while we wait for this segment to be generated
       if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(true)
       try {
         await this.generateSegment(index)
@@ -436,10 +459,8 @@ class AudioPlaybackService {
       if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(false)
     }
 
-    // Check if switched while generating
     if (this.currentSegmentIndex !== index) return
 
-    // Buffer ahead
     this.bufferSegments(index + 1, this.bufferTarget).catch((err) =>
       logger.error('[AudioPlayback]', err)
     )
