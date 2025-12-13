@@ -99,6 +99,110 @@ describe('piperClient.generate (pt-PT)', () => {
 })
 
 // Browser-only decode test to catch streaming/format regressions end-to-end
+// Diagnostic: extract and validate real HTML text parsing
+const realArticleHtml = `
+<article class="post-content" data-id="123">
+  <div class="metadata">
+    <span class="author">John Author</span>
+    <time class="publish-date">2024-01-15</time>
+  </div>
+  <h1>The Future of AI</h1>
+  <p>Artificial intelligence is transforming the world at an unprecedented pace. From healthcare to finance, AI is revolutionizing how we work and live.</p>
+  <ul>
+    <li>Machine learning enables pattern recognition at scale</li>
+    <li>Deep learning powers computer vision and natural language processing</li>
+  </ul>
+  <img src="test.jpg" alt="AI illustration" />
+  <p>The impact of AI will only grow as technology advances.</p>
+</article>
+`
+
+describe('diagnostic: HTML text extraction', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    mockStored.mockResolvedValue([ptVoiceId] as unknown as Awaited<ReturnType<typeof tts.stored>>)
+    mockDownload.mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof tts.download>>)
+  })
+
+  it('extracts meaningful text from metadata-heavy HTML', () => {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(realArticleHtml, 'text/html')
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+
+    const textNodes: string[] = []
+    let node = walker.nextNode()
+    while (node) {
+      const text = node.textContent?.trim()
+      if (text && text.length > 0) {
+        textNodes.push(text)
+      }
+      node = walker.nextNode()
+    }
+
+    expect(textNodes.length).toBeGreaterThan(0)
+    expect(textNodes.some((t) => t.includes('AI'))).toBe(true)
+    expect(textNodes.some((t) => t.includes('learning'))).toBe(true)
+  })
+
+  it('generates audio from extracted text using Piper (mocked)', async () => {
+    // Simulate extracting text from the complex HTML
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(realArticleHtml, 'text/html')
+    const textContent = doc.body.textContent || ''
+
+    // This is what would be fed to Piper
+    expect(textContent.length).toBeGreaterThan(0)
+
+    // Mock Piper to return playable audio
+    mockPredict.mockResolvedValue(makePlayableWav())
+
+    // Call generate with the extracted text
+    const blob = await piperClient.generate(textContent, { voiceId: ptVoiceId })
+
+    expect(blob.type).toBe('audio/wav')
+    expect(blob.size).toBeGreaterThan(0)
+    expect(mockPredict).toHaveBeenCalled()
+  })
+
+  it('handles Piper returning undefined or invalid data', async () => {
+    mockPredict.mockResolvedValue(undefined as unknown as Blob)
+
+    await expect(piperClient.generate('This should fail', { voiceId: ptVoiceId })).rejects.toThrow()
+  })
+
+  it('handles Piper throwing an error with metadata-heavy article', async () => {
+    // Always fail - to test that all retries are exhausted and error is properly caught
+    mockPredict.mockRejectedValue(new Error('Piper model unavailable'))
+
+    await expect(piperClient.generate('Test article.', { voiceId: ptVoiceId })).rejects.toThrow()
+
+    // Predict should be called multiple times due to retry logic
+    expect(mockPredict.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('logs what text segments are being sent to Piper', async () => {
+    mockPredict.mockResolvedValue(makePlayableWav())
+
+    const text = 'First sentence. Second sentence. Third sentence.'
+    await piperClient.generate(text, { voiceId: ptVoiceId })
+
+    // Verify that predict was called with the text (or chunks of it)
+    expect(mockPredict).toHaveBeenCalled()
+
+    // Check what was actually sent to predict
+    const callArgs = mockPredict.mock.calls.map((call) => call[0]?.text)
+    expect(callArgs).not.toContain('')
+    expect(callArgs).not.toContain(null)
+    expect(callArgs).not.toContain(undefined)
+
+    // At least one call should contain readable text
+    const hasValidText = callArgs.some(
+      (arg) => arg && typeof arg === 'string' && arg.trim().length > 0
+    )
+    expect(hasValidText).toBe(true)
+  })
+})
+
 const hasAudioContext = typeof window !== 'undefined' && 'AudioContext' in window
 
 describe.skipIf(!hasAudioContext)('piperClient.generate (browser decode)', () => {

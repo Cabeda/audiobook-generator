@@ -104,9 +104,17 @@ export class PiperClient {
 
         try {
           const generated = await this.generateChunkWithRetry(sentence, voiceId, options, 0)
+          logger.debug(`Segment ${i + 1} succeeded: ${generated.length} blob(s)`)
           blobs.push(...generated)
         } catch (segmentError) {
-          logger.error(`Failed to generate segment ${i + 1}:`, segmentError)
+          logger.error(`Failed to generate segment ${i + 1}:`, {
+            message: segmentError instanceof Error ? segmentError.message : String(segmentError),
+            stack: segmentError instanceof Error ? segmentError.stack : undefined,
+            cause: segmentError instanceof Error ? segmentError.cause : null,
+            name: segmentError instanceof Error ? segmentError.name : undefined,
+            textLength: sentence.length,
+            text: sentence.substring(0, 100),
+          })
           // Continue with other segments rather than failing entirely
           continue
         }
@@ -119,6 +127,22 @@ export class PiperClient {
           chunkCount: chunks.length,
           firstChunk: chunks[0]?.substring(0, 100),
         })
+
+        // Fallback: try single large predict call if chunking failed
+        logger.warn('Attempting fallback: single large Piper call')
+        try {
+          const result = await this.generateChunkWithRetry(cleanText, voiceId, options, 0)
+          if (result.length > 0) {
+            logger.info('Fallback succeeded with single call')
+            return result.length === 1 ? result[0] : await this.concatenateWavBlobs(result)
+          }
+        } catch (fallbackErr) {
+          logger.error('Fallback single call also failed:', {
+            message: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+            cause: fallbackErr instanceof Error ? fallbackErr.cause : null,
+          })
+        }
+
         throw new Error(
           `No audio generated from ${chunks.length} text segment(s). Check text format and voice model compatibility.`
         )
@@ -144,14 +168,17 @@ export class PiperClient {
   }
 
   // Normalize possible outputs from tts.predict into a Blob
-  private toWavBlob(data: any): Blob | null {
+  private toWavBlob(data: unknown): Blob | null {
     if (!data) return null
     if (data instanceof Blob) return data
 
     if (ArrayBuffer.isView(data)) {
-      // Copy into a regular ArrayBuffer to avoid SharedArrayBuffer issues
-      const view = new Uint8Array(data.buffer.byteLength)
-      view.set(new Uint8Array(data.buffer))
+      // TypedArray: copy the actual view bytes, not the entire buffer
+      const typedArray = data as ArrayBufferView
+      const byteLength = typedArray.byteLength
+      const byteOffset = 'byteOffset' in typedArray ? typedArray.byteOffset : 0
+      const view = new Uint8Array(byteLength)
+      view.set(new Uint8Array(typedArray.buffer, byteOffset, byteLength))
       return new Blob([view], { type: 'audio/wav' })
     }
 
@@ -223,30 +250,70 @@ export class PiperClient {
     depth: number
   ): Promise<Blob[]> {
     const maxDepth = 2
+
+    // Guard: very short text is unlikely to succeed
+    if (text.length < 3) {
+      throw new Error('Text too short for audio generation')
+    }
+
     try {
+      logger.debug(`Calling tts.predict at depth ${depth}`, {
+        textLength: text.length,
+        textPreview: text.substring(0, 100),
+        voiceId,
+      })
+
       const wav = await tts.predict({
         text,
         voiceId: voiceId as any,
       })
 
+      logger.debug(`tts.predict returned`, {
+        wavType: wav?.constructor?.name || typeof wav,
+        wavSize: (wav as Blob)?.size,
+        isBlob: wav instanceof Blob,
+        isArrayBuffer: wav instanceof ArrayBuffer,
+        isArrayBufferView: ArrayBuffer.isView(wav),
+      })
+
       const blob = this.toWavBlob(wav)
       if (blob && blob.size > 0) {
+        logger.debug(`Successfully generated ${blob.size} bytes`, { textLength: text.length })
         return [blob]
       }
 
-      logger.warn('Piper predict returned empty/unsupported audio', {
+      logger.error('Piper predict returned empty/unsupported audio', {
         textLength: text.length,
         type: (wav as any)?.constructor?.name || typeof wav,
-        size: (wav as Blob)?.size,
+        size: blob?.size ?? 0,
+        blobExists: !!blob,
+        wavType: typeof wav,
+        wavValue: wav === null ? 'null' : wav === undefined ? 'undefined' : 'exists',
+        text: text.substring(0, 200),
       })
-      throw new Error('Empty audio')
+      throw new Error('Empty audio from predict')
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      const errStack = err instanceof Error ? err.stack : undefined
+
+      logger.error(`Predict attempt at depth ${depth} failed: ${errMsg}`, {
+        textLength: text.length,
+        errorMessage: errMsg,
+        errorStack: errStack,
+        errorType: err?.constructor?.name || typeof err,
+        text: text.substring(0, 200),
+      })
+
       if (depth >= maxDepth || text.length < 80) {
         throw err
       }
 
       // Retry by splitting the text into smaller parts
       const parts = this.splitTextForRetry(text)
+      if (parts.length <= 1) {
+        throw err
+      }
+
       logger.warn('Retrying Piper segment with smaller parts', {
         depth,
         parts: parts.length,

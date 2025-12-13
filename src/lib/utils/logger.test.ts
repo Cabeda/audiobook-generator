@@ -136,6 +136,18 @@ describe('Logger', () => {
 
       expect(console.log).toHaveBeenCalledWith(expect.stringContaining('arg1'))
     })
+
+    it('should serialize objects as JSON', () => {
+      logger.configure({ level: 'error', silent: false })
+      const errorObj = { message: 'Test error', code: 123, stack: 'at file.ts:10' }
+      logger.error('[Test]', errorObj)
+
+      const call = vi.mocked(console.error).mock.calls[0][0]
+      expect(call).toContain('"message"')
+      expect(call).toContain('Test error')
+      expect(call).toContain('"code"')
+      expect(call).not.toContain('[object Object]')
+    })
   })
 
   describe('log alias', () => {

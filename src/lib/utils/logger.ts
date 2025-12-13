@@ -58,7 +58,19 @@ class Logger {
   private formatMessage(level: LogLevel, prefix: string, ...args: unknown[]): string {
     const timestamp = new Date().toISOString()
     const levelStr = level.toUpperCase().padEnd(5)
-    return `[${timestamp}] ${levelStr} ${prefix} ${args.map((a) => String(a)).join(' ')}`
+    const formattedArgs = args
+      .map((a) => {
+        if (typeof a === 'object' && a !== null) {
+          try {
+            return JSON.stringify(a, null, 2)
+          } catch {
+            return String(a)
+          }
+        }
+        return String(a)
+      })
+      .join(' ')
+    return `[${timestamp}] ${levelStr} ${prefix} ${formattedArgs}`
   }
 
   /**

@@ -58,7 +58,70 @@ class GenerationService {
     const parser = new DOMParser()
     const doc = parser.parseFromString(htmlContent, 'text/html')
     const segments: { index: number; text: string; id: string }[] = []
+
+    // CRITICAL: Remove any existing segment spans before re-segmenting
+    // This prevents nested segment spans from corrupting the content
+    const existingSegments = doc.querySelectorAll('span.segment[id^="seg-"]')
+    existingSegments.forEach((span) => {
+      // Unwrap: replace span with its content
+      const parent = span.parentNode
+      while (span.firstChild) {
+        parent?.insertBefore(span.firstChild, span)
+      }
+      parent?.removeChild(span)
+    })
+
+    logger.info('[segmentHtml] Starting HTML segmentation', {
+      chapterId,
+      htmlLength: htmlContent.length,
+      htmlPreview: htmlContent.substring(0, 200),
+      removedSegments: existingSegments.length,
+    })
+
+    // SIMPLIFIED APPROACH: Extract text content and split into sentences
+    // Don't try to wrap HTML with spans - just return plain segments for TTS
+    // The HTML is returned as-is for display, segments are just for audio generation
+    const fullText = doc.body.textContent || ''
+    const sentences = fullText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [fullText]
+
     let segmentIndex = 0
+    sentences.forEach((sentence) => {
+      const trimmed = sentence.trim()
+      if (trimmed && trimmed.length > 0) {
+        segments.push({
+          index: segmentIndex,
+          text: trimmed,
+          id: `seg-${segmentIndex}`,
+        })
+        segmentIndex++
+      }
+    })
+
+    logger.info('[segmentHtml] Segmentation complete (simplified)', {
+      totalSegments: segments.length,
+      firstSegmentText: segments[0]?.text.substring(0, 100),
+      totalTextLength: fullText.length,
+    })
+
+    // Return original HTML without segment wrapping
+    return { html: htmlContent, segments }
+  }
+
+  // Old complex segmentation logic removed - kept simple for reliability
+  private segmentHtmlComplex_DISABLED(
+    chapterId: string,
+    htmlContent: string
+  ): { html: string; segments: { index: number; text: string; id: string }[] } {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(htmlContent, 'text/html')
+    const segments: { index: number; text: string; id: string }[] = []
+    let segmentIndex = 0
+
+    logger.info('[segmentHtml] Starting HTML segmentation', {
+      chapterId,
+      htmlLength: htmlContent.length,
+      htmlPreview: htmlContent.substring(0, 200),
+    })
 
     // Algorithm:
     // 1. Identify "block" elements (p, h1-6, div, li, blockquote).
@@ -90,6 +153,13 @@ class GenerationService {
     const blocks = doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, div, blockquote, dt, dd')
     // If no blocks found (plain text wrapped in body), fallback to body?
     const elementsToProcess = blocks.length > 0 ? Array.from(blocks) : [doc.body]
+
+    logger.info('[segmentHtml] Found block elements', {
+      blockCount: blocks.length,
+      elementCount: elementsToProcess.length,
+      bodyTextLength: doc.body.textContent?.length || 0,
+      bodyTextPreview: doc.body.textContent?.substring(0, 200),
+    })
 
     let globalIndex = 0
 
@@ -132,6 +202,15 @@ class GenerationService {
 
         const segId = `seg-${globalIndex}`
         segments.push({ index: globalIndex, text: trimmed, id: segId })
+
+        if (globalIndex === 0) {
+          logger.warn('[segmentHtml] First segment created', {
+            segmentId: segId,
+            text: trimmed,
+            textLength: trimmed.length,
+          })
+        }
+
         globalIndex++
 
         // We need to find the range in DOM that corresponds to 'sentence' (raw text, including whitespace)
@@ -232,10 +311,40 @@ class GenerationService {
       })
     })
 
+    logger.info('[segmentHtml] Segmentation complete (OLD COMPLEX)', {
+      totalSegments: segments.length,
+      firstSegmentText: segments[0]?.text.substring(0, 100),
+      lastSegmentText: segments[segments.length - 1]?.text.substring(0, 100),
+    })
+
     return { html: doc.body.innerHTML, segments }
   }
+  // END OF DISABLED COMPLEX SEGMENTATION
 
   async generateChapters(chapters: Chapter[]) {
+    // Direct console log to bypass logger filtering
+    console.error('=== GENERATION STARTING ===')
+    console.error('Chapter count:', chapters.length)
+    chapters.forEach((ch, i) => {
+      console.error(`Chapter ${i + 1}:`, {
+        id: ch.id,
+        title: ch.title,
+        contentLength: ch.content?.length || 0,
+        contentPreview: ch.content?.substring(0, 500) || '(empty)',
+      })
+    })
+    console.error('=== END CHAPTER DUMP ===')
+
+    logger.error('[generateChapters] Starting generation', {
+      chapterCount: chapters.length,
+      chapters: chapters.map((ch) => ({
+        id: ch.id,
+        title: ch.title,
+        contentLength: ch.content?.length || 0,
+        contentPreview: ch.content?.substring(0, 500) || '(empty)',
+      })),
+    })
+
     if (this.running) {
       logger.warn('Generation already running')
       return
@@ -292,6 +401,12 @@ class GenerationService {
 
         try {
           if (model === 'kokoro') {
+            logger.info('[generateChapters] About to segment HTML for Kokoro', {
+              chapterId: ch.id,
+              contentLength: ch.content.length,
+              contentPreview: ch.content.substring(0, 200),
+            })
+
             // 1. Segment the HTML content
             const { html, segments: textSegments } = this.segmentHtml(ch.id, ch.content)
 
@@ -422,6 +537,12 @@ class GenerationService {
             // Let's force segmentation for Piper too?
             // Yes, same logic.
 
+            logger.info('[generateChapters] About to segment HTML for Piper', {
+              chapterId: ch.id,
+              contentLength: ch.content.length,
+              contentPreview: ch.content.substring(0, 200),
+            })
+
             // 1. Segment HTML
             const { html, segments: textSegments } = this.segmentHtml(ch.id, ch.content)
 
@@ -442,6 +563,15 @@ class GenerationService {
             for (let i = 0; i < textSegments.length; i++) {
               if (this.canceled) break
               const segText = textSegments[i].text
+
+              if (i === 0) {
+                logger.warn('[generateChapters] About to generate first Piper segment', {
+                  segmentIndex: i,
+                  segmentId: textSegments[i].id,
+                  text: segText,
+                  textLength: segText.length,
+                })
+              }
 
               chapterProgress.update((m) =>
                 new Map(m).set(ch.id, {
