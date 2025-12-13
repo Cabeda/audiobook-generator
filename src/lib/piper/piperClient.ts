@@ -1,11 +1,7 @@
 import * as tts from '@diffusionstudio/vits-web'
 import * as ort from 'onnxruntime-web'
 import logger from '../utils/logger'
-
-// Minimum text length for TTS generation (characters)
-const MIN_TEXT_LENGTH = 3
-// WAV file header size in bytes (RIFF + fmt + data chunks)
-const WAV_HEADER_SIZE = 44
+import { MIN_TEXT_LENGTH, createSilentWav } from '../audioConstants'
 
 // Configure ONNX Runtime for the worker environment
 // If crossOriginIsolated is false, we must disable multi-threading to avoid crashes
@@ -97,13 +93,13 @@ export class PiperClient {
         `Preparing Piper segments: ${sentences.length} sentences grouped into ${chunks.length} chunk(s)`
       )
 
-      // If all chunks were filtered out (all too short), return empty audio
+      // If all chunks were filtered out (all too short), return silent audio
       if (chunks.length === 0) {
         logger.warn(
           `All text segments were too short (< ${MIN_TEXT_LENGTH} chars), skipping audio generation`
         )
-        // Return a minimal silent WAV file instead of throwing an error
-        return new Blob([new Uint8Array(WAV_HEADER_SIZE)], { type: 'audio/wav' })
+        // Return a minimal valid silent WAV file instead of throwing an error
+        return createSilentWav()
       }
 
       for (let i = 0; i < chunks.length; i++) {
