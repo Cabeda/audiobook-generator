@@ -5,6 +5,7 @@
   import { getBook, updateLastAccessed } from '../lib/libraryDB'
   import { libraryBooks } from '../stores/libraryStore'
   import { book } from '../stores/bookStore'
+  import { appTheme, toggleTheme } from '../stores/themeStore'
 
   const dispatch = createEventDispatcher()
 
@@ -149,6 +150,46 @@
       </svg>
       <span>View on GitHub</span>
     </a>
+
+    <button class="theme-toggle" onclick={toggleTheme} aria-label="Toggle dark mode">
+      {#if $appTheme === 'light'}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+      {:else}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      {/if}
+    </button>
   </footer>
 </div>
 
@@ -305,6 +346,11 @@
     margin-top: 48px;
     padding: 20px;
     text-align: center;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
   }
 
   .github-link {
@@ -331,5 +377,27 @@
 
   .github-icon {
     opacity: 0.8;
+  }
+
+  .theme-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 100px;
+    border: 1px solid var(--shadow-color);
+    background: var(--feature-bg);
+    color: var(--secondary-text);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    padding: 0;
+  }
+
+  .theme-toggle:hover {
+    background: var(--surface-color);
+    color: var(--text-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--shadow-color);
   }
 </style>

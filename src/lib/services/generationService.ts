@@ -704,29 +704,39 @@ class GenerationService {
         // Or easier: update `concatenateAudioChapters` to return timing info?
         // Or calculate it here.
 
-        // Use stored timing data from segments
-        // SMIL file is at: OEBPS/smil/{chapter.id}.smil
-        // XHTML is at: OEBPS/{chapter.id}.xhtml
-        // Audio is at: OEBPS/audio/{chapter.id}.mp3
+        // Recalculate timing from actual segment audio blobs for accurate SMIL sync
+        // This ensures timing is correct even if stored timing is missing or inaccurate
+        let cumulativeTime = 0
         const smilPars = []
+
         for (let j = 0; j < segments.length; j++) {
           const s = segments[j]
-          const clipBegin = s.startTime
-          const clipEnd = s.startTime + s.duration
+
+          // Calculate duration from blob if stored duration is missing/invalid
+          let duration = s.duration
+          if (!duration || duration <= 0) {
+            // Fallback: estimate from WAV blob size (24kHz float32 mono = 96000 bytes/sec)
+            duration = (s.audioBlob.size - 44) / (24000 * 4)
+            if (duration < 0) duration = 1 // Minimum fallback
+          }
+
+          const clipBegin = cumulativeTime
+          const clipEnd = cumulativeTime + duration
 
           smilPars.push({
             // Path from smil/ folder: go up one level (..) then to the xhtml
-            textSrc: `../${ch.id}.xhtml#seg-${s.index}`,
+            // Use s.id which is the actual ID in the XHTML (e.g., "seg-0", "seg-1", ...)
+            textSrc: `../${ch.id}.xhtml#${s.id}`,
             // Path from smil/ folder: go up one level then to audio/
             audioSrc: `../audio/${ch.id}.mp3`,
             clipBegin,
             clipEnd,
           })
+
+          cumulativeTime += duration
         }
 
-        // Calculate total duration from last segment
-        const lastSeg = segments[segments.length - 1]
-        const totalDuration = lastSeg.startTime + lastSeg.duration
+        const totalDuration = cumulativeTime
 
         // Generate XHTML with matching IDs
         const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
