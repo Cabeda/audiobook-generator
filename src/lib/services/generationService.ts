@@ -34,9 +34,14 @@ import type { AudioSegment } from '../types/audio'
 import { generateVoiceStream } from '../kokoro/kokoroClient'
 
 /**
- * Type guard to check if a book has an ID property (i.e., is a LibraryBook)
+ * Type representing a LibraryBook with a guaranteed ID property
  */
-function hasBookId(book: any): book is LibraryBook {
+type LibraryBookWithId = LibraryBook & { id: number }
+
+/**
+ * Type guard to check if a book has an ID property (i.e., is a LibraryBook with ID)
+ */
+function hasBookId(book: any): book is LibraryBookWithId {
   return book !== null && book !== undefined && 'id' in book && typeof book.id === 'number'
 }
 
@@ -48,7 +53,7 @@ function hasBookId(book: any): book is LibraryBook {
 function getBookId(): number {
   const currentBook = get(book)
   if (hasBookId(currentBook)) {
-    return Number(currentBook.id)
+    return currentBook.id // Type guard ensures id is number, not undefined
   }
   return 0
 }
