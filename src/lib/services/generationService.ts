@@ -17,19 +17,12 @@ import {
 } from '../../stores/bookStore'
 import { advancedSettings } from '../../stores/ttsStore'
 import { listVoices as listKokoroVoices } from '../kokoro/kokoroClient'
-import {
-  concatenateAudioChapters,
-  downloadAudioFile,
-  type AudioChapter,
-  type ConcatenationProgress,
-} from '../audioConcat'
+import { concatenateAudioChapters, downloadAudioFile, type AudioChapter } from '../audioConcat'
 import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
-import { audioLikeToBlob } from '../audioConcat'
 import { toastStore } from '../../stores/toastStore'
 import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
-import { generateVoiceStream } from '../kokoro/kokoroClient'
 
 /**
  * Type representing a LibraryBook with a guaranteed ID property
@@ -410,13 +403,6 @@ class GenerationService {
 
     getTTSWorker()
     const totalChapters = chapters.length
-
-    // Helper to check for cancellation
-    const checkCanceled = () => {
-      if (this.canceled) {
-        throw new Error('Cancelled by user')
-      }
-    }
 
     try {
       for (let i = 0; i < totalChapters; i++) {

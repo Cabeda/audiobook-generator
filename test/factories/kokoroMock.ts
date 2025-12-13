@@ -69,8 +69,8 @@ export function createJSHandleKokoroMock() {
   })
 
   const mockTTSBad = {
-    generate: vi.fn().mockImplementation(async (text: string) => createMockAudioBad()),
-    stream: vi.fn().mockImplementation((splitter: any) => {
+    generate: vi.fn().mockImplementation(async (_text: string) => createMockAudioBad()),
+    stream: vi.fn().mockImplementation((_splitter: any) => {
       return (async function* () {
         yield { text: 'chunk', phonemes: 'p', audio: createMockAudioBad() }
       })()

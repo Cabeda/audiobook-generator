@@ -78,7 +78,7 @@ export async function isWebGPUAvailableAsync(): Promise<boolean> {
     // Try to request an adapter — if this fails, GPU backends cannot be used
     const adapter = await gp.requestAdapter?.()
     return !!adapter
-  } catch (e) {
+  } catch {
     return false
   }
 }

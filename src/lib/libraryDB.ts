@@ -307,7 +307,7 @@ export async function searchBooks(query: string): Promise<BookMetadata[]> {
 export async function getBookGenerationStatus(bookId: number): Promise<Set<string>> {
   const db = await openDB()
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     // Check segments store
     if (!db.objectStoreNames.contains(SEGMENT_STORE_NAME)) {
       db.close()
