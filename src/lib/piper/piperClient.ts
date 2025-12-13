@@ -86,6 +86,7 @@ export class PiperClient {
       const sentences = cleanText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [cleanText]
       const chunks = this.chunkSentences(sentences, 400) // group to reduce call count
       const blobs: Blob[] = []
+      const failedSegments: Array<{ index: number; text: string; error: string }> = []
 
       logger.info(
         `Preparing Piper segments: ${sentences.length} sentences grouped into ${chunks.length} chunk(s)`
@@ -107,13 +108,20 @@ export class PiperClient {
           logger.debug(`Segment ${i + 1} succeeded: ${generated.length} blob(s)`)
           blobs.push(...generated)
         } catch (segmentError) {
+          const errorMsg =
+            segmentError instanceof Error ? segmentError.message : String(segmentError)
           logger.error(`Failed to generate segment ${i + 1}:`, {
-            message: segmentError instanceof Error ? segmentError.message : String(segmentError),
+            message: errorMsg,
             stack: segmentError instanceof Error ? segmentError.stack : undefined,
             cause: segmentError instanceof Error ? segmentError.cause : null,
             name: segmentError instanceof Error ? segmentError.name : undefined,
             textLength: sentence.length,
             text: sentence.substring(0, 100),
+          })
+          failedSegments.push({
+            index: i + 1,
+            text: sentence.substring(0, 100),
+            error: errorMsg,
           })
           // Continue with other segments rather than failing entirely
           continue
@@ -126,10 +134,12 @@ export class PiperClient {
           sentenceCount: sentences.length,
           chunkCount: chunks.length,
           firstChunk: chunks[0]?.substring(0, 100),
+          failedSegments: failedSegments.length,
         })
 
         // Fallback: try single large predict call if chunking failed
         logger.warn('Attempting fallback: single large Piper call')
+        let fallbackErrorMsg = ''
         try {
           const result = await this.generateChunkWithRetry(cleanText, voiceId, options, 0)
           if (result.length > 0) {
@@ -137,15 +147,52 @@ export class PiperClient {
             return result.length === 1 ? result[0] : await this.concatenateWavBlobs(result)
           }
         } catch (fallbackErr) {
+          fallbackErrorMsg =
+            fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
           logger.error('Fallback single call also failed:', {
-            message: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+            message: fallbackErrorMsg,
             cause: fallbackErr instanceof Error ? fallbackErr.cause : null,
           })
         }
 
-        throw new Error(
-          `No audio generated from ${chunks.length} text segment(s). Check text format and voice model compatibility.`
-        )
+        // Build detailed error message with context
+        const errorDetails = [
+          `TTS generation failed: No audio generated from ${chunks.length} text segment(s).`,
+          '',
+          `Voice model: ${voiceId}`,
+          `Text length: ${cleanText.length} characters`,
+          `Total sentences: ${sentences.length}`,
+          `Failed segments: ${failedSegments.length}`,
+        ]
+
+        if (fallbackErrorMsg) {
+          errorDetails.push(``, `Fallback attempt also failed:`, `${fallbackErrorMsg}`)
+        }
+
+        // Include details of failed segments
+        if (failedSegments.length > 0) {
+          errorDetails.push('', 'Failed segment details:')
+          failedSegments.slice(0, 3).forEach((seg) => {
+            errorDetails.push(
+              `  Segment ${seg.index}: "${seg.text}${seg.text.length >= 100 ? '...' : ''}"`
+            )
+            errorDetails.push(`  Error: ${seg.error}`)
+          })
+          if (failedSegments.length > 3) {
+            errorDetails.push(`  ... and ${failedSegments.length - 3} more segment(s)`)
+          }
+        } else if (chunks.length > 0) {
+          // If no segments were tried or all failed before generation
+          errorDetails.push(
+            '',
+            `First text segment attempted:`,
+            `"${chunks[0]?.substring(0, 150)}${chunks[0]?.length > 150 ? '...' : ''}"`
+          )
+        }
+
+        errorDetails.push('', 'Troubleshooting: Check text format and voice model compatibility.')
+
+        throw new Error(errorDetails.join('\n'))
       }
 
       logger.info(`Successfully generated ${blobs.length} audio blobs`)
