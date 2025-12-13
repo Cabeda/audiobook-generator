@@ -136,20 +136,23 @@
         </summary>
         <div class="error-content">
           <pre class="error-text">{error}</pre>
-          <button
-            class="copy-error-btn"
-            onclick={(e) => {
-              e.stopPropagation() // Prevent row selection if needed
-              navigator.clipboard
-                .writeText(error)
-                .then(() => toastStore.success('Error copied to clipboard'))
-            }}
-          >
-            📋 Copy Error
-          </button>
         </div>
       </details>
-      <button class="retry-btn" onclick={() => onRetry?.(chapter.id)}> 🔄 Retry </button>
+      <div class="error-actions">
+        <button
+          class="copy-stack-btn"
+          onclick={() => {
+            navigator.clipboard
+              .writeText(error)
+              .then(() => toastStore.success('Error copied to clipboard'))
+              .catch(() => toastStore.error('Failed to copy error'))
+          }}
+          title="Copy stack trace to clipboard"
+        >
+          📋 Copy Stack Trace
+        </button>
+        <button class="retry-btn" onclick={() => onRetry?.(chapter.id)}> 🔄 Retry </button>
+      </div>
     </div>
   {/if}
 
@@ -373,23 +376,6 @@
     }
   }
 
-  .error-container {
-    padding: 12px;
-    background-color: rgba(255, 59, 48, 0.1);
-    border: 1px solid var(--error-color, #ff3b30);
-    border-radius: 6px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .error-message {
-    color: var(--error-color, #ff3b30);
-    font-size: 0.9rem;
-    font-weight: 500;
-  }
-
   .retry-btn {
     background-color: var(--error-color, #ff3b30);
     color: white;
@@ -445,22 +431,32 @@
     word-break: break-all;
     max-height: 150px;
     overflow-y: auto;
-    margin: 0 0 8px 0;
+    margin: 0;
     color: #b91c1c;
   }
 
-  .copy-error-btn {
-    font-size: 0.8rem;
-    padding: 4px 8px;
+  .error-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .copy-stack-btn {
+    flex: 1;
+    font-size: 0.85rem;
+    padding: 6px 12px;
     background: #fef2f2;
     border: 1px solid #fecaca;
     border-radius: 4px;
     cursor: pointer;
     color: #b91c1c;
+    font-weight: 500;
+    transition: all 0.2s;
   }
 
-  .copy-error-btn:hover {
+  .copy-stack-btn:hover {
     background: #fee2e2;
+    border-color: #fca5a5;
   }
   .spinner-container {
     display: flex;
