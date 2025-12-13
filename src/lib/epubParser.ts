@@ -57,7 +57,13 @@ function cleanHtml(html: string): string {
     // Remove inline styles to respect our theme
     el.removeAttribute('style')
     el.removeAttribute('class') // Strip classes to use our own or default
-    el.removeAttribute('id') // We will generate our own IDs
+    // Only remove 'id' if it does not match the segment pattern (e.g., 'seg-*')
+    if (el.hasAttribute('id')) {
+      const id = el.getAttribute('id') || '';
+      if (!/^seg-\w+/.test(id)) {
+        el.removeAttribute('id');
+      }
+    }
     el.removeAttribute('onclick')
   })
 
