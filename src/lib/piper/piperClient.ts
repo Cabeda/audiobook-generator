@@ -84,21 +84,18 @@ export class PiperClient {
       // Split text into sentences to avoid memory issues with large inputs
       // Simple regex split on punctuation followed by whitespace
       const sentences = cleanText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [cleanText]
+      const chunks = this.chunkSentences(sentences, 400) // group to reduce call count
       const blobs: Blob[] = []
 
-      logger.info(`Splitting text into ${sentences.length} segments for generation`)
+      logger.info(
+        `Preparing Piper segments: ${sentences.length} sentences grouped into ${chunks.length} chunk(s)`
+      )
 
-      for (let i = 0; i < sentences.length; i++) {
-        const sentence = sentences[i].trim()
+      for (let i = 0; i < chunks.length; i++) {
+        const sentence = chunks[i]
 
-        // Skip empty segments but be more lenient with single characters
-        if (!sentence || sentence.length === 0) {
-          logger.debug(`Skipping empty segment ${i + 1}`)
-          continue
-        }
-
-        if (sentences.length > 1) {
-          options.onProgress?.(`Generating segment ${i + 1}/${sentences.length}...`)
+        if (chunks.length > 1) {
+          options.onProgress?.(`Generating segment ${i + 1}/${chunks.length}...`)
         }
 
         logger.debug(
@@ -106,22 +103,8 @@ export class PiperClient {
         )
 
         try {
-          const wav = await tts.predict({
-            text: sentence,
-            voiceId: voiceId as any,
-          })
-
-          const blob = this.toWavBlob(wav)
-
-          if (blob && blob.size > 0) {
-            blobs.push(blob)
-            logger.debug(`Segment ${i + 1} generated: ${blob.size} bytes`)
-          } else {
-            logger.warn(`Segment ${i + 1} returned unsupported or empty audio`, {
-              type: wav?.constructor?.name || typeof wav,
-              size: (wav as Blob)?.size,
-            })
-          }
+          const generated = await this.generateChunkWithRetry(sentence, voiceId, options, 0)
+          blobs.push(...generated)
         } catch (segmentError) {
           logger.error(`Failed to generate segment ${i + 1}:`, segmentError)
           // Continue with other segments rather than failing entirely
@@ -132,11 +115,12 @@ export class PiperClient {
       if (blobs.length === 0) {
         logger.error('No audio blobs generated from text', {
           textLength: cleanText.length,
-          segmentCount: sentences.length,
-          firstSegment: sentences[0]?.substring(0, 100),
+          sentenceCount: sentences.length,
+          chunkCount: chunks.length,
+          firstChunk: chunks[0]?.substring(0, 100),
         })
         throw new Error(
-          `No audio generated from ${sentences.length} text segment(s). Check text format and voice model compatibility.`
+          `No audio generated from ${chunks.length} text segment(s). Check text format and voice model compatibility.`
         )
       }
 
@@ -230,6 +214,92 @@ export class PiperClient {
     }
 
     return new Blob([resultBuffer], { type: 'audio/wav' })
+  }
+
+  private async generateChunkWithRetry(
+    text: string,
+    voiceId: string,
+    options: { onProgress?: (msg: string) => void },
+    depth: number
+  ): Promise<Blob[]> {
+    const maxDepth = 2
+    try {
+      const wav = await tts.predict({
+        text,
+        voiceId: voiceId as any,
+      })
+
+      const blob = this.toWavBlob(wav)
+      if (blob && blob.size > 0) {
+        return [blob]
+      }
+
+      logger.warn('Piper predict returned empty/unsupported audio', {
+        textLength: text.length,
+        type: (wav as any)?.constructor?.name || typeof wav,
+        size: (wav as Blob)?.size,
+      })
+      throw new Error('Empty audio')
+    } catch (err) {
+      if (depth >= maxDepth || text.length < 80) {
+        throw err
+      }
+
+      // Retry by splitting the text into smaller parts
+      const parts = this.splitTextForRetry(text)
+      logger.warn('Retrying Piper segment with smaller parts', {
+        depth,
+        parts: parts.length,
+        lengths: parts.map((p) => p.length),
+      })
+
+      const results: Blob[] = []
+      for (const part of parts) {
+        const res = await this.generateChunkWithRetry(part, voiceId, options, depth + 1)
+        results.push(...res)
+      }
+      return results
+    }
+  }
+
+  private splitTextForRetry(text: string): string[] {
+    // Prefer sentence-based splitting
+    const sentences = text.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [text]
+    if (sentences.length > 1) {
+      const mid = Math.ceil(sentences.length / 2)
+      return [
+        sentences.slice(0, mid).join(' ').trim(),
+        sentences.slice(mid).join(' ').trim(),
+      ].filter(Boolean)
+    }
+
+    // Fallback to character split
+    const midChar = Math.floor(text.length / 2)
+    return [text.slice(0, midChar).trim(), text.slice(midChar).trim()].filter(Boolean)
+  }
+
+  // Group adjacent sentences into chunks capped by maxChars to reduce predict calls
+  private chunkSentences(sentences: string[], maxChars: number): string[] {
+    const chunks: string[] = []
+    let current = ''
+
+    for (const sentence of sentences) {
+      const trimmed = sentence.trim()
+      if (!trimmed) continue
+
+      if ((current + ' ' + trimmed).trim().length > maxChars && current) {
+        chunks.push(current.trim())
+        current = trimmed
+      } else {
+        current = (current + ' ' + trimmed).trim()
+      }
+    }
+
+    if (current) {
+      chunks.push(current.trim())
+    }
+
+    return chunks.length > 0 ? chunks : sentences.map((s) => s.trim()).filter(Boolean)
   }
 
   private async toArrayBufferSafe(blob: Blob): Promise<ArrayBuffer> {

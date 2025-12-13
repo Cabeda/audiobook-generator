@@ -180,17 +180,26 @@ class GenerationService {
 
         try {
           const range = doc.createRange()
+
+          if (currentNodeIdx >= blockNodes.length) {
+            logger.warn('No text nodes left while wrapping segment', { sentence: trimmed })
+            return
+          }
+
           range.setStart(blockNodes[currentNodeIdx], currentOffset)
 
           // Scanning forward
-          let charsFound = 0
-
           while (charsNeeded > 0 && currentNodeIdx < blockNodes.length) {
             const node = blockNodes[currentNodeIdx]
             const available = node.length - currentOffset
 
+            if (available <= 0) {
+              currentNodeIdx++
+              currentOffset = 0
+              continue
+            }
+
             if (charsNeeded <= available) {
-              // Sentence ends in this node
               range.setEnd(node, currentOffset + charsNeeded)
               currentOffset += charsNeeded
               charsNeeded = 0
@@ -199,53 +208,25 @@ class GenerationService {
                 currentOffset = 0
               }
             } else {
-              // Sentence wraps to next node
               charsNeeded -= available
               currentNodeIdx++
               currentOffset = 0
             }
           }
 
-          // Wrap range
-          // range.surroundContents(span) // This throws if range splits a non-text node partially
-          // Since we are iterating TextNodes, if the range spans across `<b>...</b>`, it selects the text node inside `b` fully.
-          // It does NOT select the `<b>` tag itself if we only touch text nodes?
-          // Actually `range.setStart/End` on text nodes implies the range content is the text.
-          // If we span multiple text nodes, e.g. "A " (Text) + "bold" (Text in B) + " thing" (Text),
-          // The valid common ancestor is the parent P.
-          // `surroundContents` fails if the range partially contains a non-Text node.
-          // If we fully contain the text of `<b>`, do we contain `<b>`? No.
-          // We contain the text node child of `<b>`.
-          // So `surroundContents` might try to move the text node out of `<b>` into `span`?
-          // Yes. Result: `<span>A </span><span><b>bold</b></span>`??
-          // No. `surroundContents` failure is when a boundary-point splits a node (other than Text).
-          // Here we only split Text nodes.
-          // BUT: if the range includes the text node of a `<b>`, it effectively splits the `<b>` if we tried to move that text out?
-          // Valid HTML: `<span>A <b>bold</b> thing</span>`.
-          // If our range includes "A " and "bold" and " thing".
-          // The common ancestor is P.
-          // The range logically contains `<b>`?
-          // No, because we selected TextNodes.
-          // If we selected `textNode1` and `textNode2` (inside b), and `textNode3`.
-          // `surroundContents` will complain if it results in bad DOM.
-
-          // Safer way: `range.extractContents()` returns a DocumentFragment.
-          // We can put that in the span.
-          // Then insert the span.
-          // `extractContents` handles the splitting of parent tags automatically!
-          // It clones the distinct ancestry for the extracted part.
-          // e.g. "A <b>bo|ld</b>" -> extract "bo" -> result fragment: "bo" wrapped in `<b>` if needed?
-          // Yes, `extractContents` is robust.
+          // If we still need chars, bail out to avoid DOMException
+          if (charsNeeded > 0) {
+            logger.warn('Could not fully wrap segment (insufficient text nodes)', {
+              sentence: trimmed,
+              remaining: charsNeeded,
+            })
+            return
+          }
 
           const content = range.extractContents()
           span.appendChild(content)
           range.insertNode(span)
-
-          // Cleanup: `extractContents` removes empty tags? No.
-          // We might leave empty `<b></b>` behind. No big deal.
         } catch (e) {
-          // Fallback: don't wrap, just skip?
-          // Or continue.
           console.warn('Failed to wrap segment', e)
         }
       })
