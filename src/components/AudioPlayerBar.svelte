@@ -51,6 +51,16 @@
     onMaximize?.()
   }
 
+  function handleBarKeyDown(e: KeyboardEvent) {
+    if (mode !== 'persistent') return
+    const target = e.target as HTMLElement
+    if (target.closest('button')) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onMaximize?.()
+    }
+  }
+
   // Helper used to detect focus on interactive elements
   function isInteractiveElement(el: Element | null) {
     if (!el) return false
@@ -96,14 +106,17 @@
   })
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="audio-player-bar"
   class:persistent={mode === 'persistent'}
   class:reader={mode === 'reader'}
   class:dark={$appTheme === 'dark'}
+  role={mode === 'persistent' ? 'button' : undefined}
+  tabindex={mode === 'persistent' ? 0 : -1}
+  aria-label={mode === 'persistent' ? 'Expand player' : undefined}
   onclick={handleBarClick}
+  onkeydown={handleBarKeyDown}
 >
   <div class="player-content">
     <!-- Book/Chapter Info (Persistent Mode Only) -->
