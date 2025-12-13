@@ -34,13 +34,23 @@ import type { AudioSegment } from '../types/audio'
 import { generateVoiceStream } from '../kokoro/kokoroClient'
 
 /**
+ * Type guard to check if a book has an ID property (i.e., is a LibraryBook)
+ */
+function hasBookId(book: any): book is LibraryBook {
+  return book !== null && book !== undefined && 'id' in book && typeof book.id === 'number'
+}
+
+/**
  * Helper function to safely extract the book ID from the book store.
  * The book store can contain either a Book or a LibraryBook (which extends Book with an id property).
  * @returns The book ID as a number, or 0 if not available
  */
 function getBookId(): number {
-  const currentBook = get(book) as LibraryBook | null
-  return currentBook?.id ? Number(currentBook.id) : 0
+  const currentBook = get(book)
+  if (hasBookId(currentBook)) {
+    return Number(currentBook.id)
+  }
+  return 0
 }
 
 export interface SegmentOptions {
