@@ -106,13 +106,14 @@
   })
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="audio-player-bar"
   class:persistent={mode === 'persistent'}
   class:reader={mode === 'reader'}
   class:dark={$appTheme === 'dark'}
   role={mode === 'persistent' ? 'button' : undefined}
-  tabindex={mode === 'persistent' ? 0 : undefined}
+  tabindex={mode === 'persistent' ? 0 : -1}
   aria-label={mode === 'persistent' ? 'Expand player' : undefined}
   onclick={handleBarClick}
   onkeydown={handleBarKeyDown}

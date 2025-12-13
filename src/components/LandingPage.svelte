@@ -89,7 +89,7 @@
       </p>
 
       <!-- Tab Navigation -->
-      <nav class="tabs" role="tablist" aria-label="Main navigation">
+      <div class="tabs" role="tablist" aria-label="Main navigation">
         <button
           class="tab"
           class:active={currentView === 'upload'}
@@ -115,7 +115,7 @@
             >
           {/if}
         </button>
-      </nav>
+      </div>
 
       <!-- Content based on selected tab -->
       {#if currentView === 'upload'}

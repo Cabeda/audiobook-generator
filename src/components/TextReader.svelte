@@ -410,6 +410,7 @@
     </div>
 
     <!-- Text Content -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
       class="text-content"
       role="main"
