@@ -86,7 +86,12 @@ export class PiperClient {
       const sentences = cleanText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [cleanText]
       const chunks = this.chunkSentences(sentences, 400) // group to reduce call count
       const blobs: Blob[] = []
-      const failedSegments: Array<{ index: number; text: string; error: string }> = []
+      const failedSegments: Array<{
+        index: number
+        text: string
+        error: string
+        truncated: boolean
+      }> = []
 
       logger.info(
         `Preparing Piper segments: ${sentences.length} sentences grouped into ${chunks.length} chunk(s)`
@@ -110,18 +115,20 @@ export class PiperClient {
         } catch (segmentError) {
           const errorMsg =
             segmentError instanceof Error ? segmentError.message : String(segmentError)
+          const maxPreviewLength = 100
           logger.error(`Failed to generate segment ${i + 1}:`, {
             message: errorMsg,
             stack: segmentError instanceof Error ? segmentError.stack : undefined,
             cause: segmentError instanceof Error ? segmentError.cause : null,
             name: segmentError instanceof Error ? segmentError.name : undefined,
             textLength: sentence.length,
-            text: sentence.substring(0, 100),
+            text: sentence.substring(0, maxPreviewLength),
           })
           failedSegments.push({
             index: i + 1,
-            text: sentence.substring(0, 100),
+            text: sentence.substring(0, maxPreviewLength),
             error: errorMsg,
+            truncated: sentence.length > maxPreviewLength,
           })
           // Continue with other segments rather than failing entirely
           continue
@@ -173,9 +180,7 @@ export class PiperClient {
         if (failedSegments.length > 0) {
           errorDetails.push('', 'Failed segment details:')
           failedSegments.slice(0, 3).forEach((seg) => {
-            errorDetails.push(
-              `  Segment ${seg.index}: "${seg.text}${seg.text.length >= 100 ? '...' : ''}"`
-            )
+            errorDetails.push(`  Segment ${seg.index}: "${seg.text}${seg.truncated ? '...' : ''}"`)
             errorDetails.push(`  Error: ${seg.error}`)
           })
           if (failedSegments.length > 3) {
@@ -183,10 +188,12 @@ export class PiperClient {
           }
         } else if (chunks.length > 0) {
           // If no segments were tried or all failed before generation
+          const maxPreviewLength = 100
+          const firstChunk = chunks[0] || ''
           errorDetails.push(
             '',
             `First text segment attempted:`,
-            `"${chunks[0]?.substring(0, 150)}${chunks[0]?.length > 150 ? '...' : ''}"`
+            `"${firstChunk.substring(0, maxPreviewLength)}${firstChunk.length > maxPreviewLength ? '...' : ''}"`
           )
         }
 
