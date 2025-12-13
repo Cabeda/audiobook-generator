@@ -383,7 +383,7 @@ class GenerationService {
     this.running = true
     this.canceled = false // Reset canceled state
 
-    const worker = getTTSWorker()
+    getTTSWorker()
     const totalChapters = chapters.length
 
     // Helper to check for cancellation
