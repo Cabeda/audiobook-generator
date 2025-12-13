@@ -138,7 +138,6 @@ class GenerationService {
     const parser = new DOMParser()
     const doc = parser.parseFromString(htmlContent, 'text/html')
     const segments: { index: number; text: string; id: string }[] = []
-    let segmentIndex = 0
 
     logger.info('[segmentHtml] Starting HTML segmentation', {
       chapterId,
