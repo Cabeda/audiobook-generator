@@ -207,7 +207,6 @@
         bind:value={url}
         onkeydown={handleUrlKeydown}
         disabled={urlLoading || parsing}
-        aria-label="Article URL to import"
       />
       <button
         onclick={fetchArticle}

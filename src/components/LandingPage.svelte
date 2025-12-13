@@ -91,6 +91,7 @@
       <!-- Tab Navigation -->
       <div class="tabs" role="tablist" aria-label="Main navigation">
         <button
+          id="upload-tab"
           class="tab"
           class:active={currentView === 'upload'}
           onclick={switchToUpload}
@@ -101,6 +102,7 @@
           📤 Upload New
         </button>
         <button
+          id="library-tab"
           class="tab"
           class:active={currentView === 'library'}
           onclick={switchToLibrary}
