@@ -407,8 +407,7 @@
           <button class="back-link" onclick={handleClose}>← Back to book</button>
         </div>
       {:else}
-        <!-- We render the full HTML content. Highlighted segments are handled by CSS targeting ids/classes 
-             driven by a reactivity effect in script -->
+        <!-- We render the full HTML content with segments. Active segment highlighting is managed by the updateActiveSegment function. -->
         {@html chapter.content}
       {/if}
     </div>
