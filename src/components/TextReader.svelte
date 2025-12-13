@@ -211,6 +211,9 @@
       const span = document.createElement('span')
       span.className = 'segment'
       span.id = `seg-${segment.index}`
+      span.setAttribute('role', 'button')
+      span.setAttribute('tabindex', '0')
+      span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
 
       try {
         const contents = range.extractContents()
@@ -299,6 +302,21 @@
       const index = parseInt(segmentEl.id.replace('seg-', ''), 10)
       if (!isNaN(index)) {
         audioService.playFromSegment(index)
+      }
+    }
+  }
+
+  function handleContentKeyDown(event: KeyboardEvent) {
+    const target = event.target as HTMLElement
+    // Check if the focused element is a segment
+    if (target.classList.contains('segment') && target.id.startsWith('seg-')) {
+      // Handle Enter or Space key
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        const index = parseInt(target.id.replace('seg-', ''), 10)
+        if (!isNaN(index)) {
+          audioService.playFromSegment(index)
+        }
       }
     }
   }
@@ -392,9 +410,13 @@
     </div>
 
     <!-- Text Content -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="text-content" role="main" onclick={handleContentClick} bind:this={textContentEl}>
+    <div
+      class="text-content"
+      role="main"
+      onclick={handleContentClick}
+      onkeydown={handleContentKeyDown}
+      bind:this={textContentEl}
+    >
       {#if isLoading}
         <div class="loading-indicator">
           <div class="spinner"></div>
@@ -774,6 +796,12 @@
   }
 
   :global(.segment:hover) {
+    background-color: var(--hover-bg);
+  }
+
+  :global(.segment:focus) {
+    outline: 2px solid var(--highlight-border, #ffb74d);
+    outline-offset: 2px;
     background-color: var(--hover-bg);
   }
 

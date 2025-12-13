@@ -199,16 +199,24 @@
     </div>
 
     <div class="url-input-group">
+      <label for="article-url" class="sr-only">Article URL</label>
       <input
+        id="article-url"
         type="url"
         placeholder="Paste article URL here..."
         bind:value={url}
         onkeydown={handleUrlKeydown}
         disabled={urlLoading || parsing}
+        aria-label="Article URL to import"
       />
-      <button onclick={fetchArticle} disabled={!url || urlLoading || parsing}>
+      <button
+        onclick={fetchArticle}
+        disabled={!url || urlLoading || parsing}
+        aria-label="Import article from URL"
+      >
         {#if urlLoading}
-          ⏳
+          <span aria-hidden="true">⏳</span>
+          <span class="sr-only">Loading...</span>
         {:else}
           Import
         {/if}

@@ -89,21 +89,37 @@
       </p>
 
       <!-- Tab Navigation -->
-      <div class="tabs">
-        <button class="tab" class:active={currentView === 'upload'} onclick={switchToUpload}>
+      <nav class="tabs" role="tablist" aria-label="Main navigation">
+        <button
+          class="tab"
+          class:active={currentView === 'upload'}
+          onclick={switchToUpload}
+          role="tab"
+          aria-selected={currentView === 'upload'}
+          aria-controls="upload-panel"
+        >
           📤 Upload New
         </button>
-        <button class="tab" class:active={currentView === 'library'} onclick={switchToLibrary}>
+        <button
+          class="tab"
+          class:active={currentView === 'library'}
+          onclick={switchToLibrary}
+          role="tab"
+          aria-selected={currentView === 'library'}
+          aria-controls="library-panel"
+        >
           📚 My Library
           {#if $libraryBooks.length > 0}
-            <span class="library-count">{$libraryBooks.length}</span>
+            <span class="library-count" aria-label="{$libraryBooks.length} books"
+              >{$libraryBooks.length}</span
+            >
           {/if}
         </button>
-      </div>
+      </nav>
 
       <!-- Content based on selected tab -->
       {#if currentView === 'upload'}
-        <div class="input-wrapper">
+        <div class="input-wrapper" role="tabpanel" id="upload-panel" aria-labelledby="upload-tab">
           <UnifiedInput on:bookloaded={onBookLoaded} />
         </div>
 
@@ -122,7 +138,12 @@
           </div>
         </div>
       {:else}
-        <div class="library-wrapper">
+        <div
+          class="library-wrapper"
+          role="tabpanel"
+          id="library-panel"
+          aria-labelledby="library-tab"
+        >
           <LibraryView onbookselected={handleLibraryBookSelected} />
         </div>
       {/if}
