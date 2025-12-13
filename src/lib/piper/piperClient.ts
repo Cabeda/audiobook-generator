@@ -92,6 +92,13 @@ export class PiperClient {
         `Preparing Piper segments: ${sentences.length} sentences grouped into ${chunks.length} chunk(s)`
       )
 
+      // If all chunks were filtered out (all too short), return empty audio
+      if (chunks.length === 0) {
+        logger.warn('All text segments were too short (< 3 chars), skipping audio generation')
+        // Return a minimal silent WAV file instead of throwing an error
+        return new Blob([new Uint8Array(44)], { type: 'audio/wav' })
+      }
+
       for (let i = 0; i < chunks.length; i++) {
         const sentence = chunks[i]
 
@@ -400,6 +407,13 @@ export class PiperClient {
     for (const sentence of sentences) {
       const trimmed = sentence.trim()
       if (!trimmed) continue
+
+      // Skip very short segments (< 3 chars) that are likely formatting artifacts
+      // like "1.", "2.", etc. that don't need to be spoken
+      if (trimmed.length < 3) {
+        logger.debug(`Skipping very short segment: "${trimmed}"`)
+        continue
+      }
 
       if ((current + ' ' + trimmed).trim().length > maxChars && current) {
         chunks.push(current.trim())

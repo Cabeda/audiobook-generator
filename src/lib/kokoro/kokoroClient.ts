@@ -281,6 +281,12 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
     const trimmedSentence = sentence.trim()
     if (!trimmedSentence) continue
 
+    // Skip very short segments (< 3 chars) that are likely formatting artifacts
+    // like "1.", "2.", etc. that don't need to be spoken
+    if (trimmedSentence.length < 3) {
+      continue
+    }
+
     // If a single sentence is longer than maxChunkSize, it becomes its own chunk
     if (trimmedSentence.length > maxChunkSize) {
       // Save current chunk if it has content
