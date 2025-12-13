@@ -46,6 +46,20 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       ],
       description: 'How to handle numbers and abbreviations.',
     },
+    {
+      key: 'ignoreCodeBlocks',
+      label: 'Ignore Code Blocks',
+      type: 'boolean',
+      defaultValue: false,
+      description: 'Skip reading text inside <code> or <pre> blocks.',
+    },
+    {
+      key: 'ignoreLinks',
+      label: 'Skip Link Text',
+      type: 'boolean',
+      defaultValue: false,
+      description: 'Do not read the text contained in anchor tags.',
+    },
   ],
   piper: [
     {
@@ -67,6 +81,20 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       step: 0.1,
       defaultValue: 1.0,
       description: 'Controls the overall speed/length of the phonemes.',
+    },
+    {
+      key: 'ignoreCodeBlocks',
+      label: 'Ignore Code Blocks',
+      type: 'boolean',
+      defaultValue: false,
+      description: 'Skip reading text inside <code> or <pre> blocks.',
+    },
+    {
+      key: 'ignoreLinks',
+      label: 'Skip Link Text',
+      type: 'boolean',
+      defaultValue: false,
+      description: 'Do not read the text contained in anchor tags.',
     },
   ],
 }

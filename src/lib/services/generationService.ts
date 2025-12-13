@@ -32,6 +32,78 @@ import { saveChapterSegments } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { generateVoiceStream } from '../kokoro/kokoroClient'
 
+export interface SegmentOptions {
+  ignoreCodeBlocks?: boolean
+  ignoreLinks?: boolean
+}
+
+export function segmentHtmlContent(
+  chapterId: string,
+  htmlContent: string,
+  options: SegmentOptions = {}
+): { html: string; segments: { index: number; text: string; id: string }[] } {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(htmlContent, 'text/html')
+  const segments: { index: number; text: string; id: string }[] = []
+
+  // CRITICAL: Remove any existing segment spans before re-segmenting
+  // This prevents nested segment spans from corrupting the content
+  const existingSegments = doc.querySelectorAll('span.segment[id^="seg-"]')
+  existingSegments.forEach((span) => {
+    // Unwrap: replace span with its content
+    const parent = span.parentNode
+    while (span.firstChild) {
+      parent?.insertBefore(span.firstChild, span)
+    }
+    parent?.removeChild(span)
+  })
+
+  if (options.ignoreCodeBlocks) {
+    doc.querySelectorAll('code, pre').forEach((el) => el.remove())
+  }
+
+  if (options.ignoreLinks) {
+    doc.querySelectorAll('a').forEach((el) => el.remove())
+  }
+
+  logger.info('[segmentHtml] Starting HTML segmentation', {
+    chapterId,
+    htmlLength: htmlContent.length,
+    htmlPreview: htmlContent.substring(0, 200),
+    removedSegments: existingSegments.length,
+    ignoreCodeBlocks: !!options.ignoreCodeBlocks,
+    ignoreLinks: !!options.ignoreLinks,
+  })
+
+  // SIMPLIFIED APPROACH: Extract text content and split into sentences
+  // Don't try to wrap HTML with spans - just return plain segments for TTS
+  // The HTML is returned as-is for display, segments are just for audio generation
+  const fullText = doc.body.textContent || ''
+  const sentences = fullText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [fullText]
+
+  let segmentIndex = 0
+  sentences.forEach((sentence) => {
+    const trimmed = sentence.trim()
+    if (trimmed && trimmed.length > 0) {
+      segments.push({
+        index: segmentIndex,
+        text: trimmed,
+        id: `seg-${segmentIndex}`,
+      })
+      segmentIndex++
+    }
+  })
+
+  logger.info('[segmentHtml] Segmentation complete (simplified)', {
+    totalSegments: segments.length,
+    firstSegmentText: segments[0]?.text.substring(0, 100),
+    totalTextLength: fullText.length,
+  })
+
+  // Return original HTML without segment wrapping
+  return { html: htmlContent, segments }
+}
+
 class GenerationService {
   private running = false
   private canceled = false
@@ -53,58 +125,10 @@ class GenerationService {
   // Helper to segment HTML content into sentences and wrap them with spans
   private segmentHtml(
     chapterId: string,
-    htmlContent: string
+    htmlContent: string,
+    options?: SegmentOptions
   ): { html: string; segments: { index: number; text: string; id: string }[] } {
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(htmlContent, 'text/html')
-    const segments: { index: number; text: string; id: string }[] = []
-
-    // CRITICAL: Remove any existing segment spans before re-segmenting
-    // This prevents nested segment spans from corrupting the content
-    const existingSegments = doc.querySelectorAll('span.segment[id^="seg-"]')
-    existingSegments.forEach((span) => {
-      // Unwrap: replace span with its content
-      const parent = span.parentNode
-      while (span.firstChild) {
-        parent?.insertBefore(span.firstChild, span)
-      }
-      parent?.removeChild(span)
-    })
-
-    logger.info('[segmentHtml] Starting HTML segmentation', {
-      chapterId,
-      htmlLength: htmlContent.length,
-      htmlPreview: htmlContent.substring(0, 200),
-      removedSegments: existingSegments.length,
-    })
-
-    // SIMPLIFIED APPROACH: Extract text content and split into sentences
-    // Don't try to wrap HTML with spans - just return plain segments for TTS
-    // The HTML is returned as-is for display, segments are just for audio generation
-    const fullText = doc.body.textContent || ''
-    const sentences = fullText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [fullText]
-
-    let segmentIndex = 0
-    sentences.forEach((sentence) => {
-      const trimmed = sentence.trim()
-      if (trimmed && trimmed.length > 0) {
-        segments.push({
-          index: segmentIndex,
-          text: trimmed,
-          id: `seg-${segmentIndex}`,
-        })
-        segmentIndex++
-      }
-    })
-
-    logger.info('[segmentHtml] Segmentation complete (simplified)', {
-      totalSegments: segments.length,
-      firstSegmentText: segments[0]?.text.substring(0, 100),
-      totalTextLength: fullText.length,
-    })
-
-    // Return original HTML without segment wrapping
-    return { html: htmlContent, segments }
+    return segmentHtmlContent(chapterId, htmlContent, options)
   }
 
   // Old complex segmentation logic removed - kept simple for reliability
@@ -408,7 +432,10 @@ class GenerationService {
             })
 
             // 1. Segment the HTML content
-            const { html, segments: textSegments } = this.segmentHtml(ch.id, ch.content)
+            const { html, segments: textSegments } = this.segmentHtml(ch.id, ch.content, {
+              ignoreCodeBlocks: Boolean(currentAdvancedSettings.ignoreCodeBlocks),
+              ignoreLinks: Boolean(currentAdvancedSettings.ignoreLinks),
+            })
 
             // Update in-memory content
             ch.content = html
@@ -544,7 +571,10 @@ class GenerationService {
             })
 
             // 1. Segment HTML
-            const { html, segments: textSegments } = this.segmentHtml(ch.id, ch.content)
+            const { html, segments: textSegments } = this.segmentHtml(ch.id, ch.content, {
+              ignoreCodeBlocks: Boolean(currentAdvancedSettings.ignoreCodeBlocks),
+              ignoreLinks: Boolean(currentAdvancedSettings.ignoreLinks),
+            })
 
             // 2. Update Content
             const currentBook = get(book) as any

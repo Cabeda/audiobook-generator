@@ -202,12 +202,25 @@ class AudioPlaybackService {
     }
   }
 
-  private splitIntoSegments(text: string): TextSegment[] {
-    const sentences = text.split(/(?<=[.!?])\s+/)
-    return sentences
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .map((text, index) => ({ index, text }))
+  private splitIntoSegments(html: string): TextSegment[] {
+    try {
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(html, 'text/html')
+      const fullText = doc.body.textContent || ''
+      const sentences = fullText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [fullText]
+
+      return sentences
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((text, index) => ({ index, text }))
+    } catch (err) {
+      logger.warn('Failed to segment HTML for fallback playback', err)
+      const sentences = html.split(/(?<=[.!?])\s+/)
+      return sentences
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((text, index) => ({ index, text }))
+    }
   }
 
   private async getDurationFromUrl(url: string): Promise<number> {

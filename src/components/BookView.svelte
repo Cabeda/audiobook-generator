@@ -17,6 +17,7 @@
     selectedQuantization,
     selectedDevice,
     voiceLabels,
+    advancedSettings,
   } from '../stores/ttsStore'
   import { generationService } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
@@ -28,6 +29,7 @@
     estimateSpeechDurationSeconds,
     formatDurationShort,
   } from '../lib/utils/textStats'
+  import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
 
   const numberFormatter = new Intl.NumberFormat()
 
@@ -268,6 +270,30 @@
             </label>
           {/if}
         </div>
+
+        {#if ADVANCED_SETTINGS_SCHEMA[$selectedModel]}
+          <div class="setting-group">
+            <span class="setting-group-title">Text Handling</span>
+            {#each ADVANCED_SETTINGS_SCHEMA[$selectedModel] as setting, idx}
+              {#if setting.type === 'boolean'}
+                <label class="checkbox-row" for={`adv-${$selectedModel}-${idx}`}>
+                  <input
+                    id={`adv-${$selectedModel}-${idx}`}
+                    type="checkbox"
+                    bind:checked={$advancedSettings[$selectedModel][setting.key]}
+                    disabled={isGenerating}
+                  />
+                  <span>
+                    <span>{setting.label}</span>
+                    {#if setting.description}
+                      <small>{setting.description}</small>
+                    {/if}
+                  </span>
+                </label>
+              {/if}
+            {/each}
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -507,6 +533,24 @@
     margin: 0 8px 16px 8px;
     padding: 16px;
     border-radius: 12px;
+  }
+
+  .setting-group-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: inline-block;
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+  }
+
+  .checkbox-row small {
+    display: block;
+    opacity: 0.7;
   }
 
   .setting-group {

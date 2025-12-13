@@ -49,6 +49,7 @@
   // Will be initialized after first initialization to avoid false change detection
   let currentModelFromStore = $state<'kokoro' | 'piper' | 'web_speech' | null>(null)
   let currentVoiceFromStore = $state<string | null>(null)
+  let textContentEl: HTMLDivElement | null = null
 
   // State for initialization
   let loadError = $state(false)
@@ -76,10 +77,15 @@
           .then((success) => {
             isLoading = false
             if (success) {
-              // Auto-play when chapter loads
-              audioService.play().catch((err) => {
-                console.error('Auto-play failed:', err)
-              })
+              const store = get(audioPlayerStore)
+              const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
+
+              audioService
+                .playFromSegment(startSeg)
+                .then(() => audioService.play())
+                .catch((err) => {
+                  console.error('Auto-play failed:', err)
+                })
             } else {
               loadError = true
               console.warn('Chapter audio not available - generate audio first')
@@ -92,6 +98,14 @@
           })
       } else {
         isLoading = false
+        const store = get(audioPlayerStore)
+        const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
+        audioService
+          .playFromSegment(startSeg)
+          .then(() => audioService.play())
+          .catch((err) => {
+            console.error('Auto-play failed:', err)
+          })
       }
     }
   })
@@ -106,12 +120,131 @@
     }
   }
 
+  function rangeFromTextOffsets(root: HTMLElement, start: number, end: number): Range | null {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let offset = 0
+    let startNode: Node | null = null
+    let startOffset = 0
+    let endNode: Node | null = null
+    let endOffset = 0
+
+    let current = walker.nextNode()
+    while (current) {
+      const len = current.textContent?.length ?? 0
+      if (!startNode && start >= offset && start <= offset + len) {
+        startNode = current
+        startOffset = start - offset
+      }
+      if (!endNode && end <= offset + len) {
+        endNode = current
+        endOffset = end - offset
+        break
+      }
+      offset += len
+      current = walker.nextNode()
+    }
+
+    if (!startNode || !endNode) return null
+    const range = document.createRange()
+    range.setStart(startNode, startOffset)
+    range.setEnd(endNode, endOffset)
+    return range
+  }
+
+  function injectSegmentsIntoContent() {
+    if (!textContentEl) return
+    const root = textContentEl
+
+    // If segments are already present (e.g., pre-wrapped content), keep them
+    const existing = root.querySelectorAll('span[id^="seg-"]')
+    if (existing.length) {
+      existing.forEach((el) => el.classList.add('segment'))
+      return
+    }
+
+    const segments = audioService.segments
+    if (!segments?.length) return
+
+    const fullText = root.textContent || ''
+
+    const normalizeWithMap = (text: string) => {
+      const normalizedChars: string[] = []
+      const normToOriginal: number[] = []
+      let lastWasSpace = false
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i]
+        if (/\s/.test(ch)) {
+          if (lastWasSpace) continue
+          normalizedChars.push(' ')
+          normToOriginal.push(i)
+          lastWasSpace = true
+        } else {
+          normalizedChars.push(ch)
+          normToOriginal.push(i)
+          lastWasSpace = false
+        }
+      }
+      return { normalized: normalizedChars.join(''), normToOriginal }
+    }
+
+    const normalizedFull = normalizeWithMap(fullText)
+    let searchNormIndex = 0
+
+    for (const segment of segments) {
+      const normalizedSegment = normalizeWithMap(segment.text)
+      if (!normalizedSegment.normalized) continue
+
+      const startNorm = normalizedFull.normalized.indexOf(
+        normalizedSegment.normalized,
+        searchNormIndex
+      )
+      if (startNorm === -1) continue
+      const endNorm = startNorm + normalizedSegment.normalized.length
+
+      const start = normalizedFull.normToOriginal[startNorm]
+      const endOriginalIdx = normalizedFull.normToOriginal[endNorm - 1]
+      const end = endOriginalIdx !== undefined ? endOriginalIdx + 1 : start + segment.text.length
+
+      const range = rangeFromTextOffsets(root, start, end)
+      if (!range || range.collapsed) continue
+
+      const span = document.createElement('span')
+      span.className = 'segment'
+      span.id = `seg-${segment.index}`
+
+      try {
+        const contents = range.extractContents()
+        span.appendChild(contents)
+        range.insertNode(span)
+      } catch (err) {
+        console.warn('Failed to wrap segment for highlighting', err)
+      }
+
+      searchNormIndex = endNorm
+    }
+  }
+
   // Scroll to current segment
   $effect(() => {
     const index = audioService.currentSegmentIndex
     if (index >= 0) {
       updateActiveSegment(index)
       scrollToSegment(index)
+    }
+  })
+
+  // Inject segment wrappers so the active sentence can be highlighted
+  $effect(() => {
+    const ready = !isLoading && !loadError
+    const segmentCount = audioService.segments.length
+    const chapterId = chapter?.id
+    if (!ready || !segmentCount || !chapterId) return
+
+    injectSegmentsIntoContent()
+
+    if (audioService.currentSegmentIndex >= 0) {
+      updateActiveSegment(audioService.currentSegmentIndex)
+      scrollToSegment(audioService.currentSegmentIndex)
     }
   })
 
@@ -180,6 +313,17 @@
   type Theme = 'light' | 'dark' | 'sepia'
   const THEME_KEY = 'text_reader_theme'
   let currentTheme = $state<Theme>('dark')
+  const themeOrder: Theme[] = ['light', 'dark', 'sepia']
+  const themeIcons: Record<Theme, string> = {
+    light: '☀️',
+    dark: '🌙',
+    sepia: '📖',
+  }
+  const themeLabels: Record<Theme, string> = {
+    light: 'Light',
+    dark: 'Dark',
+    sepia: 'Sepia',
+  }
 
   onMount(() => {
     try {
@@ -210,6 +354,12 @@
     }
   }
 
+  function cycleTheme() {
+    const currentIndex = themeOrder.indexOf(currentTheme)
+    const nextTheme = themeOrder[(currentIndex + 1) % themeOrder.length]
+    changeTheme(nextTheme)
+  }
+
   onDestroy(() => {
     // We don't stop audio on destroy anymore!
     // But we might want to unsubscribe if we had manual subscriptions
@@ -220,15 +370,31 @@
   <div class="reader-container">
     <!-- Header -->
     <div class="reader-header">
-      <button class="back-button" onclick={handleClose} aria-label="Back to book"> ← Back </button>
-      <h2 id="chapter-title">{chapter.title}</h2>
-      <div class="header-spacer"></div>
+      <div class="header-row top">
+        <button class="back-button" onclick={handleClose} aria-label="Back to book">
+          ← Back
+        </button>
+        <div class="header-title">
+          <div class="eyebrow">{bookTitle}</div>
+          <div class="main-title" aria-label="Chapter title">{chapter.title}</div>
+        </div>
+        <div class="header-actions">
+          <button
+            class="theme-toggle"
+            onclick={cycleTheme}
+            aria-label={`Switch theme (current ${themeLabels[currentTheme]})`}
+          >
+            <span class="theme-icon">{themeIcons[currentTheme]}</span>
+            <span class="theme-label">{themeLabels[currentTheme]}</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Text Content -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="text-content" role="main" onclick={handleContentClick}>
+    <div class="text-content" role="main" onclick={handleContentClick} bind:this={textContentEl}>
       {#if isLoading}
         <div class="loading-indicator">
           <div class="spinner"></div>
@@ -363,6 +529,20 @@
   :global(:root) {
     --bg-color: #ffffff;
     --text-color: #000000;
+    --secondary-text: #475569;
+    --active-bg: #ffe0b2;
+    --active-text: #000;
+    --header-bg: #ffffff;
+    --border-color: #e0e0e0;
+    --surface-color: #f5f5f5;
+    --unprocessed-text: #000000;
+    --hover-bg: rgba(255, 183, 77, 0.15);
+  }
+
+  [data-theme='light'] {
+    --bg-color: #ffffff;
+    --text-color: #000000;
+    --secondary-text: #475569;
     --active-bg: #ffe0b2;
     --active-text: #000;
     --header-bg: #ffffff;
@@ -374,9 +554,11 @@
 
   [data-theme='dark'] {
     --bg-color: #1a1a1a;
-    --text-color: #e0e0e0;
+    --text-color: #f1f5f9;
+    --secondary-text: #cbd5e1;
     --active-bg: #3d3d3d;
     --active-text: #fff;
+    --bg-color: #1a1a1a;
     --header-bg: #1a1a1a;
     --border-color: #333;
     --surface-color: #2a2a2a;
@@ -387,6 +569,7 @@
   [data-theme='sepia'] {
     --bg-color: #f4ecd8;
     --text-color: #5b4636;
+    --secondary-text: #7b604b;
     --active-bg: #e6dcb8;
     --active-text: #000;
     --header-bg: #f4ecd8;
@@ -435,11 +618,17 @@
 
   .reader-header {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
     padding: 16px 24px;
     border-bottom: 1px solid var(--border-color);
     background: var(--header-bg);
+    color: var(--text-color);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    isolation: isolate;
+    mix-blend-mode: normal;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
     transition:
       background-color 0.3s,
       border-color 0.3s;
@@ -463,18 +652,102 @@
     border-color: var(--text-color);
   }
 
-  .reader-header h2 {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 600;
+  .reader-page[data-theme='dark'] .back-button {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--border-color);
     color: var(--text-color);
-    flex: 1;
-    letter-spacing: -0.01em;
-    text-align: center;
   }
 
-  .header-spacer {
-    width: 80px; /* Same width as back button to center title */
+  .reader-page[data-theme='dark'] .back-button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--text-color);
+  }
+
+  .header-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .header-row.top {
+    width: 100%;
+  }
+
+  .header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .header-title .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--secondary-text, var(--text-color));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-title .main-title {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--text-color);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 140px;
+    justify-self: flex-end;
+  }
+
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-color);
+    color: var(--text-color);
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    min-width: 110px;
+  }
+
+  .theme-toggle:hover {
+    border-color: var(--text-color);
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+  }
+
+  .reader-page[data-theme='dark'] .theme-toggle {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(148, 163, 184, 0.35);
+  }
+
+  .reader-page[data-theme='dark'] .theme-toggle:hover {
+    border-color: var(--text-color);
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .theme-icon {
+    font-size: 1rem;
+  }
+
+  .theme-label {
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
 
   .text-content {
