@@ -70,37 +70,72 @@ export class PiperClient {
       })
     }
 
+    // Validate and clean input text
+    const cleanText = text.trim()
+    if (!cleanText) {
+      logger.warn('Empty text provided to Piper generate')
+      throw new Error('Cannot generate audio from empty text')
+    }
+
+    logger.info(`Generating audio for text (${cleanText.length} chars)`)
     options.onProgress?.('Generating audio...')
 
     try {
       // Split text into sentences to avoid memory issues with large inputs
       // Simple regex split on punctuation followed by whitespace
-      const sentences = text.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [text]
+      const sentences = cleanText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [cleanText]
       const blobs: Blob[] = []
 
       logger.info(`Splitting text into ${sentences.length} segments for generation`)
 
       for (let i = 0; i < sentences.length; i++) {
         const sentence = sentences[i].trim()
-        if (!sentence) continue
+
+        // Skip empty segments but be more lenient with single characters
+        if (!sentence || sentence.length === 0) {
+          logger.debug(`Skipping empty segment ${i + 1}`)
+          continue
+        }
 
         if (sentences.length > 1) {
           options.onProgress?.(`Generating segment ${i + 1}/${sentences.length}...`)
         }
 
-        // Skip empty or very short segments that might cause issues
-        if (sentence.length < 2) continue
+        logger.debug(
+          `Generating segment ${i + 1}: "${sentence.substring(0, 50)}${sentence.length > 50 ? '...' : ''}"`
+        )
 
-        const wav = await tts.predict({
-          text: sentence,
-          voiceId: voiceId as any,
-        })
-        blobs.push(wav)
+        try {
+          const wav = await tts.predict({
+            text: sentence,
+            voiceId: voiceId as any,
+          })
+
+          if (wav && wav.size > 0) {
+            blobs.push(wav)
+            logger.debug(`Segment ${i + 1} generated: ${wav.size} bytes`)
+          } else {
+            logger.warn(`Segment ${i + 1} generated empty audio, skipping`)
+          }
+        } catch (segmentError) {
+          logger.error(`Failed to generate segment ${i + 1}:`, segmentError)
+          // Continue with other segments rather than failing entirely
+          continue
+        }
       }
 
       if (blobs.length === 0) {
-        throw new Error('No audio generated')
+        logger.error('No audio blobs generated from text', {
+          textLength: cleanText.length,
+          segmentCount: sentences.length,
+          firstSegment: sentences[0]?.substring(0, 100),
+        })
+        throw new Error(
+          `No audio generated from ${sentences.length} text segment(s). Check text format and voice model compatibility.`
+        )
       }
+
+      logger.info(`Successfully generated ${blobs.length} audio blobs`)
 
       if (blobs.length === 1) {
         return blobs[0]
@@ -120,6 +155,14 @@ export class PiperClient {
   }
 
   private async concatenateWavBlobs(blobs: Blob[]): Promise<Blob> {
+    if (blobs.length === 0) {
+      throw new Error('Cannot concatenate empty blob array')
+    }
+
+    if (blobs.length === 1) {
+      return blobs[0]
+    }
+
     const buffers = await Promise.all(blobs.map((b) => b.arrayBuffer()))
 
     // Calculate total length (excluding headers of all but first)
@@ -133,7 +176,10 @@ export class PiperClient {
       }
     }
 
-    if (totalDataLength === 0) return blobs[0] // Should not happen if check above passes
+    if (totalDataLength === 0) {
+      logger.warn('All WAV buffers are too small to concatenate')
+      return blobs[0]
+    }
 
     const resultBuffer = new Uint8Array(headerLength + totalDataLength)
 
