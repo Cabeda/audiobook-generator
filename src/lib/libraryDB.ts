@@ -311,6 +311,7 @@ export async function getBookGenerationStatus(bookId: number): Promise<Set<strin
   return new Promise((resolve, reject) => {
     // Check segments store
     if (!db.objectStoreNames.contains(SEGMENT_STORE_NAME)) {
+      db.close()
       resolve(new Set())
       return
     }
