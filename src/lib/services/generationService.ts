@@ -7,8 +7,6 @@ import {
   selectedVoice,
   selectedQuantization,
   selectedDevice,
-  availableVoices,
-  voiceLabels,
 } from '../../stores/ttsStore'
 import {
   chapterStatus,
