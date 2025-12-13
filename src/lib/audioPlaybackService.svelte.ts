@@ -711,7 +711,7 @@ class AudioPlaybackService {
             device: this.device,
           })
 
-          // Revoke old URL if it exists (shouldn't happen normally, but be safe)
+          // Defensive: revoke old URL if exists (normal flow checks has(index) before calling this method)
           const oldUrl = this.audioSegments.get(index)
           if (oldUrl) {
             URL.revokeObjectURL(oldUrl)
