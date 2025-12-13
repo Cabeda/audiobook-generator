@@ -27,9 +27,34 @@ import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { audioLikeToBlob } from '../audioConcat'
 import { toastStore } from '../../stores/toastStore'
-import { saveChapterSegments } from '../libraryDB'
+import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { generateVoiceStream } from '../kokoro/kokoroClient'
+
+/**
+ * Type representing a LibraryBook with a guaranteed ID property
+ */
+type LibraryBookWithId = LibraryBook & { id: number }
+
+/**
+ * Type guard to check if a book has an ID property (i.e., is a LibraryBook with ID)
+ */
+function hasBookId(book: any): book is LibraryBookWithId {
+  return book !== null && book !== undefined && 'id' in book && typeof book.id === 'number'
+}
+
+/**
+ * Helper function to safely extract the book ID from the book store.
+ * The book store can contain either a Book or a LibraryBook (which extends Book with an id property).
+ * @returns The book ID as a number, or 0 if not available
+ */
+function getBookId(): number {
+  const currentBook = get(book)
+  if (hasBookId(currentBook)) {
+    return currentBook.id // Type guard ensures id is number, not undefined
+  }
+  return 0
+}
 
 export interface SegmentOptions {
   ignoreCodeBlocks?: boolean
@@ -441,11 +466,7 @@ class GenerationService {
             ch.content = html
 
             // 2. Update the chapter content in DB with the injected HTML
-            // We need checking if bookId exists.
-            // We cast get(book) to any to access id
-            const currentBook = get(book) as any
-            let bookId = 0
-            if (currentBook?.id) bookId = Number(currentBook.id)
+            const bookId = getBookId()
 
             if (bookId) {
               const { updateChapterContent } = await import('../libraryDB')
@@ -577,9 +598,7 @@ class GenerationService {
             })
 
             // 2. Update Content
-            const currentBook = get(book) as any
-            let bookId = 0
-            if (currentBook?.id) bookId = Number(currentBook.id)
+            const bookId = getBookId()
             if (bookId) {
               const { updateChapterContent } = await import('../libraryDB')
               await updateChapterContent(bookId, ch.id, html)
@@ -766,8 +785,7 @@ class GenerationService {
     const totalChapters = chapters.length
 
     // Using current book store ID for DB access
-    const currentBook = get(book) as any
-    const bookId = currentBook ? Number(currentBook.id) || 0 : 0
+    const bookId = getBookId()
 
     if (!bookId) {
       toastStore.error('Cannot export: Book ID not found')
