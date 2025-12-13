@@ -293,16 +293,20 @@
     })
   }
 
+  function getSegmentIndex(element: HTMLElement | null): number | null {
+    if (!element || !element.id.startsWith('seg-')) return null
+    const index = parseInt(element.id.replace('seg-', ''), 10)
+    return isNaN(index) ? null : index
+  }
+
   function handleContentClick(event: MouseEvent) {
     showSettings = false
     const target = event.target as HTMLElement
     // Check if clicked element is a segment or inside one
-    const segmentEl = target.closest('.segment')
-    if (segmentEl && segmentEl.id.startsWith('seg-')) {
-      const index = parseInt(segmentEl.id.replace('seg-', ''), 10)
-      if (!isNaN(index)) {
-        audioService.playFromSegment(index)
-      }
+    const segmentEl = target.closest('.segment') as HTMLElement | null
+    const index = getSegmentIndex(segmentEl)
+    if (index !== null) {
+      audioService.playFromSegment(index)
     }
   }
 
@@ -313,8 +317,8 @@
       // Handle Enter or Space key
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
-        const index = parseInt(target.id.replace('seg-', ''), 10)
-        if (!isNaN(index)) {
+        const index = getSegmentIndex(target)
+        if (index !== null) {
           audioService.playFromSegment(index)
         }
       }
