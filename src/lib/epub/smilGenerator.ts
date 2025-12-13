@@ -3,7 +3,7 @@
  * Generates the synchronized multimedia integration language files
  * that map text elements to audio segments.
  *
- * Follows EPUB 3.3 spec section 9 (Media Overlays) and SMIL 3.0
+ * Follows EPUB 3.3 specification section 9 (Media Overlays) and SMIL 3.0
  * https://www.w3.org/TR/epub/#sec-media-overlays
  */
 
