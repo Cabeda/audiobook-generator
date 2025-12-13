@@ -354,7 +354,7 @@ export async function generateVoiceSegments(
         `Text too short for audio generation (${trimmedText.length} chars, minimum ${MIN_TEXT_LENGTH})`
       )
       // Return a 0-duration silent WAV (valid empty audio) while preserving the original text
-      return [{ text: trimmedText, blob: createSilentWav(0) }]
+      return [{ text: text, blob: createSilentWav(0) }]
     }
 
     // Auto-detect device if set to 'auto'
