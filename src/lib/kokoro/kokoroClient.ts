@@ -353,8 +353,8 @@ export async function generateVoiceSegments(
       logger.warn(
         `Text too short for audio generation (${trimmedText.length} chars, minimum ${MIN_TEXT_LENGTH})`
       )
-      // Return a minimal silent WAV file (0 duration) as a segment
-      return [{ text: '', blob: createSilentWav(0) }]
+      // Return a 0-duration silent WAV (valid empty audio) while preserving the original text
+      return [{ text: trimmedText, blob: createSilentWav(0) }]
     }
 
     // Auto-detect device if set to 'auto'
@@ -386,8 +386,8 @@ export async function generateVoiceSegments(
         logger.warn(
           `All text segments were too short (< ${MIN_TEXT_LENGTH} chars), skipping audio generation`
         )
-        // Return a minimal silent WAV file (0 duration) as a segment
-        return [{ text: '', blob: createSilentWav(0) }]
+        // Return a 0-duration silent WAV while preserving original text for traceability
+        return [{ text: text, blob: createSilentWav(0) }]
       }
 
       const { TextSplitterStream } = await import('kokoro-js')

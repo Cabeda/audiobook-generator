@@ -99,7 +99,7 @@ export class PiperClient {
         logger.warn(
           `All text segments were too short (< ${MIN_TEXT_LENGTH} chars), skipping audio generation`
         )
-        // Return a minimal silent WAV file (0 duration) instead of throwing an error
+        // Return a 0-duration silent WAV (valid empty audio file that plays without errors)
         return createSilentWav(0)
       }
 
