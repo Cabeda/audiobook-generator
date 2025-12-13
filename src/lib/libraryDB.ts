@@ -302,8 +302,7 @@ export async function searchBooks(query: string): Promise<BookMetadata[]> {
   )
 }
 /**
- * Check generation status for all chapters in a book
- * Returns a Set of chapter IDs that have generated segments
+ * Returns the set of chapter IDs that have generated segments in the database for the given book.
  */
 export async function getBookGenerationStatus(bookId: number): Promise<Set<string>> {
   const db = await openDB()
