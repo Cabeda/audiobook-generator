@@ -2,6 +2,11 @@ import * as tts from '@diffusionstudio/vits-web'
 import * as ort from 'onnxruntime-web'
 import logger from '../utils/logger'
 
+// Minimum text length for TTS generation (characters)
+const MIN_TEXT_LENGTH = 3
+// WAV file header size in bytes (RIFF + fmt + data chunks)
+const WAV_HEADER_SIZE = 44
+
 // Configure ONNX Runtime for the worker environment
 // If crossOriginIsolated is false, we must disable multi-threading to avoid crashes
 if (typeof self !== 'undefined' && !self.crossOriginIsolated) {
@@ -94,9 +99,11 @@ export class PiperClient {
 
       // If all chunks were filtered out (all too short), return empty audio
       if (chunks.length === 0) {
-        logger.warn('All text segments were too short (< 3 chars), skipping audio generation')
+        logger.warn(
+          `All text segments were too short (< ${MIN_TEXT_LENGTH} chars), skipping audio generation`
+        )
         // Return a minimal silent WAV file instead of throwing an error
-        return new Blob([new Uint8Array(44)], { type: 'audio/wav' })
+        return new Blob([new Uint8Array(WAV_HEADER_SIZE)], { type: 'audio/wav' })
       }
 
       for (let i = 0; i < chunks.length; i++) {
@@ -306,7 +313,7 @@ export class PiperClient {
     const maxDepth = 2
 
     // Guard: very short text is unlikely to succeed
-    if (text.length < 3) {
+    if (text.length < MIN_TEXT_LENGTH) {
       throw new Error('Text too short for audio generation')
     }
 
@@ -408,9 +415,9 @@ export class PiperClient {
       const trimmed = sentence.trim()
       if (!trimmed) continue
 
-      // Skip very short segments (< 3 chars) that are likely formatting artifacts
+      // Skip very short segments (< MIN_TEXT_LENGTH chars) that are likely formatting artifacts
       // like "1.", "2.", etc. that don't need to be spoken
-      if (trimmed.length < 3) {
+      if (trimmed.length < MIN_TEXT_LENGTH) {
         logger.debug(`Skipping very short segment: "${trimmed}"`)
         continue
       }

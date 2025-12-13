@@ -3,6 +3,11 @@ import logger from '../utils/logger'
 import { retryWithBackoff, isRetryableError } from '../retryUtils'
 import { ModelLoadError, AudioGenerationError } from '../errors'
 
+// Minimum text length for TTS generation (characters)
+const MIN_TEXT_LENGTH = 3
+// WAV file header size in bytes (RIFF + fmt + data chunks)
+const WAV_HEADER_SIZE = 44
+
 // Valid Kokoro voice IDs based on the official kokoro-js library
 export type VoiceId =
   | 'af_heart'
@@ -281,9 +286,10 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
     const trimmedSentence = sentence.trim()
     if (!trimmedSentence) continue
 
-    // Skip very short segments (< 3 chars) that are likely formatting artifacts
+    // Skip very short segments (< MIN_TEXT_LENGTH chars) that are likely formatting artifacts
     // like "1.", "2.", etc. that don't need to be spoken
-    if (trimmedSentence.length < 3) {
+    if (trimmedSentence.length < MIN_TEXT_LENGTH) {
+      logger.debug(`Skipping very short segment: "${trimmedSentence}"`)
       continue
     }
 
@@ -344,6 +350,18 @@ export async function generateVoiceSegments(
   } = params
 
   try {
+    // Validate text length
+    const trimmedText = text.trim()
+    if (trimmedText.length < MIN_TEXT_LENGTH) {
+      logger.warn(
+        `Text too short for audio generation (${trimmedText.length} chars, minimum ${MIN_TEXT_LENGTH})`
+      )
+      // Return a minimal silent WAV file as a segment
+      return [
+        { text: '', blob: new Blob([new Uint8Array(WAV_HEADER_SIZE)], { type: 'audio/wav' }) },
+      ]
+    }
+
     // Auto-detect device if set to 'auto'
     let actualDevice: 'wasm' | 'webgpu' | 'cpu' = 'wasm'
     if (device === 'auto') {
@@ -367,6 +385,17 @@ export async function generateVoiceSegments(
       )
       const chunks = splitTextIntoChunks(text, MAX_CHUNK_SIZE)
       logger.info('[Kokoro]', `Split into ${chunks.length} chunks`)
+
+      // If all chunks were filtered out (all too short), return empty result
+      if (chunks.length === 0) {
+        logger.warn(
+          `All text segments were too short (< ${MIN_TEXT_LENGTH} chars), skipping audio generation`
+        )
+        // Return a minimal silent WAV file as a segment
+        return [
+          { text: '', blob: new Blob([new Uint8Array(WAV_HEADER_SIZE)], { type: 'audio/wav' }) },
+        ]
+      }
 
       const { TextSplitterStream } = await import('kokoro-js')
       const splitter = new TextSplitterStream()
