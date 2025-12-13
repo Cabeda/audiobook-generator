@@ -31,6 +31,7 @@ class AudioPlaybackService {
   private wordsMeasured = 0
   private pendingGenerations = new Map<number, Promise<void>>()
   private bufferTarget = 5
+  private chapterAudioUrl: string | null = null // Track chapter audio URL for cleanup
 
   // Configuration
   private voice = ''
@@ -288,6 +289,7 @@ class AudioPlaybackService {
 
     // Create audio element from chapter blob
     const chapterAudioUrl = URL.createObjectURL(chapterAudioBlob)
+    this.chapterAudioUrl = chapterAudioUrl // Store for cleanup
     this.audio = new Audio(chapterAudioUrl)
     this.audio.playbackRate = this.playbackSpeed
 
@@ -521,6 +523,18 @@ class AudioPlaybackService {
     }
     this.cancelWebSpeech()
 
+    // Revoke all blob URLs to prevent memory leaks
+    for (const url of this.audioSegments.values()) {
+      URL.revokeObjectURL(url)
+    }
+    this.audioSegments.clear()
+
+    // Revoke chapter audio URL if it exists
+    if (this.chapterAudioUrl) {
+      URL.revokeObjectURL(this.chapterAudioUrl)
+      this.chapterAudioUrl = null
+    }
+
     this.currentSegmentIndex = -1
     // Clear derived info
     this.segmentDurations.clear()
@@ -696,6 +710,12 @@ class AudioPlaybackService {
             dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
             device: this.device,
           })
+
+          // Revoke old URL if it exists (shouldn't happen normally, but be safe)
+          const oldUrl = this.audioSegments.get(index)
+          if (oldUrl) {
+            URL.revokeObjectURL(oldUrl)
+          }
 
           const url = URL.createObjectURL(blob)
           this.audioSegments.set(index, url)

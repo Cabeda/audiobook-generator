@@ -59,9 +59,9 @@ function cleanHtml(html: string): string {
     el.removeAttribute('class') // Strip classes to use our own or default
     // Only remove 'id' if it does not match the segment pattern (e.g., 'seg-*')
     if (el.hasAttribute('id')) {
-      const id = el.getAttribute('id') || '';
+      const id = el.getAttribute('id') || ''
       if (!/^seg-\w+/.test(id)) {
-        el.removeAttribute('id');
+        el.removeAttribute('id')
       }
     }
     el.removeAttribute('onclick')
