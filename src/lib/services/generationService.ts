@@ -376,7 +376,7 @@ class GenerationService {
 
     const model = get(selectedModel)
     if (model === 'web_speech') {
-      alert('Web Speech API does not support audio file generation.')
+      alert('Web Speech API does not support file generation. Please use Kokoro or Piper models for generating audio files.')
       return
     }
 
