@@ -85,23 +85,35 @@ describe('EPUB Parser', () => {
       console.log('First chapter title:', book.chapters[0]?.title)
     })
 
-    it('should extract clean text content from chapters', async () => {
+    it('should extract clean HTML content from chapters', async () => {
       const book = await parseEpubFile(robinsonCrusoeFile)
 
-      const firstChapter = book.chapters[0]
-      expect(firstChapter).toBeDefined()
+      // Find a chapter with actual content (skip cover)
+      const chapterWithContent = book.chapters.find((ch) => {
+        const textContent = ch.content.replace(/<[^>]*>/g, '').trim()
+        return textContent.length > 100
+      })
+      expect(chapterWithContent).toBeDefined()
 
-      // Content should not contain HTML tags
-      expect(firstChapter.content).not.toMatch(/<[^>]+>/)
+      // Content should be HTML (structure preserved for segment-based highlighting)
+      expect(chapterWithContent!.content).toMatch(/<[^>]+>/)
 
-      // Content should contain actual text
-      expect(firstChapter.content.length).toBeGreaterThan(100)
+      // But should not contain dangerous tags (script, style, etc.)
+      expect(chapterWithContent!.content).not.toMatch(/<script/i)
+      expect(chapterWithContent!.content).not.toMatch(/<style/i)
+      expect(chapterWithContent!.content).not.toMatch(/<iframe/i)
 
-      // Should not have excessive whitespace
-      expect(firstChapter.content).not.toMatch(/\s{3,}/)
+      // Should not have inline styles or classes (sanitized)
+      expect(chapterWithContent!.content).not.toMatch(/style=/i)
+      expect(chapterWithContent!.content).not.toMatch(/class=/i)
 
-      console.log('First chapter content length:', firstChapter.content.length)
-      console.log('First 200 chars:', firstChapter.content.substring(0, 200))
+      // Content should contain actual text when HTML is stripped
+      const textContent = chapterWithContent!.content.replace(/<[^>]*>/g, '').trim()
+      expect(textContent.length).toBeGreaterThan(100)
+
+      console.log('Chapter content length:', chapterWithContent!.content.length)
+      console.log('Text content length:', textContent.length)
+      console.log('First 200 chars of HTML:', chapterWithContent!.content.substring(0, 200))
     })
 
     it('should handle cover image if present', async () => {
