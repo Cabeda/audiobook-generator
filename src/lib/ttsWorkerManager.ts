@@ -7,6 +7,7 @@ import logger from './utils/logger'
 import type { TTSModelType } from './tts/ttsModels'
 import { retryWithBackoff, isRetryableError } from './retryUtils'
 import { normalizeError, CancellationError } from './errors'
+import { toastStore } from '../stores/toastStore'
 
 type WorkerRequest = {
   id: string
@@ -103,7 +104,7 @@ export class TTSWorkerManager {
                   // @ts-ignore
                   err.stack = respAny.message
                 } catch (e) {
-                  alert(e)
+                  toastStore.error(String(e))
                 }
               }
               pending.reject(err)

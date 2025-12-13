@@ -19,6 +19,7 @@
     voiceLabels,
     advancedSettings,
   } from '../stores/ttsStore'
+  import { toastStore } from '../stores/toastStore'
   import { generationService } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
@@ -86,7 +87,7 @@
     // Get selected chapters
     const chaptersToGen = $book.chapters.filter((c) => selections.get(c.id))
     if (chaptersToGen.length === 0) {
-      alert('No chapters selected')
+      toastStore.warning('No chapters selected')
       return
     }
 
@@ -118,7 +119,7 @@
       (c) => selections.get(c.id) && statusMap.get(c.id) === 'done'
     )
     if (relevantChapters.length === 0) {
-      alert('No completed chapters selected for export')
+      toastStore.warning('No completed chapters selected for export')
       return
     }
 

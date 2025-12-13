@@ -6,6 +6,7 @@
   import { libraryBooks } from '../stores/libraryStore'
   import { book } from '../stores/bookStore'
   import { appTheme, toggleTheme } from '../stores/themeStore'
+  import { toastStore } from '../stores/toastStore'
 
   const dispatch = createEventDispatcher()
 
@@ -62,7 +63,7 @@
       }
     } catch (err) {
       console.error('Failed to load book from library:', err)
-      alert('Failed to load book from library')
+      toastStore.error('Failed to load book from library')
     }
   }
 

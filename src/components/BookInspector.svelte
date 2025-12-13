@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte'
   import type { Book, Chapter } from '../lib/types/book'
   import ChapterItem from './ChapterItem.svelte'
+  import { toastStore } from '../stores/toastStore'
 
   let {
     book,
@@ -61,7 +62,7 @@
   function exportSelected() {
     const selectedChapters: Chapter[] = book.chapters.filter((ch: Chapter) => selected.get(ch.id))
     if (selectedChapters.length === 0) {
-      alert('No chapters selected')
+      toastStore.warning('No chapters selected')
       return
     }
     const contents = selectedChapters

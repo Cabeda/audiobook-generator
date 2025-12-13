@@ -5,6 +5,7 @@
     estimateSpeechDurationSeconds,
     formatDurationShort,
   } from '../lib/utils/textStats'
+  import { toastStore } from '../stores/toastStore'
 
   let {
     chapter,
@@ -37,7 +38,9 @@
   let estimatedDurationSeconds = $derived(estimateSpeechDurationSeconds(wordCount))
 
   function copy() {
-    navigator.clipboard?.writeText(chapter.content).catch(() => alert('Clipboard not available'))
+    navigator.clipboard
+      ?.writeText(chapter.content)
+      .catch(() => toastStore.error('Clipboard not available'))
   }
   let audioElement = $state<HTMLAudioElement | null>(null)
 
@@ -137,7 +140,9 @@
             class="copy-error-btn"
             onclick={(e) => {
               e.stopPropagation() // Prevent row selection if needed
-              navigator.clipboard.writeText(error).then(() => alert('Error copied to clipboard'))
+              navigator.clipboard
+                .writeText(error)
+                .then(() => toastStore.success('Error copied to clipboard'))
             }}
           >
             📋 Copy Error
