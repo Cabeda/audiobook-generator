@@ -23,7 +23,7 @@ import {
   type AudioChapter,
   type ConcatenationProgress,
 } from '../audioConcat'
-import { EpubGenerator, type EpubMetadata } from '../epub/epubGenerator'
+import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { audioLikeToBlob } from '../audioConcat'
 import { toastStore } from '../../stores/toastStore'
