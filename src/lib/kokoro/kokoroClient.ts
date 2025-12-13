@@ -2,7 +2,8 @@ import { KokoroTTS } from 'kokoro-js'
 import logger from '../utils/logger'
 import { retryWithBackoff, isRetryableError } from '../retryUtils'
 import { ModelLoadError, AudioGenerationError } from '../errors'
-import { MIN_TEXT_LENGTH, createSilentWav } from '../audioConstants'
+import { MIN_TEXT_LENGTH } from '../audioConstants'
+import { createSilentWav } from '../audioConcat'
 
 // Valid Kokoro voice IDs based on the official kokoro-js library
 export type VoiceId =
@@ -352,8 +353,8 @@ export async function generateVoiceSegments(
       logger.warn(
         `Text too short for audio generation (${trimmedText.length} chars, minimum ${MIN_TEXT_LENGTH})`
       )
-      // Return a minimal valid silent WAV file as a segment
-      return [{ text: '', blob: createSilentWav() }]
+      // Return a minimal silent WAV file (0 duration) as a segment
+      return [{ text: '', blob: createSilentWav(0) }]
     }
 
     // Auto-detect device if set to 'auto'
@@ -385,8 +386,8 @@ export async function generateVoiceSegments(
         logger.warn(
           `All text segments were too short (< ${MIN_TEXT_LENGTH} chars), skipping audio generation`
         )
-        // Return a minimal valid silent WAV file as a segment
-        return [{ text: '', blob: createSilentWav() }]
+        // Return a minimal silent WAV file (0 duration) as a segment
+        return [{ text: '', blob: createSilentWav(0) }]
       }
 
       const { TextSplitterStream } = await import('kokoro-js')

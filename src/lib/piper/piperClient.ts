@@ -1,7 +1,8 @@
 import * as tts from '@diffusionstudio/vits-web'
 import * as ort from 'onnxruntime-web'
 import logger from '../utils/logger'
-import { MIN_TEXT_LENGTH, createSilentWav } from '../audioConstants'
+import { MIN_TEXT_LENGTH } from '../audioConstants'
+import { createSilentWav } from '../audioConcat'
 
 // Configure ONNX Runtime for the worker environment
 // If crossOriginIsolated is false, we must disable multi-threading to avoid crashes
@@ -98,8 +99,8 @@ export class PiperClient {
         logger.warn(
           `All text segments were too short (< ${MIN_TEXT_LENGTH} chars), skipping audio generation`
         )
-        // Return a minimal valid silent WAV file instead of throwing an error
-        return createSilentWav()
+        // Return a minimal silent WAV file (0 duration) instead of throwing an error
+        return createSilentWav(0)
       }
 
       for (let i = 0; i < chunks.length; i++) {
@@ -308,9 +309,10 @@ export class PiperClient {
   ): Promise<Blob[]> {
     const maxDepth = 2
 
-    // Guard: very short text is unlikely to succeed
+    // Guard: very short text is unlikely to succeed, return silent audio for consistency
     if (text.length < MIN_TEXT_LENGTH) {
-      throw new Error('Text too short for audio generation')
+      logger.debug(`Text too short (${text.length} chars), returning silent audio`)
+      return [createSilentWav(0)]
     }
 
     try {
