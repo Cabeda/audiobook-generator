@@ -37,7 +37,7 @@
     "@typescript-eslint/eslint-plugin": "^8.47.0",
     "@typescript-eslint/parser": "^8.47.0",
     "@typescript/native-preview": "7.0.0-dev.20251203.1",
-    "@vitest/ui": "^3.2.4",
+    "@vitest/ui": "^4.0.15",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-svelte": "^3.13.0",
@@ -54,7 +54,7 @@
     "typescript": "^5.9.3",
     "vite": "^7.2.4",
     "vite-plugin-pwa": "^1.1.0",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.15"
   },
   "dependencies": {
     "@diffusionstudio/vits-web": "^1.0.3",

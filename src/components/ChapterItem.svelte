@@ -1,5 +1,10 @@
 <script lang="ts">
   import type { Chapter } from '../lib/types/book'
+  import {
+    countWords,
+    estimateSpeechDurationSeconds,
+    formatDurationShort,
+  } from '../lib/utils/textStats'
 
   let {
     chapter,
@@ -27,6 +32,10 @@
     progress?: { current: number; total: number; message?: string }
   }>()
 
+  const numberFormatter = new Intl.NumberFormat()
+  let wordCount = $derived(countWords(chapter.content))
+  let estimatedDurationSeconds = $derived(estimateSpeechDurationSeconds(wordCount))
+
   function copy() {
     navigator.clipboard?.writeText(chapter.content).catch(() => alert('Clipboard not available'))
   }
@@ -52,6 +61,11 @@
         />
         <span class="chapter-title">{chapter.title}</span>
       </label>
+      <div class="chapter-meta">
+        <span>{numberFormatter.format(wordCount)} words</span>
+        <span class="dot" aria-hidden="true">•</span>
+        <span>~{formatDurationShort(estimatedDurationSeconds)}</span>
+      </div>
       <p class="chapter-preview">
         {chapter.content.slice(0, 180)}{chapter.content.length > 180 ? '…' : ''}
       </p>
@@ -219,6 +233,20 @@
     color: var(--secondary-text);
     line-height: 1.5;
     padding-left: 30px;
+  }
+
+  .chapter-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--secondary-text);
+    font-size: 0.85rem;
+    padding-left: 30px;
+    margin: 4px 0;
+  }
+
+  .dot {
+    color: var(--border-color);
   }
 
   .card-actions {

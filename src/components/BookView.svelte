@@ -23,6 +23,13 @@
   import ChapterItem from './ChapterItem.svelte'
   import { createEventDispatcher } from 'svelte'
   import type { Chapter } from '../lib/types/book'
+  import {
+    countWords,
+    estimateSpeechDurationSeconds,
+    formatDurationShort,
+  } from '../lib/utils/textStats'
+
+  const numberFormatter = new Intl.NumberFormat()
 
   const dispatch = createEventDispatcher()
 
@@ -39,6 +46,10 @@
   let errorsMap = $derived($chapterErrors)
   let audioMap = $derived($generatedAudio)
   let selections = $derived($selectedChapters)
+  let totalWords = $derived(
+    currentBook ? currentBook.chapters.reduce((sum, ch) => sum + countWords(ch.content), 0) : 0
+  )
+  let estimatedBookDurationSeconds = $derived(estimateSpeechDurationSeconds(totalWords))
 
   // Actions
   function toggleChapter(id: string) {
@@ -156,6 +167,8 @@
               <span class="badge">{currentBook.format.toUpperCase()}</span>
             {/if}
             <span class="badge">{currentBook.chapters.length} Chapters</span>
+            <span class="badge">{numberFormatter.format(totalWords)} words</span>
+            <span class="badge">~{formatDurationShort(estimatedBookDurationSeconds)}</span>
           </div>
         </div>
       </div>

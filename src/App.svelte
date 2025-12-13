@@ -12,7 +12,8 @@
   // APIs & Logic
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroClient'
   import { piperClient } from './lib/piper/piperClient'
-  import type { Book, Chapter } from './lib/types/book'
+  import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
+  import type { Chapter } from './lib/types/book'
 
   // Stores
   import {
@@ -119,7 +120,7 @@
     // Deep link logic
     try {
       const id = $currentLibraryBookId ?? 'unsaved'
-      location.hash = `#/reader/${id}/${encodeURIComponent(chapter.id)}`
+      location.hash = buildReaderHash(id, chapter.id, $book)
     } catch (e) {
       console.error('Failed to navigate to reader', e)
     }
@@ -132,7 +133,7 @@
     }
     try {
       const id = $currentLibraryBookId ?? 'unsaved'
-      location.hash = `#/book/${id}`
+      location.hash = buildBookHash(id, $book)
     } catch (e) {
       console.error('Failed to navigate to book', e)
     }
@@ -150,6 +151,7 @@
 
       if (event.detail.libraryId) {
         currentLibraryBookId.set(event.detail.libraryId)
+        location.hash = buildBookHash(event.detail.libraryId, b)
       } else {
         // New import - save to library automatically
         try {
@@ -159,6 +161,7 @@
           // Also refresh library list if we are listener
           const { refreshLibrary } = await import('./stores/libraryStore')
           refreshLibrary()
+          location.hash = buildBookHash(id, b)
         } catch (e) {
           console.error('Failed to save book to library', e)
         }
@@ -181,20 +184,18 @@
 
     // Hash Routing for persistence
     const handleHash = async () => {
-      const hash = location.hash
-      if (!hash || hash === '#/') {
-        // Landing page
+      const parsed = parseHash(location.hash)
+      if (!parsed) return
+
+      if (parsed.view === 'landing') {
         if (currentView !== 'landing' && !$book) {
           currentView = 'landing'
         }
         return
       }
 
-      // Parse hash: #/book/:id or #/reader/:id/:chapterId
-      const match = hash.match(/^#\/(book|reader)\/([^/]+)(?:\/(.+))?$/)
-      if (!match) return
-
-      const [, view, bookId, chapterId] = match
+      const bookId = parsed.bookId
+      const chapterId = parsed.chapterId
 
       // Load book if not already loaded or different book
       if (bookId !== 'unsaved') {
@@ -220,12 +221,11 @@
       }
 
       // Navigate to the correct view
-      if (view === 'book') {
+      if (parsed.view === 'book') {
         currentView = 'book'
         currentChapter = null
-      } else if (view === 'reader' && chapterId && $book) {
-        const decodedChapterId = decodeURIComponent(chapterId)
-        const chapter = $book.chapters.find((c) => c.id === decodedChapterId)
+      } else if (parsed.view === 'reader' && chapterId && $book) {
+        const chapter = $book.chapters.find((c) => c.id === chapterId)
         if (chapter) {
           currentChapter = chapter
           currentView = 'reader'

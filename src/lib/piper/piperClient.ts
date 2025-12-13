@@ -111,11 +111,16 @@ export class PiperClient {
             voiceId: voiceId as any,
           })
 
-          if (wav && wav.size > 0) {
-            blobs.push(wav)
-            logger.debug(`Segment ${i + 1} generated: ${wav.size} bytes`)
+          const blob = this.toWavBlob(wav)
+
+          if (blob && blob.size > 0) {
+            blobs.push(blob)
+            logger.debug(`Segment ${i + 1} generated: ${blob.size} bytes`)
           } else {
-            logger.warn(`Segment ${i + 1} generated empty audio, skipping`)
+            logger.warn(`Segment ${i + 1} returned unsupported or empty audio`, {
+              type: wav?.constructor?.name || typeof wav,
+              size: (wav as Blob)?.size,
+            })
           }
         } catch (segmentError) {
           logger.error(`Failed to generate segment ${i + 1}:`, segmentError)
@@ -154,6 +159,25 @@ export class PiperClient {
     }
   }
 
+  // Normalize possible outputs from tts.predict into a Blob
+  private toWavBlob(data: any): Blob | null {
+    if (!data) return null
+    if (data instanceof Blob) return data
+
+    if (ArrayBuffer.isView(data)) {
+      // Copy into a regular ArrayBuffer to avoid SharedArrayBuffer issues
+      const view = new Uint8Array(data.buffer.byteLength)
+      view.set(new Uint8Array(data.buffer))
+      return new Blob([view], { type: 'audio/wav' })
+    }
+
+    if (data instanceof ArrayBuffer) {
+      return new Blob([new Uint8Array(data)], { type: 'audio/wav' })
+    }
+
+    return null
+  }
+
   private async concatenateWavBlobs(blobs: Blob[]): Promise<Blob> {
     if (blobs.length === 0) {
       throw new Error('Cannot concatenate empty blob array')
@@ -163,7 +187,7 @@ export class PiperClient {
       return blobs[0]
     }
 
-    const buffers = await Promise.all(blobs.map((b) => b.arrayBuffer()))
+    const buffers = await Promise.all(blobs.map((b) => this.toArrayBufferSafe(b)))
 
     // Calculate total length (excluding headers of all but first)
     // WAV header is 44 bytes
@@ -206,6 +230,15 @@ export class PiperClient {
     }
 
     return new Blob([resultBuffer], { type: 'audio/wav' })
+  }
+
+  private async toArrayBufferSafe(blob: Blob): Promise<ArrayBuffer> {
+    if (typeof (blob as any).arrayBuffer === 'function') {
+      return (blob as any).arrayBuffer()
+    }
+
+    // Fallback for environments where Blob.arrayBuffer is missing
+    return new Response(blob).arrayBuffer()
   }
 }
 
