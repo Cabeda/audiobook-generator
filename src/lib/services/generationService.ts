@@ -739,7 +739,7 @@ class GenerationService {
       downloadAudioFile(combined, filename)
     } catch (e) {
       logger.error('Export failed', e)
-      alert('Export failed')
+      alert('Export failed: ' + (e instanceof Error ? e.message : 'Unknown error'))
     }
   }
 
