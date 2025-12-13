@@ -276,7 +276,7 @@ export async function audioLikeToBlob(
       }
       _seen.add(audio)
     }
-  } catch (e) {
+  } catch {
     // Some host wrappers might throw when used as map keys; ignore
   }
 
@@ -311,7 +311,7 @@ export async function audioLikeToBlob(
       const arr = await audio.arrayBuffer()
       const t = (audio as any).type as string | undefined
       return new Blob([arr], { type: t || 'audio/wav' })
-    } catch (e) {
+    } catch {
       // fall through
     }
   }
@@ -321,7 +321,7 @@ export async function audioLikeToBlob(
     try {
       // Use internal converter
       return audioBufferToWav(audio as AudioBuffer)
-    } catch (e) {
+    } catch {
       // fall through
     }
   }
@@ -366,7 +366,7 @@ export async function audioLikeToBlob(
         const resolved = typeof (cand as any)?.then === 'function' ? await cand : cand
         const maybe = await audioLikeToBlob(resolved, _seen, _depth + 1)
         return maybe
-      } catch (e) {
+      } catch {
         // try next candidate
       }
     }
@@ -595,7 +595,7 @@ export async function concatenateAudioChapters(
         logger.warn(`[audioConcat] Generating silence for failed chapter ${i + 1}`)
         const silence = audioContext.createBuffer(1, sampleRate, sampleRate)
         audioBuffers.push(silence)
-      } catch (e) {
+      } catch {
         throw new Error(
           `Failed to decode audio for chapter ${i + 1} "${chapters[i].title}": ${err instanceof Error ? err.message : String(err)}`
         )
@@ -1014,7 +1014,7 @@ async function ffmpegConcatenateBlobs(
   return new Blob([new Uint8Array(data)], { type: mime })
 }
 
-function inferExtensionFromMime(mime: string): string {
+function _inferExtensionFromMime(mime: string): string {
   if (!mime) return 'bin'
   if (mime.includes('wav')) return 'wav'
   if (mime.includes('mpeg') || mime.includes('mp3')) return 'mp3'

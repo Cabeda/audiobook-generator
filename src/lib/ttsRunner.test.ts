@@ -19,7 +19,7 @@ class MockOfflineAudioContext {
       length,
       sampleRate,
       duration: length / sampleRate,
-      getChannelData: (channel: number) => {
+      getChannelData: (_channel: number) => {
         const data = new Float32Array(length)
         // Fill with simple pattern for testing
         for (let i = 0; i < length; i++) {
@@ -56,10 +56,8 @@ class MockOfflineAudioContext {
 }
 
 describe('combineAudioBlobs', () => {
-  let originalOfflineAudioContext: any
-
   beforeAll(() => {
-    originalOfflineAudioContext = (globalThis as any).OfflineAudioContext
+    const _originalOfflineAudioContext = (globalThis as any).OfflineAudioContext
     ;(globalThis as any).OfflineAudioContext = MockOfflineAudioContext
 
     // Add arrayBuffer method to Blob prototype if not present (jsdom compatibility)
