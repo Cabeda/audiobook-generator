@@ -28,9 +28,9 @@ export class EpubParser implements BookParser {
 }
 
 function cleanHtml(html: string): string {
-  // We now preserve structure tags but strip potentially dangerous or structural-breaking ones (like script, style, nav, footer, header if needed, but usually guide refs point to body content)
-  // Simple sanitation: remove script, style, object, embed, iframe, form, input, button
-  // We keep: p, div, h1-h6, span, br, b, i, em, strong, u, ul, ol, li, blockquote, img (maybe?)
+  // Remove potentially dangerous elements (scripts, styles, forms, etc.) and strip inline styles/classes to ensure clean rendering.
+  // Simple sanitation: remove script, style, object, embed, iframe, form, input, button, etc.
+  // This approach removes known dangerous tags and strips most attributes, but does not strictly whitelist only certain tags.
 
   // First, parse it to DOM to process safely
   const parser = new DOMParser()
