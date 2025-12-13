@@ -28,6 +28,7 @@
   } from '../lib/audioConcat'
   import { createEventDispatcher } from 'svelte'
   import { EpubGenerator, type EpubMetadata } from '../lib/epub/epubGenerator'
+  import { toastStore } from '../stores/toastStore'
   import { getChapterAudioWithSettings, type AudioGenerationSettings } from '../lib/libraryDB'
 
   let {
@@ -274,13 +275,13 @@
 
   async function generate(chaptersToProcess?: Chapter[]) {
     if (selectedModel === 'web_speech') {
-      alert('Web Speech API does not support audio file generation.')
+      toastStore.warning('Web Speech API does not support audio file generation.')
       return
     }
 
     const chapters = chaptersToProcess || getSelectedChapters()
     if (chapters.length === 0) {
-      alert('No chapters selected')
+      toastStore.warning('No chapters selected')
       return
     }
 
@@ -338,7 +339,7 @@
       }
     } catch (err) {
       console.error('Generation failed', err)
-      alert('Generation failed: ' + err)
+      toastStore.error('Generation failed: ' + err)
     } finally {
       running = false
       progressText = ''
@@ -409,7 +410,7 @@
       }))
 
     if (audioChapters.length === 0) {
-      alert('No audio chapters to concatenate')
+      toastStore.warning('No audio chapters to concatenate')
       return
     }
 
@@ -451,7 +452,7 @@
       }, 2000)
     } catch (err) {
       console.error('Concatenation error', err)
-      alert('Failed to concatenate audio chapters')
+      toastStore.error('Failed to concatenate audio chapters')
       concatenating = false
       concatenationProgress = ''
     }
@@ -462,7 +463,7 @@
 
     const chapters = getSelectedChapters()
     if (chapters.length === 0) {
-      alert('No chapters selected')
+      toastStore.warning('No chapters selected')
       return
     }
 
@@ -487,7 +488,7 @@
       }
     } catch (err) {
       console.error('EPUB Export failed', err)
-      alert('EPUB Export failed: ' + (err instanceof Error ? err.message : String(err)))
+      toastStore.error('EPUB Export failed: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       running = false
       progressText = ''

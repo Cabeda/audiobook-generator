@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { BookMetadata } from '../lib/libraryDB'
+  import { toastStore } from '../stores/toastStore'
 
   interface Props {
     book: BookMetadata
@@ -50,7 +51,7 @@
         await ondelete(book)
       } catch (err) {
         console.error('Delete failed:', err)
-        alert('Failed to delete book')
+        toastStore.error('Failed to delete book')
         deleting = false
       }
     }

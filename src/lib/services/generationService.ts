@@ -28,6 +28,7 @@ import {
 import { EpubGenerator, type EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { audioLikeToBlob } from '../audioConcat'
+import { toastStore } from '../../stores/toastStore'
 import { saveChapterSegments } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { generateVoiceStream } from '../kokoro/kokoroClient'
@@ -376,7 +377,9 @@ class GenerationService {
 
     const model = get(selectedModel)
     if (model === 'web_speech') {
-      alert('Web Speech API does not support file generation. Please use Kokoro or Piper models for generating audio files.')
+      toastStore.warning(
+        'Web Speech API does not support file generation. Please use Kokoro or Piper models for generating audio files.'
+      )
       return
     }
 
@@ -718,7 +721,7 @@ class GenerationService {
     }
 
     if (audioChapters.length === 0) {
-      alert('No generated audio found for selected chapters')
+      toastStore.warning('No generated audio found for selected chapters')
       return
     }
 
@@ -739,7 +742,7 @@ class GenerationService {
       downloadAudioFile(combined, filename)
     } catch (e) {
       logger.error('Export failed', e)
-      alert('Export failed: ' + (e instanceof Error ? e.message : 'Unknown error'))
+      toastStore.error('Export failed: ' + (e instanceof Error ? e.message : 'Unknown error'))
     }
   }
 
@@ -770,7 +773,7 @@ class GenerationService {
     const bookId = currentBook ? Number(currentBook.id) || 0 : 0
 
     if (!bookId) {
-      alert('Cannot export: Book ID not found')
+      toastStore.error('Cannot export: Book ID not found')
       return
     }
 
@@ -906,7 +909,7 @@ class GenerationService {
       downloadAudioFile(epubBlob, filename)
     } catch (err) {
       logger.error('EPUB Export failed', err)
-      alert('EPUB Export failed')
+      toastStore.error('EPUB Export failed')
     }
   }
 }
