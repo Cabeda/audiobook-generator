@@ -101,11 +101,11 @@ function convertISO639_3to1(code3: string): string {
     pol: 'pl',
     rus: 'ru',
     jpn: 'ja',
-    cmn: 'zh', // Mandarin Chinese
-    zho: 'zh', // Chinese (generic)
+    cmn: 'zh', // Mandarin Chinese - franc may detect either cmn or zho for Chinese text
+    zho: 'zh', // Chinese (generic) - both map to 'zh' as TTS engines don't distinguish varieties
     kor: 'ko',
-    arb: 'ar', // Standard Arabic
-    ara: 'ar', // Arabic (generic)
+    arb: 'ar', // Standard Arabic - franc may detect either arb or ara for Arabic text
+    ara: 'ar', // Arabic (generic) - both map to 'ar' as TTS engines don't distinguish varieties
     hin: 'hi',
     und: 'und', // undetermined
   }

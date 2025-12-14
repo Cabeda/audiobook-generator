@@ -46,7 +46,7 @@ export async function detectAndPersistLanguagesForBook(bookId: number, book: Boo
       const result = detectChapterLanguage(chapter.content)
 
       // Only persist if we got a meaningful result
-      if (result.languageCode !== 'und' || result.confidence > 0) {
+      if (result.languageCode !== 'und' && result.confidence > 0) {
         await updateChapterDetectedLanguage(
           bookId,
           chapter.id,
@@ -83,7 +83,7 @@ export async function detectAndPersistChapterLanguage(
     const result = detectChapterLanguage(content)
 
     // Only persist if we got a meaningful result
-    if (result.languageCode !== 'und' || result.confidence > 0) {
+    if (result.languageCode !== 'und' && result.confidence > 0) {
       await updateChapterDetectedLanguage(bookId, chapterId, result.languageCode, result.confidence)
     }
   } catch (error) {
