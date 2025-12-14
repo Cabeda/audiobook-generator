@@ -17,6 +17,7 @@ type WorkerRequest = {
   voice?: string
   speed?: number
   pitch?: number
+  language?: string // ISO 639-1 language code for voice selection
   // Kokoro-specific
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   model?: string

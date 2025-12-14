@@ -513,6 +513,7 @@ class GenerationService {
                 voice: effectiveVoice,
                 dtype: currentQuantization,
                 device: currentDevice,
+                language: effectiveLanguage,
                 advancedSettings: currentAdvancedSettings,
               })
 
@@ -629,6 +630,7 @@ class GenerationService {
                 modelType: 'piper',
                 voice: effectiveVoice,
                 device: currentDevice,
+                language: effectiveLanguage,
                 advancedSettings: currentAdvancedSettings,
               })
 
