@@ -24,6 +24,8 @@ import { toastStore } from '../../stores/toastStore'
 import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { resolveChapterLanguage, DEFAULT_LANGUAGE } from '../utils/languageResolver'
+import { selectKokoroVoiceForLanguage, selectPiperVoiceForLanguage } from '../utils/voiceSelector'
+import { PiperClient } from '../piper/piperClient'
 
 /**
  * Type representing a LibraryBook with a guaranteed ID property
@@ -431,14 +433,27 @@ class GenerationService {
         // Update status to processing
         chapterStatus.update((m) => new Map(m).set(ch.id, 'processing'))
 
-        // Check Kokoro voice validity
+        // Select appropriate voice based on language
         let effectiveVoice = currentVoice
         if (model === 'kokoro') {
+          // Automatically select Kokoro voice based on language
+          effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, currentVoice)
           const kokoroVoices = listKokoroVoices()
           if (!kokoroVoices.includes(effectiveVoice as VoiceId)) {
-            logger.warn('Invalid Kokoro voice, falling back to af_heart')
+            logger.warn('Invalid Kokoro voice after selection, falling back to af_heart')
             effectiveVoice = 'af_heart'
           }
+          logger.info(`Selected Kokoro voice for language ${effectiveLanguage}: ${effectiveVoice}`)
+        } else if (model === 'piper') {
+          // Automatically select Piper voice based on language
+          const piperClient = PiperClient.getInstance()
+          const availableVoices = await piperClient.getVoices()
+          effectiveVoice = selectPiperVoiceForLanguage(
+            effectiveLanguage,
+            availableVoices,
+            currentVoice
+          )
+          logger.info(`Selected Piper voice for language ${effectiveLanguage}: ${effectiveVoice}`)
         }
 
         try {
