@@ -15,6 +15,8 @@ export interface Chapter {
   title: string
   content: string
   language?: string // Optional language override (ISO 639-1 code)
+  detectedLanguage?: string // Auto-detected language (ISO 639-1 code)
+  languageConfidence?: number // Detection confidence (0-1)
   model?: string // Optional TTS model override (e.g., 'kokoro', 'piper')
   voice?: string // Optional voice override for this chapter
 }

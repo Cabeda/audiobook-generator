@@ -14,6 +14,49 @@ export function resolveChapterLanguage(chapter: Chapter, book: Book): string {
 }
 
 /**
+ * Confidence threshold for trusting detected language
+ * Should match the threshold in languageDetector
+ */
+export const DETECTION_CONFIDENCE_THRESHOLD = 0.5
+
+/**
+ * Resolves the effective language for a chapter including auto-detected language.
+ * Resolution order:
+ * 1. chapter.language (user override)
+ * 2. chapter.detectedLanguage (if confidence >= threshold)
+ * 3. book.language (book default)
+ * 4. DEFAULT_LANGUAGE (app default)
+ *
+ * @param chapter The chapter to resolve language for
+ * @param book The book containing the chapter
+ * @returns Resolved language code (ISO 639-1)
+ */
+export function resolveChapterLanguageWithDetection(chapter: Chapter, book: Book): string {
+  // 1. User override takes precedence
+  if (chapter.language) {
+    return chapter.language
+  }
+
+  // 2. Auto-detected language if confident enough
+  if (
+    chapter.detectedLanguage &&
+    chapter.detectedLanguage !== 'und' &&
+    chapter.languageConfidence !== undefined &&
+    chapter.languageConfidence >= DETECTION_CONFIDENCE_THRESHOLD
+  ) {
+    return chapter.detectedLanguage
+  }
+
+  // 3. Book default
+  if (book.language) {
+    return book.language
+  }
+
+  // 4. App default
+  return DEFAULT_LANGUAGE
+}
+
+/**
  * Common language options for UI dropdowns
  */
 export interface LanguageOption {
