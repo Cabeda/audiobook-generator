@@ -24,6 +24,17 @@
       close()
     }
   })
+  onMount(() => {
+    let refreshing = false
+    // Listen for new service worker taking over
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return
+        refreshing = true
+        window.location.reload()
+      })
+    }
+  })
 </script>
 
 {#if $needRefresh}

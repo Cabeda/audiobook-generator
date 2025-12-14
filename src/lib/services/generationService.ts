@@ -23,6 +23,7 @@ import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
+import { convert } from 'html-to-text'
 
 /**
  * Type representing a LibraryBook with a guaranteed ID property
@@ -59,48 +60,67 @@ export function segmentHtmlContent(
   htmlContent: string,
   options: SegmentOptions = {}
 ): { html: string; segments: { index: number; text: string; id: string }[] } {
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(htmlContent, 'text/html')
   const segments: { index: number; text: string; id: string }[] = []
 
-  // CRITICAL: Remove any existing segment spans before re-segmenting
-  // This prevents nested segment spans from corrupting the content
-  const existingSegments = doc.querySelectorAll('span.segment[id^="seg-"]')
-  existingSegments.forEach((span) => {
-    // Unwrap: replace span with its content
-    const parent = span.parentNode
-    while (span.firstChild) {
-      parent?.insertBefore(span.firstChild, span)
-    }
-    parent?.removeChild(span)
-  })
-
-  if (options.ignoreCodeBlocks) {
-    doc.querySelectorAll('code, pre').forEach((el) => el.remove())
-  }
-
-  if (options.ignoreLinks) {
-    doc.querySelectorAll('a').forEach((el) => el.remove())
-  }
-
-  logger.info('[segmentHtml] Starting HTML segmentation', {
+  logger.info('[segmentHtml] Starting HTML segmentation with html-to-text', {
     chapterId,
     htmlLength: htmlContent.length,
-    htmlPreview: htmlContent.substring(0, 200),
-    removedSegments: existingSegments.length,
     ignoreCodeBlocks: !!options.ignoreCodeBlocks,
     ignoreLinks: !!options.ignoreLinks,
   })
 
-  // SIMPLIFIED APPROACH: Extract text content and split into sentences
-  // Don't try to wrap HTML with spans - just return plain segments for TTS
-  // The HTML is returned as-is for display, segments are just for audio generation
-  const fullText = doc.body.textContent || ''
-  const sentences = fullText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [fullText]
+  // Configure selectors for html-to-text
+  const selectors: any[] = [
+    { selector: 'img', format: 'skip' },
+    { selector: 'script', format: 'skip' },
+    { selector: 'style', format: 'skip' },
+  ]
+
+  if (options.ignoreCodeBlocks) {
+    selectors.push({ selector: 'pre', format: 'skip' })
+    selectors.push({ selector: 'code', format: 'skip' })
+  }
+
+  if (options.ignoreLinks) {
+    selectors.push({ selector: 'a', format: 'skip' })
+  } else {
+    // If not ignored, print text but ignore href
+    selectors.push({ selector: 'a', options: { ignoreHref: true } })
+  }
+
+  // Convert HTML to text
+  // wordwrap: false ensures we don't insert artificial line breaks within paragraphs
+  const fullText = convert(htmlContent, {
+    wordwrap: false,
+    selectors: selectors,
+    preserveNewlines: true, // Preserve intentional newlines
+  })
+
+  // Split into sentences
+  // Robust splitting handles newlines (which html-to-text preserves for blocks)
+  // We split by newline first to ensure block boundaries are respected.
+  const lines = fullText.split('\n')
+  const sentences: string[] = []
+
+  lines.forEach((line) => {
+    const trimmedLine = line.trim()
+    if (!trimmedLine) return
+
+    // Split line into sentences
+    // This regex matches:
+    // 1. A sequence of non-terminators followed by terminators and space/end
+    // 2. OR the remaining text if no terminators found
+    const lineSentences = trimmedLine.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g)
+    if (lineSentences) {
+      sentences.push(...lineSentences.map((s) => s.trim()))
+    } else {
+      sentences.push(trimmedLine)
+    }
+  })
 
   let segmentIndex = 0
   sentences.forEach((sentence) => {
-    const trimmed = sentence.trim()
+    const trimmed = sentence
     if (trimmed && trimmed.length > 0) {
       segments.push({
         index: segmentIndex,
@@ -111,7 +131,7 @@ export function segmentHtmlContent(
     }
   })
 
-  logger.info('[segmentHtml] Segmentation complete (simplified)', {
+  logger.info('[segmentHtml] Segmentation complete', {
     totalSegments: segments.length,
     firstSegmentText: segments[0]?.text.substring(0, 100),
     totalTextLength: fullText.length,
