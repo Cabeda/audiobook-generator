@@ -1,0 +1,91 @@
+name: Benchmarks
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Number of iterations per test'
+        required: false
+        default: '3'
+      max-chunks:
+        description: 'Maximum number of chunks for concat test'
+        required: false
+        default: '20'
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run benchmarks
+        run: |
+          ITERATIONS="${{ github.event.inputs.iterations || '3' }}"
+          MAX_CHUNKS="${{ github.event.inputs.max-chunks || '20' }}"
+          
+          echo "Running benchmarks with iterations=$ITERATIONS, max-chunks=$MAX_CHUNKS"
+          
+          pnpm run bench -- \
+            --iterations "$ITERATIONS" \
+            --max-chunks "$MAX_CHUNKS" \
+            --output benchmark-results.json
+        env:
+          NODE_ENV: production
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: |
+            benchmark-results.json
+          retention-days: 90
+
+      - name: Display results summary
+        if: always()
+        run: |
+          if [ -f benchmark-results.json ]; then
+            echo "## Benchmark Results Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Timestamp:** $(jq -r '.timestamp' benchmark-results.json)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Kokoro TTS Latency" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Text Length | Mean Latency | Throughput |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------------|--------------|------------|" >> $GITHUB_STEP_SUMMARY
+            jq -r '.benchmarks.kokoro.results[] | "| \(.textLength) chars | \(.latencyMs.mean | round)ms | \(.throughputCharsPerSec | round) chars/s |"' benchmark-results.json >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Audio Concatenation Throughput" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Chunks | Mean Time | Throughput |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-----------|------------|" >> $GITHUB_STEP_SUMMARY
+            jq -r '.benchmarks.concat.results[] | "| \(.chunkCount) | \(.timingMs.mean | round)ms | \(.throughputBytesPerSec.mean / 1024 / 1024 | round * 10 / 10) MB/s |"' benchmark-results.json >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Full results available in artifacts." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Benchmark results file not found" >> $GITHUB_STEP_SUMMARY
+          fi
