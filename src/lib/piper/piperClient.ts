@@ -1,6 +1,8 @@
 import * as tts from '@diffusionstudio/vits-web'
 import * as ort from 'onnxruntime-web'
 import logger from '../utils/logger'
+import { MIN_TEXT_LENGTH } from '../audioConstants'
+import { createSilentWav } from '../audioConcat'
 
 // Configure ONNX Runtime for the worker environment
 // If crossOriginIsolated is false, we must disable multi-threading to avoid crashes
@@ -91,6 +93,15 @@ export class PiperClient {
       logger.info(
         `Preparing Piper segments: ${sentences.length} sentences grouped into ${chunks.length} chunk(s)`
       )
+
+      // If all chunks were filtered out (all too short), return silent audio
+      if (chunks.length === 0) {
+        logger.warn(
+          `All text segments were too short (< ${MIN_TEXT_LENGTH} chars), skipping audio generation`
+        )
+        // Return a 0-duration silent WAV (valid empty audio file that plays without errors)
+        return createSilentWav(0)
+      }
 
       for (let i = 0; i < chunks.length; i++) {
         const sentence = chunks[i]
@@ -298,9 +309,10 @@ export class PiperClient {
   ): Promise<Blob[]> {
     const maxDepth = 2
 
-    // Guard: very short text is unlikely to succeed
-    if (text.length < 3) {
-      throw new Error('Text too short for audio generation')
+    // Guard: very short text is unlikely to succeed, return silent audio for consistency
+    if (text.length < MIN_TEXT_LENGTH) {
+      logger.debug(`Text too short (${text.length} chars), returning silent audio`)
+      return [createSilentWav(0)]
     }
 
     try {
@@ -400,6 +412,13 @@ export class PiperClient {
     for (const sentence of sentences) {
       const trimmed = sentence.trim()
       if (!trimmed) continue
+
+      // Skip very short segments (< MIN_TEXT_LENGTH chars) that are likely formatting artifacts
+      // like "1.", "2.", etc. that don't need to be spoken
+      if (trimmed.length < MIN_TEXT_LENGTH) {
+        logger.debug(`Skipping very short segment: "${trimmed}"`)
+        continue
+      }
 
       if ((current + ' ' + trimmed).trim().length > maxChars && current) {
         chunks.push(current.trim())

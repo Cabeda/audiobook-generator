@@ -227,3 +227,87 @@ describe.skipIf(!hasAudioContext)('piperClient.generate (browser decode)', () =>
     ctx.close()
   })
 })
+
+describe('piperClient MIN_TEXT_LENGTH filtering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.restoreAllMocks()
+    mockStored.mockResolvedValue([ptVoiceId] as unknown as Awaited<ReturnType<typeof tts.stored>>)
+    mockDownload.mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof tts.download>>)
+  })
+
+  it('filters out segments shorter than MIN_TEXT_LENGTH (3 chars) during chunking', async () => {
+    // Text with very short segments that should be filtered
+    mockPredict.mockResolvedValue(makeWav())
+
+    const text = 'Valid sentence here. 1. Another valid sentence. 2. Final valid text.'
+    const blob = await piperClient.generate(text, { voiceId: ptVoiceId })
+
+    // Should generate audio successfully
+    expect(blob.type).toBe('audio/wav')
+    expect(blob.size).toBeGreaterThan(0)
+
+    // Check that predict was called only with longer text segments (not "1." or "2.")
+    const callArgs = mockPredict.mock.calls.map((call) => call[0]?.text)
+    callArgs.forEach((arg) => {
+      if (arg) {
+        // No call should contain only very short segments like "1." or "2."
+        expect(arg.trim().length).toBeGreaterThanOrEqual(3)
+      }
+    })
+  })
+
+  it('returns silent audio when all text segments are too short', async () => {
+    // Text with only very short segments
+    const text = '1. 2. 3.'
+
+    const blob = await piperClient.generate(text, { voiceId: ptVoiceId })
+
+    // Should return a valid blob (silent audio)
+    expect(blob).toBeInstanceOf(Blob)
+    expect(blob.type).toBe('audio/wav')
+    expect(blob.size).toBeGreaterThan(0)
+
+    // Predict should not be called since all segments are filtered
+    expect(mockPredict).not.toHaveBeenCalled()
+  })
+
+  it('returns silent audio for text shorter than MIN_TEXT_LENGTH', async () => {
+    // Very short text
+    const text = '1.'
+
+    const blob = await piperClient.generate(text, { voiceId: ptVoiceId })
+
+    // Should return a valid blob (silent audio)
+    expect(blob).toBeInstanceOf(Blob)
+    expect(blob.type).toBe('audio/wav')
+    expect(blob.size).toBeGreaterThan(0)
+
+    // Predict should not be called
+    expect(mockPredict).not.toHaveBeenCalled()
+  })
+
+  it('handles mixed short and long segments correctly', async () => {
+    mockPredict.mockResolvedValue(makeWav())
+
+    // Mix of valid and short segments
+    const text = 'This is a valid sentence. 1. Another valid sentence here. 2. 3. Final sentence.'
+
+    const blob = await piperClient.generate(text, { voiceId: ptVoiceId })
+
+    // Should generate audio successfully
+    expect(blob.type).toBe('audio/wav')
+    expect(blob.size).toBeGreaterThan(0)
+
+    // Predict should be called, but only with valid segments
+    expect(mockPredict).toHaveBeenCalled()
+    const callArgs = mockPredict.mock.calls.map((call) => call[0]?.text)
+
+    // Check that short segments were filtered out
+    callArgs.forEach((arg) => {
+      if (arg) {
+        expect(arg.trim().length).toBeGreaterThanOrEqual(3)
+      }
+    })
+  })
+})
