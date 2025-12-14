@@ -137,7 +137,7 @@ function normalizeLanguageCode(language: string): string {
   }
 
   // Try to extract from patterns like "English (US)" or "Spanish (Spain)"
-  const match = lower.match(/^([a-z]+)/)
+  const match = lower.match(/^([a-z]+)(?:\s|$|\()/)
   if (match) {
     const langName = match[1]
     if (LANGUAGE_CODE_MAP[langName]) {
@@ -221,7 +221,7 @@ export function getKokoroVoicesForLanguage(language: string): VoiceId[] {
     return KOKORO_LANGUAGE_MAP[baseLang]
   }
 
-  // All Kokoro voices are English, so return all as fallback
+  // Kokoro only supports English variants (American and British), so return all English voices as fallback
   return KOKORO_LANGUAGE_MAP['en']
 }
 

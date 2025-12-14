@@ -440,7 +440,9 @@ class GenerationService {
           effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, currentVoice)
           const kokoroVoices = listKokoroVoices()
           if (!kokoroVoices.includes(effectiveVoice as VoiceId)) {
-            logger.warn('Invalid Kokoro voice after selection, falling back to af_heart')
+            logger.warn(
+              `Invalid Kokoro voice '${effectiveVoice}' after selection, falling back to af_heart`
+            )
             effectiveVoice = 'af_heart'
           }
           logger.info(`Selected Kokoro voice for language ${effectiveLanguage}: ${effectiveVoice}`)
