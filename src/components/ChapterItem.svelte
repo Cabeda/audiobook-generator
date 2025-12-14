@@ -7,9 +7,27 @@
     formatDurationShort,
   } from '../lib/utils/textStats'
   import { toastStore } from '../stores/toastStore'
-  import { selectedModel, selectedVoice, availableVoices } from '../stores/ttsStore'
+  import {
+    selectedModel,
+    selectedVoice,
+    availableVoices,
+    voiceLabels,
+    type VoiceOption,
+  } from '../stores/ttsStore'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
-  import { LANGUAGE_OPTIONS, getLanguageLabel } from '../lib/utils/languageResolver'
+  import {
+    LANGUAGE_OPTIONS,
+    getLanguageLabel,
+    resolveChapterLanguageWithDetection,
+  } from '../lib/utils/languageResolver'
+  import {
+    selectKokoroVoiceForLanguage,
+    getKokoroVoicesForLanguage,
+    selectPiperVoiceForLanguage,
+    getPiperVoicesForLanguage,
+    isKokoroLanguageSupported,
+  } from '../lib/utils/voiceSelector'
+  import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroClient'
 
   let {
     chapter,
@@ -55,11 +73,89 @@
   let chapterVoice = $state(chapter.voice)
   let chapterLanguage = $state(chapter.language)
 
+  // Piper voices state (loaded async)
+  let piperVoices = $state<VoiceOption[]>([])
+  let piperVoicesLoading = $state(false)
+
+  // Load piper voices on mount
+  $effect(() => {
+    if (!piperVoicesLoading) {
+      piperVoicesLoading = true
+      import('../lib/piper/piperClient').then(({ PiperClient }) => {
+        PiperClient.getInstance()
+          .getVoices()
+          .then((voices) => {
+            piperVoices = voices.map((v) => ({ id: v.key, label: v.label }))
+          })
+      })
+    }
+  })
+
   // Update local state when chapter prop changes
   $effect(() => {
     chapterModel = chapter.model
     chapterVoice = chapter.voice
     chapterLanguage = chapter.language
+  })
+
+  // Compute the effective language for this chapter
+  let effectiveLanguage = $derived(book ? resolveChapterLanguageWithDetection(chapter, book) : 'en')
+
+  // Compute the effective model (with automatic fallback if language not supported)
+  let effectiveModel = $derived.by(() => {
+    const baseModel = chapterModel || $selectedModel
+    // If Kokoro is selected but doesn't support the language, fallback to Piper
+    if (baseModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
+      return 'piper'
+    }
+    return baseModel
+  })
+
+  // Is this a fallback from the user's choice?
+  let isModelFallback = $derived(
+    (chapterModel || $selectedModel) === 'kokoro' && effectiveModel === 'piper'
+  )
+
+  // Compute available voices for the effective model and language
+  let chapterAvailableVoices = $derived.by(() => {
+    if (effectiveModel === 'kokoro') {
+      const kokoroVoices = listKokoroVoices()
+      const languageVoices = getKokoroVoicesForLanguage(effectiveLanguage)
+      // Only show voices that support the effective language
+      return kokoroVoices
+        .filter((v) => languageVoices.includes(v))
+        .map((v) => ({ id: v, label: voiceLabels[v] || v }))
+    } else if (effectiveModel === 'piper') {
+      // Filter piper voices by language
+      if (piperVoices.length > 0) {
+        return piperVoices.filter((v) => {
+          // Voice IDs typically start with language code, e.g., "en_US-..."
+          const voiceLang = v.id.split(/[-_]/)[0]?.toLowerCase()
+          return voiceLang === effectiveLanguage.toLowerCase()
+        })
+      }
+      return []
+    } else if (effectiveModel === 'web_speech') {
+      // Use global available voices for web speech
+      return $availableVoices
+    }
+    return []
+  })
+
+  // Compute the effective voice (auto-select first available if current is invalid)
+  let effectiveVoice = $derived.by(() => {
+    if (chapterVoice) {
+      // Check if the chapter's voice is valid for the effective model
+      const isValid = chapterAvailableVoices.some((v) => v.id === chapterVoice)
+      if (isValid) {
+        return chapterVoice
+      }
+    }
+    // Auto-select: pick first voice for the language
+    if (chapterAvailableVoices.length > 0) {
+      return chapterAvailableVoices[0].id
+    }
+    return $selectedVoice
   })
 
   function copy() {
@@ -80,6 +176,10 @@
     const value = target.value === 'default' ? undefined : target.value
     chapterModel = value
     onModelChange?.(chapter.id, value)
+
+    // Reset voice when model changes since voice options are different
+    chapterVoice = undefined
+    onVoiceChange?.(chapter.id, undefined)
   }
 
   function handleVoiceChange(event: Event) {
@@ -94,6 +194,27 @@
     const value = target.value === 'default' ? undefined : target.value
     chapterLanguage = value
     onLanguageChange?.(chapter.id, value)
+
+    // After language change, check if we need to fallback model
+    // This will be handled by the reactive effectiveModel computation
+    // If model needs to change due to language, update it
+    const baseModel = chapterModel || $selectedModel
+    if (baseModel === 'kokoro') {
+      // Get the new effective language after this change
+      const newLang = value || (book ? resolveChapterLanguageWithDetection(chapter, book) : 'en')
+      if (!isKokoroLanguageSupported(newLang)) {
+        // Auto-switch to Piper
+        chapterModel = 'piper'
+        onModelChange?.(chapter.id, 'piper')
+        toastStore.info(
+          `Switched to Piper for language ${newLang.toUpperCase()} (not supported by Kokoro)`
+        )
+      }
+    }
+
+    // Reset voice to auto-select for new language
+    chapterVoice = undefined
+    onVoiceChange?.(chapter.id, undefined)
   }
 
   function resetToDefault() {
@@ -267,7 +388,15 @@
           <div class="setting-row">
             <label for={`model-${chapter.id}`} class="setting-label">
               <span>TTS Model</span>
-              <span class="setting-help">{chapterModel ? 'Override' : 'Using global default'}</span>
+              <span class="setting-help">
+                {#if chapterModel}
+                  Override
+                {:else if isModelFallback}
+                  Auto-switched to Piper (language not supported by Kokoro)
+                {:else}
+                  Using global default
+                {/if}
+              </span>
             </label>
             <select
               id={`model-${chapter.id}`}
@@ -277,7 +406,7 @@
             >
               <option value="default"
                 >📖 Use Global ({TTS_MODELS.find((m) => m.id === $selectedModel)?.name ||
-                  $selectedModel})</option
+                  $selectedModel}){isModelFallback ? ' → Piper (fallback)' : ''}</option
               >
               {#each TTS_MODELS as model}
                 <option value={model.id}>{model.name}</option>
@@ -327,9 +456,13 @@
           <div class="setting-row">
             <label for={`voice-${chapter.id}`} class="setting-label">
               <span>Voice</span>
-              <span class="setting-help"
-                >{chapterVoice ? 'Override' : 'Auto-selected by language'}</span
-              >
+              <span class="setting-help">
+                {#if chapterVoice}
+                  Override
+                {:else}
+                  Auto-selected for {effectiveLanguage.toUpperCase()}
+                {/if}
+              </span>
             </label>
             <select
               id={`voice-${chapter.id}`}
@@ -338,10 +471,10 @@
               onchange={handleVoiceChange}
             >
               <option value="default"
-                >🌐 Auto-select ({$availableVoices.find((v) => v.id === $selectedVoice)?.label ||
-                  $selectedVoice})</option
+                >🌐 Auto-select ({chapterAvailableVoices.find((v) => v.id === effectiveVoice)
+                  ?.label || effectiveVoice})</option
               >
-              {#each $availableVoices as voice}
+              {#each chapterAvailableVoices as voice}
                 <option value={voice.id}>{voice.label}</option>
               {/each}
             </select>
