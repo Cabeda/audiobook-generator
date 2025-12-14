@@ -90,7 +90,14 @@ function calculateStats(values: number[]): BenchmarkStats {
   const sorted = [...values].sort((a, b) => a - b)
   const sum = values.reduce((acc, val) => acc + val, 0)
   const mean = sum / values.length
-  const median = sorted[Math.floor(sorted.length / 2)]
+  let median: number
+  if (sorted.length % 2 === 0) {
+    const mid1 = sorted.length / 2 - 1
+    const mid2 = sorted.length / 2
+    median = (sorted[mid1] + sorted[mid2]) / 2
+  } else {
+    median = sorted[Math.floor(sorted.length / 2)]
+  }
   const min = sorted[0]
   const max = sorted[sorted.length - 1]
 
