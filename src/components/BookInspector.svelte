@@ -117,6 +117,7 @@
     {#each book.chapters as ch}
       <ChapterItem
         chapter={ch}
+        {book}
         selected={selected.get(ch.id)}
         audioData={generatedAudioMap.get(ch.id)}
         status={chapterStatus?.get(ch.id)}

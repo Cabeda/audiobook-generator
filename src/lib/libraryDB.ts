@@ -261,6 +261,165 @@ export async function updateChapterContent(
 }
 
 /**
+ * Update the language of a specific chapter
+ */
+export async function updateChapterLanguage(
+  bookId: number,
+  chapterId: string,
+  language: string | undefined
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get(bookId)
+
+    request.onsuccess = () => {
+      const book = request.result as LibraryBook
+      if (book) {
+        const chapterIndex = book.chapters.findIndex((c) => c.id === chapterId)
+        if (chapterIndex !== -1) {
+          book.chapters[chapterIndex].language = language
+          const putRequest = store.put(book)
+          putRequest.onsuccess = () => resolve()
+          putRequest.onerror = (event) =>
+            reject(
+              new Error(
+                `Failed to save chapter language: ${event.target?.error?.message || 'Unknown error'}`
+              )
+            )
+        } else {
+          reject(new Error('Chapter not found'))
+        }
+      } else {
+        reject(new Error('Book not found'))
+      }
+    }
+
+    request.onerror = () => reject(new Error('Failed to get book for updating language'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
+ * Update the language of the book
+ */
+export async function updateBookLanguage(bookId: number, language: string): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get(bookId)
+
+    request.onsuccess = () => {
+      const book = request.result as LibraryBook
+      if (book) {
+        book.language = language
+        const putRequest = store.put(book)
+        putRequest.onsuccess = () => resolve()
+        putRequest.onerror = (event) =>
+          reject(
+            new Error(
+              `Failed to save book language: ${event.target?.error?.message || 'Unknown error'}`
+            )
+          )
+      } else {
+        reject(new Error('Book not found'))
+      }
+    }
+
+    request.onerror = () => reject(new Error('Failed to update book language'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
+ * Update the TTS model for a specific chapter
+ */
+export async function updateChapterModel(
+  bookId: number,
+  chapterId: string,
+  model: string | undefined
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get(bookId)
+
+    request.onsuccess = () => {
+      const book = request.result as LibraryBook
+      if (book) {
+        const chapterIndex = book.chapters.findIndex((c) => c.id === chapterId)
+        if (chapterIndex !== -1) {
+          book.chapters[chapterIndex].model = model
+          const putRequest = store.put(book)
+          putRequest.onsuccess = () => resolve()
+          putRequest.onerror = (event) =>
+            reject(
+              new Error(
+                `Failed to save chapter model: ${event.target?.error?.message || 'Unknown error'}`
+              )
+            )
+        } else {
+          reject(new Error('Chapter not found'))
+        }
+      } else {
+        reject(new Error('Book not found'))
+      }
+    }
+
+    request.onerror = () => reject(new Error('Failed to get book for updating model'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
+ * Update the TTS voice for a specific chapter
+ */
+export async function updateChapterVoice(
+  bookId: number,
+  chapterId: string,
+  voice: string | undefined
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get(bookId)
+
+    request.onsuccess = () => {
+      const book = request.result as LibraryBook
+      if (book) {
+        const chapterIndex = book.chapters.findIndex((c) => c.id === chapterId)
+        if (chapterIndex !== -1) {
+          book.chapters[chapterIndex].voice = voice
+          const putRequest = store.put(book)
+          putRequest.onsuccess = () => resolve()
+          putRequest.onerror = (event) =>
+            reject(
+              new Error(
+                `Failed to save chapter voice: ${event.target?.error?.message || 'Unknown error'}`
+              )
+            )
+        } else {
+          reject(new Error('Chapter not found'))
+        }
+      } else {
+        reject(new Error('Book not found'))
+      }
+    }
+
+    request.onerror = () => reject(new Error('Failed to get book for updating voice'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
  * Delete a book from the library
  */
 export async function deleteBook(id: number): Promise<void> {
@@ -421,6 +580,7 @@ export interface AudioGenerationSettings {
   voice: string
   quantization?: string
   device?: string
+  language?: string
 }
 
 export interface ChapterAudioRecord {
