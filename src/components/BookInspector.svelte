@@ -117,6 +117,7 @@
     {#each book.chapters as ch}
       <ChapterItem
         chapter={ch}
+        {book}
         selected={selected.get(ch.id)}
         audioData={generatedAudioMap.get(ch.id)}
         status={chapterStatus?.get(ch.id)}
@@ -126,6 +127,7 @@
         onDownloadWav={(id) => dispatch('downloadwav', { id })}
         onDownloadMp3={(id) => dispatch('downloadmp3', { id })}
         onRetry={(id) => dispatch('retry', { id })}
+        onLanguageChange={(id, lang) => dispatch('languagechange', { id, language: lang })}
       />
     {/each}
   </div>
