@@ -397,11 +397,13 @@ class AudioPlaybackService {
     // If audio element exists (loaded by loadChapter or other means), play it directly
     if (this.audio) {
       this.isPlaying = true
+      audioPlayerStore.play()
       try {
         await this.audio.play()
       } catch (e) {
         logger.error('Failed to play audio:', e)
         this.isPlaying = false
+        audioPlayerStore.pause()
       }
       return
     }
@@ -409,6 +411,7 @@ class AudioPlaybackService {
     // Web Speech fallback
     if (this.selectedModel === 'web_speech') {
       this.isPlaying = true
+      audioPlayerStore.play()
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume()
       } else {
@@ -420,6 +423,7 @@ class AudioPlaybackService {
     // Fallback: try to play from first segment (legacy on-demand mode)
     if (this.currentSegmentIndex >= 0) {
       this.isPlaying = true
+      audioPlayerStore.play()
       await this.playCurrentSegment()
     } else {
       await this.playFromSegment(0)
@@ -428,6 +432,7 @@ class AudioPlaybackService {
 
   pause() {
     this.isPlaying = false
+    audioPlayerStore.pause()
 
     if (this.selectedModel === 'web_speech') {
       window.speechSynthesis.pause()
@@ -465,11 +470,13 @@ class AudioPlaybackService {
 
       if (!this.isPlaying && autoPlay) {
         this.isPlaying = true
+        audioPlayerStore.play()
         try {
           await this.audio.play()
         } catch (e) {
           logger.error('Failed to play from segment:', e)
           this.isPlaying = false
+          audioPlayerStore.pause()
         }
       } else if (!autoPlay && this.audio) {
         // Ensure we seek but don't play
@@ -501,10 +508,14 @@ class AudioPlaybackService {
 
     this.currentSegmentIndex = index
     this.isPlaying = wasPlaying
+    if (wasPlaying) {
+      audioPlayerStore.play()
+    } else {
+      audioPlayerStore.pause()
+    }
 
     if (this.selectedModel === 'web_speech') {
-      if (this.isPlaying || autoPlay) {
-        this.isPlaying = true
+      if (this.isPlaying) {
         await this.playCurrentSegment()
       }
       return
@@ -517,7 +528,10 @@ class AudioPlaybackService {
         await this.generateSegment(index)
       } catch (err) {
         logger.error('Failed to generate segment:', err)
-        if (this.currentSegmentIndex === index) this.isPlaying = false
+        if (this.currentSegmentIndex === index) {
+          this.isPlaying = false
+          audioPlayerStore.pause()
+        }
         if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(false)
         return
       }
@@ -662,6 +676,7 @@ class AudioPlaybackService {
         this.playCurrentSegment()
       } else {
         this.isPlaying = false
+        audioPlayerStore.pause()
         if (this.audio) {
           this.audio.onended = null
           this.audio.ontimeupdate = null
@@ -687,6 +702,7 @@ class AudioPlaybackService {
       logger.error('Failed to play audio:', err)
       if (this.currentSegmentIndex === index) {
         this.isPlaying = false
+        audioPlayerStore.pause()
         if (this.audio) {
           this.audio.onended = null
           this.audio.ontimeupdate = null
@@ -701,6 +717,7 @@ class AudioPlaybackService {
 
   private playWebSpeech(text: string) {
     this.cancelWebSpeech()
+    this.isPlaying = true // Ensure state is playing
 
     const utterance = new SpeechSynthesisUtterance(text)
     if (this.voice) {
@@ -718,12 +735,14 @@ class AudioPlaybackService {
         this.playCurrentSegment()
       } else {
         this.isPlaying = false
+        audioPlayerStore.pause()
       }
     }
 
     utterance.onerror = (e) => {
       logger.error('Web Speech API error:', e)
       this.isPlaying = false
+      audioPlayerStore.pause()
     }
 
     this.speechUtterance = utterance

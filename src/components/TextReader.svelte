@@ -85,12 +85,9 @@
               const store = get(audioPlayerStore)
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
 
-              audioService
-                .playFromSegment(startSeg)
-                .then(() => audioService.play())
-                .catch((err) => {
-                  console.error('Auto-play failed:', err)
-                })
+              audioService.playFromSegment(startSeg, false).catch((err) => {
+                console.error('Initial seek failed:', err)
+              })
             } else {
               loadError = true
               console.warn('Chapter audio not available - generate audio first')
@@ -105,12 +102,9 @@
         isLoading = false
         const store = get(audioPlayerStore)
         const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
-        audioService
-          .playFromSegment(startSeg)
-          .then(() => audioService.play())
-          .catch((err) => {
-            console.error('Auto-play failed:', err)
-          })
+        audioService.playFromSegment(startSeg, false).catch((err) => {
+          console.error('Initial seek failed:', err)
+        })
       }
     }
   })
