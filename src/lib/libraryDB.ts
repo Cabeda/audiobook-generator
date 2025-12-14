@@ -283,7 +283,12 @@ export async function updateChapterLanguage(
           book.chapters[chapterIndex].language = language
           const putRequest = store.put(book)
           putRequest.onsuccess = () => resolve()
-          putRequest.onerror = () => reject(new Error('Failed to save chapter language'))
+          putRequest.onerror = (event) =>
+            reject(
+              new Error(
+                `Failed to save chapter language: ${event.target?.error?.message || 'Unknown error'}`
+              )
+            )
         } else {
           reject(new Error('Chapter not found'))
         }
@@ -314,7 +319,12 @@ export async function updateBookLanguage(bookId: number, language: string): Prom
         book.language = language
         const putRequest = store.put(book)
         putRequest.onsuccess = () => resolve()
-        putRequest.onerror = () => reject(new Error('Failed to save book language'))
+        putRequest.onerror = (event) =>
+          reject(
+            new Error(
+              `Failed to save book language: ${event.target?.error?.message || 'Unknown error'}`
+            )
+          )
       } else {
         reject(new Error('Book not found'))
       }
