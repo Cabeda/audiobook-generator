@@ -20,13 +20,7 @@
     getLanguageLabel,
     resolveChapterLanguageWithDetection,
   } from '../lib/utils/languageResolver'
-  import {
-    selectKokoroVoiceForLanguage,
-    getKokoroVoicesForLanguage,
-    selectPiperVoiceForLanguage,
-    getPiperVoicesForLanguage,
-    isKokoroLanguageSupported,
-  } from '../lib/utils/voiceSelector'
+  import { getKokoroVoicesForLanguage, isKokoroLanguageSupported } from '../lib/utils/voiceSelector'
   import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroClient'
 
   let {
@@ -73,27 +67,27 @@
   let chapterVoice = $state(chapter.voice)
   let chapterLanguage = $state(chapter.language)
 
-  // Piper voices state (loaded async)
-  let piperVoices = $state<VoiceOption[]>([])
-  let piperVoicesLoading = $state(false)
-
   // Piper voices with full metadata (loaded async)
   let piperVoicesWithMetadata = $state<
     Array<{ key: string; name: string; language: string; quality: string }>
   >([])
+  let piperVoicesLoading = $state(false)
 
   // Load piper voices on mount
   $effect(() => {
     if (!piperVoicesLoading) {
       piperVoicesLoading = true
-      import('../lib/piper/piperClient').then(({ PiperClient }) => {
-        PiperClient.getInstance()
-          .getVoices()
-          .then((voices) => {
-            piperVoicesWithMetadata = voices
-            piperVoices = voices.map((v) => ({ id: v.key, label: v.name }))
-          })
-      })
+      import('../lib/piper/piperClient')
+        .then(({ PiperClient }) => {
+          return PiperClient.getInstance().getVoices()
+        })
+        .then((voices) => {
+          piperVoicesWithMetadata = voices
+        })
+        .catch((error) => {
+          console.error('Failed to load Piper voices:', error)
+          piperVoicesLoading = false
+        })
     }
   })
 
@@ -204,12 +198,19 @@
     onLanguageChange?.(chapter.id, value)
 
     // After language change, check if we need to fallback model
-    // This will be handled by the reactive effectiveModel computation
-    // If model needs to change due to language, update it
     const baseModel = chapterModel || $selectedModel
     if (baseModel === 'kokoro') {
-      // Get the new effective language after this change
-      const newLang = value || (book ? resolveChapterLanguageWithDetection(chapter, book) : 'en')
+      // Determine the new effective language
+      let newLang = value
+      if (!newLang && book) {
+        // Create a temporary chapter object with the updated language to compute effective language
+        const updatedChapter = { ...chapter, language: value }
+        newLang = resolveChapterLanguageWithDetection(updatedChapter, book)
+      }
+      if (!newLang) {
+        newLang = 'en' // fallback
+      }
+
       if (!isKokoroLanguageSupported(newLang)) {
         // Auto-switch to Piper
         chapterModel = 'piper'
