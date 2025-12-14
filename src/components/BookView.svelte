@@ -11,7 +11,7 @@
     selectedChapterIds,
   } from '../stores/bookStore'
   import {
-    selectedModel,
+    selectedModel as selectedModelStore,
     selectedVoice,
     availableVoices,
     selectedQuantization,
@@ -43,7 +43,7 @@
   let selectedFormat = $state<'mp3' | 'mp4' | 'm4b' | 'wav' | 'epub'>('mp3')
   let selectedBitrate = $state(192)
 
-  // Derived state from stores
+  let selectedModel = $derived($selectedModelStore)
   let currentBook = $derived($book)
   let statusMap = $derived($chapterStatus)
   let errorsMap = $derived($chapterErrors)
@@ -186,7 +186,7 @@
 
       <div class="toolbar-center">
         <div class="quick-settings">
-          <select bind:value={$selectedModel} disabled={isGenerating} class="premium-select">
+          <select bind:value={$selectedModelStore} disabled={isGenerating} class="premium-select">
             {#each TTS_MODELS as model}
               <option value={model.id}>{model.name}</option>
             {/each}
@@ -198,7 +198,7 @@
             {/each}
           </select>
 
-          {#if $selectedModel === 'kokoro'}
+          {#if $selectedModelStore === 'kokoro'}
             <select
               bind:value={$selectedDevice}
               disabled={isGenerating}
@@ -259,7 +259,7 @@
               <option value={320}>320 kbps</option>
             </select>
           </label>
-          {#if $selectedModel === 'kokoro'}
+          {#if $selectedModelStore === 'kokoro'}
             <label>
               <span>Quantization</span>
               <select bind:value={$selectedQuantization} class="premium-select">
@@ -272,16 +272,16 @@
           {/if}
         </div>
 
-        {#if ADVANCED_SETTINGS_SCHEMA[$selectedModel]}
+        {#if ADVANCED_SETTINGS_SCHEMA[$selectedModelStore]}
           <div class="setting-group">
             <span class="setting-group-title">Text Handling</span>
-            {#each ADVANCED_SETTINGS_SCHEMA[$selectedModel] as setting, idx}
+            {#each ADVANCED_SETTINGS_SCHEMA[$selectedModelStore] as setting, idx}
               {#if setting.type === 'boolean'}
-                <label class="checkbox-row" for={`adv-${$selectedModel}-${idx}`}>
+                <label class="checkbox-row" for={`adv-${$selectedModelStore}-${idx}`}>
                   <input
-                    id={`adv-${$selectedModel}-${idx}`}
+                    id={`adv-${$selectedModelStore}-${idx}`}
                     type="checkbox"
-                    bind:checked={$advancedSettings[$selectedModel][setting.key]}
+                    bind:checked={$advancedSettings[$selectedModelStore][setting.key]}
                     disabled={isGenerating}
                   />
                   <span>
@@ -305,7 +305,7 @@
           <ChapterItem
             {chapter}
             selected={selections.get(chapter.id)}
-            status={statusMap.get(chapter.id)}
+            status={selectedModel === 'web_speech' ? 'done' : statusMap.get(chapter.id)}
             error={errorsMap.get(chapter.id)}
             progress={$chapterProgress.get(chapter.id)}
             audioData={audioMap.get(chapter.id)}

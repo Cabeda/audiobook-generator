@@ -73,7 +73,12 @@
 
         // Load chapter from DB using pure playback method
         audioService
-          .loadChapter(bId, bookTitle, chapter)
+          .loadChapter(bId, bookTitle, chapter, {
+            voice,
+            quantization,
+            device,
+            selectedModel,
+          })
           .then((success) => {
             isLoading = false
             if (success) {

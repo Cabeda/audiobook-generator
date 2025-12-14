@@ -207,8 +207,9 @@ class AudioPlaybackService {
     try {
       const parser = new DOMParser()
       const doc = parser.parseFromString(html, 'text/html')
-      const fullText = doc.body.textContent || ''
-      const sentences = fullText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [fullText]
+      const fullText = (doc.body.textContent || '').replace(/\r\n/g, '\n')
+      // Split by sentence endings (.!?) or newlines to ensure parsing respects block elements
+      const sentences = fullText.match(/[^.!?\n]+[.!?]+(\s+|$)|[^.!?\n]+(\n+|$)/g) || [fullText]
 
       return sentences
         .map((s) => s.trim())
@@ -248,8 +249,27 @@ class AudioPlaybackService {
    * This method uses stored segments with timing data and a single concatenated audio file.
    * No on-demand generation is performed.
    */
-  async loadChapter(bookId: number, bookTitle: string, chapter: Chapter): Promise<boolean> {
+  async loadChapter(
+    bookId: number,
+    bookTitle: string,
+    chapter: Chapter,
+    settings?: {
+      voice?: string
+      quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+      device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+      playbackSpeed?: number
+    }
+  ): Promise<boolean> {
     this.stop()
+
+    if (settings) {
+      this.voice = settings.voice || this.voice
+      this.quantization = settings.quantization || this.quantization
+      this.device = settings.device || this.device
+      this.selectedModel = settings.selectedModel || this.selectedModel
+      this.playbackSpeed = settings.playbackSpeed || this.playbackSpeed
+    }
 
     // Load segments with timing data
     let dbSegments: AudioSegment[] = []
@@ -257,74 +277,98 @@ class AudioPlaybackService {
       dbSegments = await getChapterSegments(bookId, chapter.id)
     } catch (e) {
       logger.warn('Failed to load segments from DB', e)
-      return false
     }
 
-    if (dbSegments.length === 0) {
-      logger.info('No segments found in DB for chapter', chapter.id)
-      return false
-    }
-
-    // Load concatenated chapter audio
+    // Load merged audio if available
     let chapterAudioBlob: Blob | null = null
     try {
       chapterAudioBlob = await getChapterAudio(bookId, chapter.id)
     } catch (e) {
       logger.warn('Failed to load chapter audio from DB', e)
-      return false
     }
 
-    if (!chapterAudioBlob) {
-      logger.info('No chapter audio found in DB for chapter', chapter.id)
-      return false
-    }
+    if (dbSegments.length === 0) {
+      // If no segments in DB, but we allow on-the-fly for Web Speech or fallback
+      logger.info('No segments found in DB for chapter', chapter.id)
+      // Fallback: split on fly
+      this.segments = this.splitIntoSegments(chapter.content)
+    } else {
+      this.segments = dbSegments.map((s) => ({
+        index: s.index,
+        text: s.text,
+        duration: s.duration,
+        startTime: s.startTime,
+      }))
 
-    // Populate segments with timing data
-    this.segments = dbSegments.map((s) => ({
-      index: s.index,
-      text: s.text,
-      duration: s.duration,
-      startTime: s.startTime,
-    }))
-
-    // Create audio element from chapter blob
-    const chapterAudioUrl = URL.createObjectURL(chapterAudioBlob)
-    this.chapterAudioUrl = chapterAudioUrl // Store for cleanup
-    this.audio = new Audio(chapterAudioUrl)
-    this.audio.playbackRate = this.playbackSpeed
-
-    // Calculate total duration from last segment
-    const lastSeg = this.segments[this.segments.length - 1]
-    const totalDuration = (lastSeg.startTime || 0) + (lastSeg.duration || 0)
-    audioPlayerStore.setChapterDuration(totalDuration)
-    this.duration = totalDuration
-
-    // Set up time-based segment tracking
-    this.audio.ontimeupdate = () => {
-      if (!this.audio) return
-      this.currentTime = this.audio.currentTime
-
-      // Find which segment we're in based on currentTime
-      const seg = this.segments.find(
-        (s) =>
-          s.startTime !== undefined &&
-          s.duration !== undefined &&
-          this.audio!.currentTime >= s.startTime &&
-          this.audio!.currentTime < s.startTime + s.duration
-      )
-      if (seg && seg.index !== this.currentSegmentIndex) {
-        this.currentSegmentIndex = seg.index
+      // Hydrate per-segment audio URLs (only if we have them)
+      this.audioSegments.clear()
+      for (const s of dbSegments) {
+        this.audioSegments.set(s.index, URL.createObjectURL(s.audioBlob))
       }
     }
 
-    this.audio.onended = () => {
-      this.isPlaying = false
-      audioPlayerStore.pause()
+    // Calculate total duration
+    let totalDuration = 0
+    if (this.segments.length > 0) {
+      const lastSeg = this.segments[this.segments.length - 1]
+      if (lastSeg.startTime !== undefined && lastSeg.duration !== undefined) {
+        totalDuration = (lastSeg.startTime || 0) + (lastSeg.duration || 0)
+      } else if (dbSegments.length > 0) {
+        // Fallback duration calculation
+        totalDuration = dbSegments.reduce((acc, seg) => {
+          const est = (seg.audioBlob.size - 44) / (24000 * 4) // Estimate
+          return acc + Math.max(est, 0)
+        }, 0)
+      }
     }
 
-    this.audio.onerror = (e) => {
-      logger.error('Chapter audio playback error:', e)
-      this.isPlaying = false
+    audioPlayerStore.setChapterDuration(totalDuration)
+    this.duration = totalDuration
+
+    // Set up Audio Player if we have a merged blob
+    if (chapterAudioBlob) {
+      // Preferred path: play from merged audio for smooth seeking
+      const chapterAudioUrl = URL.createObjectURL(chapterAudioBlob)
+      this.chapterAudioUrl = chapterAudioUrl // Store for cleanup
+      this.audio = new Audio(chapterAudioUrl)
+      this.audio.playbackRate = this.playbackSpeed
+
+      // Set up time-based segment tracking
+      this.audio.ontimeupdate = () => {
+        if (!this.audio) return
+        this.currentTime = this.audio.currentTime
+
+        const seg = this.segments.find(
+          (s) =>
+            s.startTime !== undefined &&
+            s.duration !== undefined &&
+            this.audio!.currentTime >= s.startTime &&
+            this.audio!.currentTime < s.startTime + s.duration
+        )
+        if (seg && seg.index !== this.currentSegmentIndex) {
+          this.currentSegmentIndex = seg.index
+        }
+      }
+
+      this.audio.onended = () => {
+        this.isPlaying = false
+        audioPlayerStore.pause()
+      }
+
+      this.audio.onerror = (e) => {
+        logger.error('Chapter audio playback error:', e)
+        this.isPlaying = false
+      }
+
+      logger.info(
+        `Loaded chapter ${chapter.id} with ${dbSegments.length} segments and merged audio for pure playback`
+      )
+    } else {
+      // Fallback: no merged audio; use per-segment blobs
+      this.audio = null
+      logger.info(
+        `Loaded chapter ${chapter.id} with ${dbSegments.length} segments (no merged audio found, using segment playback)`
+      )
     }
 
     this.currentSegmentIndex = 0
@@ -335,12 +379,14 @@ class AudioPlaybackService {
       bookId,
       bookTitle,
       chapter,
-      { voice: '', quantization: 'q8' },
+      {
+        voice: settings?.voice ?? '',
+        quantization: settings?.quantization ?? 'q8',
+      },
       false,
       false
     )
 
-    logger.info(`Loaded chapter ${chapter.id} with ${dbSegments.length} segments for pure playback`)
     return true
   }
 
@@ -407,7 +453,7 @@ class AudioPlaybackService {
     else this.play()
   }
 
-  async playFromSegment(index: number) {
+  async playFromSegment(index: number, autoPlay = true) {
     if (index < 0 || index >= this.segments.length) return
 
     const segment = this.segments[index]
@@ -417,7 +463,7 @@ class AudioPlaybackService {
       this.currentSegmentIndex = index
       this.audio.currentTime = segment.startTime
 
-      if (!this.isPlaying) {
+      if (!this.isPlaying && autoPlay) {
         this.isPlaying = true
         try {
           await this.audio.play()
@@ -425,12 +471,15 @@ class AudioPlaybackService {
           logger.error('Failed to play from segment:', e)
           this.isPlaying = false
         }
+      } else if (!autoPlay && this.audio) {
+        // Ensure we seek but don't play
+        this.audio.currentTime = segment.startTime
       }
       return
     }
 
     // Legacy on-demand generation mode
-    const wasPlaying = this.isPlaying
+    const wasPlaying = this.isPlaying || autoPlay
 
     // Stop current audio completely to prevent race condition
     if (this.audio) {
@@ -454,7 +503,8 @@ class AudioPlaybackService {
     this.isPlaying = wasPlaying
 
     if (this.selectedModel === 'web_speech') {
-      if (this.isPlaying) {
+      if (this.isPlaying || autoPlay) {
+        this.isPlaying = true
         await this.playCurrentSegment()
       }
       return
@@ -487,13 +537,13 @@ class AudioPlaybackService {
 
   async skipNext() {
     if (this.currentSegmentIndex < this.segments.length - 1) {
-      await this.playFromSegment(this.currentSegmentIndex + 1)
+      await this.playFromSegment(this.currentSegmentIndex + 1, this.isPlaying)
     }
   }
 
   async skipPrevious() {
     if (this.currentSegmentIndex > 0) {
-      await this.playFromSegment(this.currentSegmentIndex - 1)
+      await this.playFromSegment(this.currentSegmentIndex - 1, this.isPlaying)
     }
   }
 
