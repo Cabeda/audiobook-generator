@@ -7,6 +7,8 @@
     formatDurationShort,
   } from '../lib/utils/textStats'
   import { toastStore } from '../stores/toastStore'
+  import { selectedModel, selectedVoice, availableVoices } from '../stores/ttsStore'
+  import { TTS_MODELS } from '../lib/tts/ttsModels'
 
   let {
     chapter,
@@ -21,6 +23,8 @@
     error,
     onRetry,
     progress,
+    onModelChange,
+    onVoiceChange,
   } = $props<{
     chapter: Chapter
     book?: Book
@@ -34,11 +38,24 @@
     onDownloadMp3: (id: string) => void
     onRetry?: (id: string) => void
     progress?: { current: number; total: number; message?: string }
+    onModelChange?: (chapterId: string, model: string | undefined) => void
+    onVoiceChange?: (chapterId: string, voice: string | undefined) => void
   }>()
 
   const numberFormatter = new Intl.NumberFormat()
   let wordCount = $derived(countWords(chapter.content))
   let estimatedDurationSeconds = $derived(estimateSpeechDurationSeconds(wordCount))
+  let showAdvanced = $state(false)
+
+  // Local state for chapter overrides
+  let chapterModel = $state(chapter.model)
+  let chapterVoice = $state(chapter.voice)
+
+  // Update local state when chapter prop changes
+  $effect(() => {
+    chapterModel = chapter.model
+    chapterVoice = chapter.voice
+  })
 
   function copy() {
     navigator.clipboard
@@ -52,6 +69,29 @@
       audioElement.load()
     }
   })
+
+  function handleModelChange(event: Event) {
+    const target = event.target as HTMLSelectElement
+    const value = target.value === 'default' ? undefined : target.value
+    chapterModel = value
+    onModelChange?.(chapter.id, value)
+  }
+
+  function handleVoiceChange(event: Event) {
+    const target = event.target as HTMLSelectElement
+    const value = target.value === 'default' ? undefined : target.value
+    chapterVoice = value
+    onVoiceChange?.(chapter.id, value)
+  }
+
+  function resetToDefault() {
+    chapterModel = undefined
+    chapterVoice = undefined
+    onModelChange?.(chapter.id, undefined)
+    onVoiceChange?.(chapter.id, undefined)
+  }
+
+  let hasOverrides = $derived(chapter.model !== undefined || chapter.voice !== undefined)
 </script>
 
 <div class="chapter-card" class:selected role="listitem">
@@ -181,6 +221,75 @@
       </div>
     </div>
   {/if}
+
+  <!-- Advanced Settings for this chapter -->
+  <div class="chapter-advanced-section">
+    <button
+      class="advanced-toggle-btn"
+      class:has-overrides={hasOverrides}
+      onclick={() => (showAdvanced = !showAdvanced)}
+      title={hasOverrides ? 'Chapter has custom settings' : 'Configure chapter settings'}
+    >
+      <span class="toggle-icon">{showAdvanced ? '▼' : '▶'}</span>
+      <span class="toggle-text">Chapter Settings</span>
+      {#if hasOverrides}
+        <span class="override-indicator" title="Custom settings applied">●</span>
+      {/if}
+    </button>
+
+    {#if showAdvanced}
+      <div class="advanced-panel">
+        <div class="advanced-content">
+          <div class="setting-row">
+            <label for={`model-${chapter.id}`} class="setting-label">
+              <span>TTS Model</span>
+              <span class="setting-help">{chapterModel ? 'Override' : 'Using global default'}</span>
+            </label>
+            <select
+              id={`model-${chapter.id}`}
+              class="setting-select"
+              value={chapterModel ?? 'default'}
+              onchange={handleModelChange}
+            >
+              <option value="default">📖 Use Global ({$selectedModel})</option>
+              {#each TTS_MODELS as model}
+                <option value={model.id}>{model.name}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="setting-row">
+            <label for={`voice-${chapter.id}`} class="setting-label">
+              <span>Voice</span>
+              <span class="setting-help"
+                >{chapterVoice ? 'Override' : 'Auto-selected by language'}</span
+              >
+            </label>
+            <select
+              id={`voice-${chapter.id}`}
+              class="setting-select"
+              value={chapterVoice ?? 'default'}
+              onchange={handleVoiceChange}
+            >
+              <option value="default">🌐 Auto-select ({$selectedVoice})</option>
+              {#each $availableVoices as voice}
+                <option value={voice.id}>{voice.label}</option>
+              {/each}
+            </select>
+          </div>
+
+          {#if hasOverrides}
+            <div class="setting-row">
+              <button class="reset-btn" onclick={resetToDefault}>
+                <span>↩️</span>
+                <span>Reset to Global Defaults</span>
+              </button>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -515,6 +624,158 @@
   @keyframes spin {
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  /* Advanced Settings Section */
+  .chapter-advanced-section {
+    margin-top: 8px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+  }
+
+  .advanced-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: var(--secondary-text);
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+    text-align: left;
+  }
+
+  .advanced-toggle-btn:hover {
+    background: var(--bg-color);
+    border-color: var(--text-color);
+    color: var(--text-color);
+  }
+
+  .advanced-toggle-btn.has-overrides {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    color: #1e40af;
+  }
+
+  .toggle-icon {
+    font-size: 0.7rem;
+    transition: transform 0.2s;
+  }
+
+  .toggle-text {
+    flex: 1;
+    font-weight: 500;
+  }
+
+  .override-indicator {
+    color: #3b82f6;
+    font-size: 0.6rem;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  .advanced-panel {
+    margin-top: 12px;
+    padding: 16px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    animation: slideDown 0.3s ease-out;
+  }
+
+  .advanced-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .setting-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .setting-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-color);
+  }
+
+  .setting-help {
+    font-size: 0.75rem;
+    font-weight: normal;
+    color: var(--secondary-text);
+    font-style: italic;
+  }
+
+  .setting-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background: var(--surface-color);
+    color: var(--text-color);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .setting-select:hover {
+    border-color: var(--text-color);
+  }
+
+  .setting-select:focus {
+    outline: none;
+    border-color: var(--primary-color, #3b82f6);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .reset-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    color: #b91c1c;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+  }
+
+  .reset-btn:hover {
+    background: #fee2e2;
+    border-color: #fca5a5;
+  }
+
+  @media (max-width: 640px) {
+    .advanced-panel {
+      padding: 12px;
+    }
+
+    .setting-row {
+      gap: 6px;
     }
   }
 </style>

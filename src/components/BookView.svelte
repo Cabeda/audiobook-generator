@@ -80,6 +80,50 @@
     })
   }
 
+  async function handleModelChange(chapterId: string, model: string | undefined) {
+    if (currentBook && isLibraryBook(currentBook)) {
+      const { updateChapterModel } = await import('../lib/libraryDB')
+      try {
+        await updateChapterModel(currentBook.id, chapterId, model)
+        // Update local state
+        book.update((b) => {
+          if (b) {
+            const chapterIndex = b.chapters.findIndex((c) => c.id === chapterId)
+            if (chapterIndex !== -1) {
+              b.chapters[chapterIndex].model = model
+            }
+          }
+          return b
+        })
+        toastStore.success(model ? `Model set to ${model}` : 'Model reset to default')
+      } catch (error) {
+        toastStore.error(`Failed to update chapter model: ${error}`)
+      }
+    }
+  }
+
+  async function handleVoiceChange(chapterId: string, voice: string | undefined) {
+    if (currentBook && isLibraryBook(currentBook)) {
+      const { updateChapterVoice } = await import('../lib/libraryDB')
+      try {
+        await updateChapterVoice(currentBook.id, chapterId, voice)
+        // Update local state
+        book.update((b) => {
+          if (b) {
+            const chapterIndex = b.chapters.findIndex((c) => c.id === chapterId)
+            if (chapterIndex !== -1) {
+              b.chapters[chapterIndex].voice = voice
+            }
+          }
+          return b
+        })
+        toastStore.success(voice ? `Voice set to ${voice}` : 'Voice reset to auto-select')
+      } catch (error) {
+        toastStore.error(`Failed to update chapter voice: ${error}`)
+      }
+    }
+  }
+
   function selectAll() {
     if (!$book) return
     selectedChapters.update((m) => {
@@ -332,6 +376,8 @@
             onRetry={handleRetry}
             onDownloadWav={() => {}}
             onDownloadMp3={() => {}}
+            onModelChange={handleModelChange}
+            onVoiceChange={handleVoiceChange}
           />
         {/each}
       </div>
