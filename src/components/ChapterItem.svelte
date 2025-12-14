@@ -53,8 +53,12 @@
 
   // Update local state when chapter prop changes
   $effect(() => {
-    chapterModel = chapter.model
-    chapterVoice = chapter.voice
+    if (chapterModel !== chapter.model) {
+      chapterModel = chapter.model
+    }
+    if (chapterVoice !== chapter.voice) {
+      chapterVoice = chapter.voice
+    }
   })
 
   function copy() {
@@ -91,7 +95,7 @@
     onVoiceChange?.(chapter.id, undefined)
   }
 
-  let hasOverrides = $derived(chapter.model !== undefined || chapter.voice !== undefined)
+  let hasOverrides = $derived(chapterModel !== undefined || chapterVoice !== undefined)
 </script>
 
 <div class="chapter-card" class:selected role="listitem">
@@ -251,7 +255,10 @@
               value={chapterModel ?? 'default'}
               onchange={handleModelChange}
             >
-              <option value="default">📖 Use Global ({$selectedModel})</option>
+              <option value="default"
+                >📖 Use Global ({TTS_MODELS.find((m) => m.id === $selectedModel)?.name ||
+                  $selectedModel})</option
+              >
               {#each TTS_MODELS as model}
                 <option value={model.id}>{model.name}</option>
               {/each}
@@ -271,7 +278,10 @@
               value={chapterVoice ?? 'default'}
               onchange={handleVoiceChange}
             >
-              <option value="default">🌐 Auto-select ({$selectedVoice})</option>
+              <option value="default"
+                >🌐 Auto-select ({$availableVoices.find((v) => v.id === $selectedVoice)?.label ||
+                  $selectedVoice})</option
+              >
               {#each $availableVoices as voice}
                 <option value={voice.id}>{voice.label}</option>
               {/each}

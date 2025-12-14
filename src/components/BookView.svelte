@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { fade, fly } from 'svelte/transition'
+  import { get } from 'svelte/store'
   import {
     book,
     selectedChapters,
@@ -95,7 +96,8 @@
           }
           return b
         })
-        toastStore.success(model ? `Model set to ${model}` : 'Model reset to default')
+        const modelName = model ? TTS_MODELS.find((m) => m.id === model)?.name || model : 'default'
+        toastStore.success(model ? `Model set to ${modelName}` : 'Model reset to default')
       } catch (error) {
         toastStore.error(`Failed to update chapter model: ${error}`)
       }
@@ -117,7 +119,10 @@
           }
           return b
         })
-        toastStore.success(voice ? `Voice set to ${voice}` : 'Voice reset to auto-select')
+        const voiceLabel = voice
+          ? get(availableVoices).find((v) => v.id === voice)?.label || voiceLabels[voice] || voice
+          : 'auto-select'
+        toastStore.success(voice ? `Voice set to ${voiceLabel}` : 'Voice reset to auto-select')
       } catch (error) {
         toastStore.error(`Failed to update chapter voice: ${error}`)
       }
