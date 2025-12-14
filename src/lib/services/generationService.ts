@@ -23,6 +23,7 @@ import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
+import { resolveChapterLanguage } from '../utils/languageResolver'
 
 /**
  * Type representing a LibraryBook with a guaranteed ID property
@@ -413,6 +414,10 @@ class GenerationService {
         const currentQuantization = get(selectedQuantization)
         const currentDevice = get(selectedDevice)
         const currentAdvancedSettings = get(advancedSettings)[model] || {}
+        const currentBook = get(book)
+
+        // Resolve the effective language for this chapter
+        const effectiveLanguage = currentBook ? resolveChapterLanguage(ch, currentBook) : 'en'
 
         // Validate content
         if (!ch.content || !ch.content.trim()) {
@@ -548,6 +553,7 @@ class GenerationService {
                 voice: effectiveVoice,
                 quantization: currentQuantization,
                 device: currentDevice,
+                language: effectiveLanguage,
               })
             }
 
@@ -659,6 +665,7 @@ class GenerationService {
                 model,
                 voice: effectiveVoice,
                 device: currentDevice,
+                language: effectiveLanguage,
               })
             }
 

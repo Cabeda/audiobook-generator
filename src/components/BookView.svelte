@@ -31,6 +31,7 @@
     formatDurationShort,
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
+  import { LANGUAGE_OPTIONS } from '../lib/utils/languageResolver'
 
   const numberFormatter = new Intl.NumberFormat()
 
@@ -147,6 +148,50 @@
   function handleRead(chapter: Chapter) {
     dispatch('read', { chapter })
   }
+
+  async function handleLanguageChange(chapterId: string, language: string | undefined) {
+    if (!$book) return
+
+    // Update in-memory book
+    const chapter = $book.chapters.find((c) => c.id === chapterId)
+    if (chapter) {
+      chapter.language = language
+      // Trigger reactivity
+      book.set($book)
+    }
+
+    // Update in database if this is a library book
+    const libBook = $book as any
+    if (libBook.id && typeof libBook.id === 'number') {
+      const { updateChapterLanguage } = await import('../lib/libraryDB')
+      try {
+        await updateChapterLanguage(libBook.id, chapterId, language)
+      } catch (err) {
+        console.error('Failed to update chapter language:', err)
+        toastStore.error('Failed to save language setting')
+      }
+    }
+  }
+
+  async function handleBookLanguageChange(language: string) {
+    if (!$book) return
+
+    // Update in-memory book
+    $book.language = language
+    book.set($book)
+
+    // Update in database if this is a library book
+    const libBook = $book as any
+    if (libBook.id && typeof libBook.id === 'number') {
+      const { updateBookLanguage } = await import('../lib/libraryDB')
+      try {
+        await updateBookLanguage(libBook.id, language)
+      } catch (err) {
+        console.error('Failed to update book language:', err)
+        toastStore.error('Failed to save language setting')
+      }
+    }
+  }
 </script>
 
 <div class="book-view" in:fade>
@@ -195,6 +240,18 @@
           <select bind:value={$selectedVoice} disabled={isGenerating} class="premium-select">
             {#each $availableVoices as voice}
               <option value={voice.id}>{voice.label}</option>
+            {/each}
+          </select>
+
+          <select
+            value={currentBook?.language || 'en'}
+            onchange={(e) => handleBookLanguageChange(e.currentTarget.value)}
+            disabled={isGenerating}
+            class="premium-select"
+            title="Book Language (default for all chapters)"
+          >
+            {#each LANGUAGE_OPTIONS as lang}
+              <option value={lang.code}>{lang.flag} {lang.label}</option>
             {/each}
           </select>
 
@@ -304,6 +361,7 @@
         {#each currentBook.chapters as chapter (chapter.id)}
           <ChapterItem
             {chapter}
+            book={currentBook!}
             selected={selections.get(chapter.id)}
             status={statusMap.get(chapter.id)}
             error={errorsMap.get(chapter.id)}
@@ -314,6 +372,7 @@
             onRetry={handleRetry}
             onDownloadWav={() => {}}
             onDownloadMp3={() => {}}
+            onLanguageChange={handleLanguageChange}
           />
         {/each}
       </div>

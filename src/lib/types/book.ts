@@ -14,6 +14,7 @@ export interface Chapter {
   id: string
   title: string
   content: string
+  language?: string // Optional language override (ISO 639-1 code)
 }
 
 /**
