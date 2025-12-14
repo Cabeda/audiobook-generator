@@ -33,11 +33,15 @@ class MockAudioContext {
   }
 }
 
+// Type extension for global test environment
+interface GlobalWithAudioContext {
+  AudioContext: typeof MockAudioContext
+}
+
 describe('Performance Benchmarks', () => {
   beforeAll(() => {
     // Mock AudioContext globally
-    ;(globalThis as unknown as { AudioContext: typeof MockAudioContext }).AudioContext =
-      MockAudioContext
+    ;(globalThis as unknown as GlobalWithAudioContext).AudioContext = MockAudioContext
 
     // Add arrayBuffer method to Blob prototype if not present
     if (!Blob.prototype.arrayBuffer) {

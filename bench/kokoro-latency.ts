@@ -106,6 +106,9 @@ function formatMs(ms: number): string {
 
 /**
  * Run benchmark for a single text sample
+ * @param text - Text to generate audio from
+ * @param iterations - Number of iterations to run (default: 3)
+ * @returns Object containing arrays of latencies (ms) and blob sizes (bytes)
  */
 async function benchmarkSample(
   text: string,
@@ -144,7 +147,11 @@ async function benchmarkSample(
 }
 
 /**
- * Main benchmark function
+ * Main benchmark function for Kokoro TTS latency measurement
+ * @param options - Benchmark configuration options
+ * @param options.iterations - Number of iterations per sample (default: 3)
+ * @param options.samples - Array of text samples to test (default: TEXT_SAMPLES)
+ * @returns Array of benchmark results with latency statistics and throughput
  */
 export async function runKokoroLatencyBenchmark(
   options: {

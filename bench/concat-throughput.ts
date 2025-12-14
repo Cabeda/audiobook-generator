@@ -81,6 +81,10 @@ function formatBytesPerSec(bytesPerSec: number): string {
 
 /**
  * Run benchmark for a specific number of chunks
+ * @param chunkCount - Number of audio chunks to concatenate
+ * @param iterations - Number of iterations to run (default: 3)
+ * @param format - Audio format to use: 'wav', 'mp3', 'm4b', or 'mp4' (default: 'wav')
+ * @returns Benchmark statistics including timing and throughput data
  */
 async function benchmarkChunkCount(
   chunkCount: number,
@@ -136,7 +140,13 @@ async function benchmarkChunkCount(
 }
 
 /**
- * Main benchmark function
+ * Main benchmark function for audio concatenation throughput measurement
+ * @param options - Benchmark configuration options
+ * @param options.maxChunks - Maximum number of chunks to test (default: 20)
+ * @param options.iterations - Number of iterations per test (default: 3)
+ * @param options.format - Audio format to use: 'wav', 'mp3', 'm4b', or 'mp4' (default: 'wav')
+ * @param options.chunkCounts - Specific chunk counts to test, or null for default [1,2,5,10,15,20]
+ * @returns Array of benchmark results with timing and throughput statistics
  */
 export async function runConcatThroughputBenchmark(
   options: {
