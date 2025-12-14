@@ -5,7 +5,7 @@
  * Reports: min, max, mean, median latency and throughput
  */
 
-import { generateVoice } from '../src/lib/kokoro/kokoroClient'
+import { generateVoice, type GenerateParams } from '../src/lib/kokoro/kokoroClient'
 
 // Test text samples of varying lengths
 const TEXT_SAMPLES = [
@@ -123,12 +123,13 @@ async function benchmarkSample(
     const start = performance.now()
 
     try {
-      const audioBlob = await generateVoice({
+      const params: GenerateParams = {
         text,
         voice: 'af_heart',
         speed: 1.0,
         device: 'wasm', // Use WASM for reproducible benchmarks
-      })
+      }
+      const audioBlob = await generateVoice(params)
 
       const end = performance.now()
       const latency = end - start
