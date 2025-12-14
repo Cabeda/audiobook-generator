@@ -32,13 +32,20 @@
     formatDurationShort,
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
-  import { LANGUAGE_OPTIONS } from '../lib/utils/languageResolver'
 
   /**
    * Type guard to check if a book is a LibraryBook with an ID
    */
   function isLibraryBook(book: any): book is LibraryBook & { id: number } {
-    return book !== null && book !== undefined && 'id' in book && typeof book.id === 'number'
+    return (
+      book !== null &&
+      typeof book === 'object' &&
+      typeof book.id === 'number' &&
+      typeof book.title === 'string' &&
+      typeof book.author === 'string' &&
+      typeof book.dateAdded === 'string' &&
+      typeof book.lastAccessed === 'string'
+    )
   }
 
   const numberFormatter = new Intl.NumberFormat()
@@ -156,48 +163,6 @@
   function handleRead(chapter: Chapter) {
     dispatch('read', { chapter })
   }
-
-  async function handleLanguageChange(chapterId: string, language: string | undefined) {
-    if (!$book) return
-
-    // Update in-memory book
-    const chapter = $book.chapters.find((c) => c.id === chapterId)
-    if (chapter) {
-      chapter.language = language
-      // Trigger reactivity
-      book.set($book)
-    }
-
-    // Update in database if this is a library book
-    if (isLibraryBook($book)) {
-      const { updateChapterLanguage } = await import('../lib/libraryDB')
-      try {
-        await updateChapterLanguage($book.id, chapterId, language)
-      } catch (err) {
-        console.error('Failed to update chapter language:', err)
-        toastStore.error('Failed to save language setting')
-      }
-    }
-  }
-
-  async function handleBookLanguageChange(language: string) {
-    if (!$book) return
-
-    // Update in-memory book
-    $book.language = language
-    book.set($book)
-
-    // Update in database if this is a library book
-    if (isLibraryBook($book)) {
-      const { updateBookLanguage } = await import('../lib/libraryDB')
-      try {
-        await updateBookLanguage($book.id, language)
-      } catch (err) {
-        console.error('Failed to update book language:', err)
-        toastStore.error('Failed to save language setting')
-      }
-    }
-  }
 </script>
 
 <div class="book-view" in:fade>
@@ -246,18 +211,6 @@
           <select bind:value={$selectedVoice} disabled={isGenerating} class="premium-select">
             {#each $availableVoices as voice}
               <option value={voice.id}>{voice.label}</option>
-            {/each}
-          </select>
-
-          <select
-            value={currentBook?.language || 'en'}
-            onchange={(e) => handleBookLanguageChange(e.currentTarget.value)}
-            disabled={isGenerating}
-            class="premium-select"
-            title="Book Language (default for all chapters)"
-          >
-            {#each LANGUAGE_OPTIONS as lang}
-              <option value={lang.code}>{lang.flag} {lang.label}</option>
             {/each}
           </select>
 
@@ -367,7 +320,7 @@
         {#each currentBook.chapters as chapter (chapter.id)}
           <ChapterItem
             {chapter}
-            book={currentBook!}
+            book={currentBook}
             selected={selections.get(chapter.id)}
             status={statusMap.get(chapter.id)}
             error={errorsMap.get(chapter.id)}
@@ -378,7 +331,6 @@
             onRetry={handleRetry}
             onDownloadWav={() => {}}
             onDownloadMp3={() => {}}
-            onLanguageChange={handleLanguageChange}
           />
         {/each}
       </div>

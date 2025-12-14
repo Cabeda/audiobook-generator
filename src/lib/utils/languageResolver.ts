@@ -51,5 +51,8 @@ export function getLanguageLabel(code: string): string {
  * Check if a chapter has a language override different from the book default
  */
 export function hasLanguageOverride(chapter: Chapter, book: Book): boolean {
-  return chapter.language !== undefined && chapter.language !== book.language
+  if (chapter.language === undefined) return false
+  // Compare to what the language would be if chapter.language were not set
+  const effectiveLanguage = resolveChapterLanguage({ ...chapter, language: undefined }, book)
+  return chapter.language !== effectiveLanguage
 }

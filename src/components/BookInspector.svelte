@@ -127,7 +127,6 @@
         onDownloadWav={(id) => dispatch('downloadwav', { id })}
         onDownloadMp3={(id) => dispatch('downloadmp3', { id })}
         onRetry={(id) => dispatch('retry', { id })}
-        onLanguageChange={(id, lang) => dispatch('languagechange', { id, language: lang })}
       />
     {/each}
   </div>

@@ -281,8 +281,9 @@ export async function updateChapterLanguage(
         const chapterIndex = book.chapters.findIndex((c) => c.id === chapterId)
         if (chapterIndex !== -1) {
           book.chapters[chapterIndex].language = language
-          store.put(book)
-          resolve()
+          const putRequest = store.put(book)
+          putRequest.onsuccess = () => resolve()
+          putRequest.onerror = () => reject(new Error('Failed to save chapter language'))
         } else {
           reject(new Error('Chapter not found'))
         }
@@ -311,8 +312,9 @@ export async function updateBookLanguage(bookId: number, language: string): Prom
       const book = request.result as LibraryBook
       if (book) {
         book.language = language
-        store.put(book)
-        resolve()
+        const putRequest = store.put(book)
+        putRequest.onsuccess = () => resolve()
+        putRequest.onerror = () => reject(new Error('Failed to save book language'))
       } else {
         reject(new Error('Book not found'))
       }

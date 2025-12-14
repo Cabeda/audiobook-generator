@@ -7,7 +7,6 @@
     formatDurationShort,
   } from '../lib/utils/textStats'
   import { toastStore } from '../stores/toastStore'
-  import { LANGUAGE_OPTIONS, hasLanguageOverride } from '../lib/utils/languageResolver'
 
   let {
     chapter,
@@ -18,14 +17,13 @@
     onRead,
     onDownloadWav,
     onDownloadMp3,
-    onLanguageChange,
     status,
     error,
     onRetry,
     progress,
   } = $props<{
     chapter: Chapter
-    book: Book
+    book?: Book
     selected?: boolean
     audioData?: { url: string; blob: Blob }
     status?: 'pending' | 'processing' | 'done' | 'error'
@@ -34,7 +32,6 @@
     onRead: (chapter: Chapter) => void
     onDownloadWav: (id: string) => void
     onDownloadMp3: (id: string) => void
-    onLanguageChange?: (chapterId: string, language: string | undefined) => void
     onRetry?: (id: string) => void
     progress?: { current: number; total: number; message?: string }
   }>()
@@ -74,36 +71,6 @@
         <span>{numberFormatter.format(wordCount)} words</span>
         <span class="dot" aria-hidden="true">•</span>
         <span>~{formatDurationShort(estimatedDurationSeconds)}</span>
-        {#if onLanguageChange}
-          <span class="dot" aria-hidden="true">•</span>
-          <div class="language-selector">
-            <select
-              class="language-select"
-              class:has-override={hasLanguageOverride(chapter, book)}
-              value={chapter.language ?? ''}
-              onchange={(e) => {
-                const value = e.currentTarget.value
-                onLanguageChange(chapter.id, value === '' ? undefined : value)
-              }}
-              title="Chapter language"
-            >
-              <option value="">📖 Book Default ({book.language || 'en'})</option>
-              {#each LANGUAGE_OPTIONS as lang}
-                <option value={lang.code}>{lang.flag} {lang.label}</option>
-              {/each}
-            </select>
-            {#if hasLanguageOverride(chapter, book)}
-              <button
-                class="reset-lang-btn"
-                onclick={() => onLanguageChange(chapter.id, undefined)}
-                title="Reset to book default"
-                aria-label="Reset language to book default"
-              >
-                ↩️
-              </button>
-            {/if}
-          </div>
-        {/if}
       </div>
       <p class="chapter-preview">
         {chapter.content.slice(0, 180)}{chapter.content.length > 180 ? '…' : ''}
@@ -291,47 +258,6 @@
 
   .dot {
     color: var(--border-color);
-  }
-
-  .language-selector {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .language-select {
-    font-size: 0.85rem;
-    padding: 2px 6px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--surface-color);
-    color: var(--secondary-text);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .language-select:hover {
-    border-color: var(--text-color);
-  }
-
-  .language-select.has-override {
-    border-color: var(--primary-color);
-    background: rgba(76, 175, 80, 0.1);
-    font-weight: 500;
-  }
-
-  .reset-lang-btn {
-    padding: 2px 4px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    font-size: 0.85rem;
-    opacity: 0.7;
-    transition: opacity 0.2s;
-  }
-
-  .reset-lang-btn:hover {
-    opacity: 1;
   }
 
   .card-actions {
