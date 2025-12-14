@@ -412,11 +412,14 @@ class GenerationService {
         if (this.canceled) break
 
         const ch = chapters[i]
-        const currentVoice = get(selectedVoice)
+        const currentBook = get(book)
+
+        // Use chapter-specific model if set, otherwise use global model
+        const effectiveModel = ch.model || model
+        const currentVoice = ch.voice || get(selectedVoice)
         const currentQuantization = get(selectedQuantization)
         const currentDevice = get(selectedDevice)
-        const currentAdvancedSettings = get(advancedSettings)[model] || {}
-        const currentBook = get(book)
+        const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
 
         // Resolve the effective language for this chapter
         const effectiveLanguage = currentBook
@@ -433,33 +436,42 @@ class GenerationService {
         // Update status to processing
         chapterStatus.update((m) => new Map(m).set(ch.id, 'processing'))
 
-        // Select appropriate voice based on language
+        // Select appropriate voice based on language (only if not explicitly set for chapter)
         let effectiveVoice = currentVoice
-        if (model === 'kokoro') {
-          // Automatically select Kokoro voice based on language
-          effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, currentVoice)
-          const kokoroVoices = listKokoroVoices()
-          if (!kokoroVoices.includes(effectiveVoice as VoiceId)) {
-            logger.warn(
-              `Invalid Kokoro voice '${effectiveVoice}' after selection, falling back to af_heart`
+        if (!ch.voice) {
+          // Auto-select voice based on language only if no explicit voice is set
+          if (effectiveModel === 'kokoro') {
+            // Automatically select Kokoro voice based on language
+            effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, currentVoice)
+            const kokoroVoices = listKokoroVoices()
+            if (!kokoroVoices.includes(effectiveVoice as VoiceId)) {
+              logger.warn(
+                `Invalid Kokoro voice '${effectiveVoice}' after selection, falling back to af_heart`
+              )
+              effectiveVoice = 'af_heart'
+            }
+            logger.info(
+              `Auto-selected Kokoro voice for language ${effectiveLanguage}: ${effectiveVoice}`
             )
-            effectiveVoice = 'af_heart'
+          } else if (effectiveModel === 'piper') {
+            // Automatically select Piper voice based on language
+            const piperClient = PiperClient.getInstance()
+            const availableVoices = await piperClient.getVoices()
+            effectiveVoice = selectPiperVoiceForLanguage(
+              effectiveLanguage,
+              availableVoices,
+              currentVoice
+            )
+            logger.info(
+              `Auto-selected Piper voice for language ${effectiveLanguage}: ${effectiveVoice}`
+            )
           }
-          logger.info(`Selected Kokoro voice for language ${effectiveLanguage}: ${effectiveVoice}`)
-        } else if (model === 'piper') {
-          // Automatically select Piper voice based on language
-          const piperClient = PiperClient.getInstance()
-          const availableVoices = await piperClient.getVoices()
-          effectiveVoice = selectPiperVoiceForLanguage(
-            effectiveLanguage,
-            availableVoices,
-            currentVoice
-          )
-          logger.info(`Selected Piper voice for language ${effectiveLanguage}: ${effectiveVoice}`)
+        } else {
+          logger.info(`Using chapter-specific voice: ${effectiveVoice}`)
         }
 
         try {
-          if (model === 'kokoro') {
+          if (effectiveModel === 'kokoro') {
             logger.info('[generateChapters] About to segment HTML for Kokoro', {
               chapterId: ch.id,
               contentLength: ch.content.length,
@@ -569,7 +581,7 @@ class GenerationService {
             if (bookId) {
               const { saveChapterAudio } = await import('../libraryDB')
               await saveChapterAudio(bookId, ch.id, fullBlob, {
-                model,
+                model: effectiveModel,
                 voice: effectiveVoice,
                 quantization: currentQuantization,
                 device: currentDevice,
@@ -683,7 +695,7 @@ class GenerationService {
             if (bookId) {
               const { saveChapterAudio } = await import('../libraryDB')
               await saveChapterAudio(bookId, ch.id, fullBlob, {
-                model,
+                model: effectiveModel,
                 voice: effectiveVoice,
                 device: currentDevice,
                 language: effectiveLanguage,

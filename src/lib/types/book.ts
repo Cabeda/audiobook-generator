@@ -15,6 +15,8 @@ export interface Chapter {
   title: string
   content: string
   language?: string // Optional language override (ISO 639-1 code)
+  model?: string // Optional TTS model override (e.g., 'kokoro', 'piper')
+  voice?: string // Optional voice override for this chapter
 }
 
 /**
