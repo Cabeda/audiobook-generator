@@ -260,7 +260,7 @@ class AudioPlaybackService {
       selectedModel?: 'kokoro' | 'piper' | 'web_speech'
       playbackSpeed?: number
     }
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean; hasAudio: boolean }> {
     this.stop()
 
     if (settings) {
@@ -286,6 +286,9 @@ class AudioPlaybackService {
     } catch (e) {
       logger.warn('Failed to load chapter audio from DB', e)
     }
+
+    const hasAudio =
+      !!chapterAudioBlob || dbSegments.length > 0 || this.selectedModel === 'web_speech'
 
     if (dbSegments.length === 0) {
       // If no segments in DB, but we allow on-the-fly for Web Speech or fallback
@@ -358,6 +361,7 @@ class AudioPlaybackService {
       this.audio.onerror = (e) => {
         logger.error('Chapter audio playback error:', e)
         this.isPlaying = false
+        audioPlayerStore.pause()
       }
 
       logger.info(
@@ -387,7 +391,7 @@ class AudioPlaybackService {
       false
     )
 
-    return true
+    return { success: true, hasAudio }
   }
 
   // Playback Control

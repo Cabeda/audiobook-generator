@@ -137,4 +137,38 @@ test.describe('Reader Interaction E2E', () => {
     // If it called 'play()', it would log speak.
     expect(newSpeaks).toBe(0)
   })
+
+  test('should open reader in text-only mode if no audio available', async ({ page }) => {
+    // 1. Upload book
+    const epubPath = SHORT_EPUB
+    const fileInput = page.locator('input[type="file"]')
+    await fileInput.setInputFiles(epubPath)
+    await page.waitForSelector('text=Short Test Book')
+
+    // 2. Ensure Kokoro is selected (default) which requires generation
+    const modelSelect = page.locator('.toolbar-center select').first()
+    await expect(modelSelect).toHaveValue('kokoro')
+
+    // 3. Open Reader explicitly for a chapter that is NOT generated
+    // "Read" button should be enabled now per new requirement
+    const firstReadButton = page.locator('button:has-text("Read")').first()
+    await expect(firstReadButton).toBeEnabled()
+    await firstReadButton.click()
+
+    // 4. Verify Reader Opens
+    await page.waitForSelector('.reader-page')
+
+    // 5. Verify Audio Player is HIDDEN (loadError=true or just not loaded audio because logic maps failure to error=true)
+    // Actually, loadChapter would fail to find audio in DB.
+    // TextReader sets loadError=true if not found.
+    // Logic: {#if !loadError} <AudioPlayerBar ... /> {/if}
+    // So AudioPlayerBar should NOT be visible.
+    const playerBar = page.locator('.audio-player-bar')
+    await expect(playerBar).toBeHidden()
+
+    // 6. Verify Text Content is Visible
+    const content = page.locator('.text-content')
+    await expect(content).toBeVisible()
+    await expect(content).toContainText('Short Test Book')
+  })
 })

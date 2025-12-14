@@ -54,6 +54,7 @@
   // State for initialization
   let loadError = $state(false)
   let isLoading = $state(true)
+  let audioAvailable = $state(true)
 
   // Initialize by loading pre-generated data from DB
   $effect(() => {
@@ -79,15 +80,25 @@
             device,
             selectedModel,
           })
-          .then((success) => {
+          .then((result) => {
             isLoading = false
-            if (success) {
+            if (result.success) {
+              // Hide player if no audio available (hasAudio is check for merged or segments or web speech)
+              // We need a state variable for this. 'loadError' was used for "failed completely".
+              // Let's reuse loadError for "No Audio Logic"? No, user wants text reader available.
+              // So loadError should be false (success).
+              // But we need to hide the player.
+              // We'll add a new state: `audioAvailable`
+              audioAvailable = result.hasAudio
+
               const store = get(audioPlayerStore)
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
 
-              audioService.playFromSegment(startSeg, false).catch((err) => {
-                console.error('Initial seek failed:', err)
-              })
+              if (result.hasAudio) {
+                audioService.playFromSegment(startSeg, false).catch((err) => {
+                  console.error('Initial seek failed:', err)
+                })
+              }
             } else {
               loadError = true
               console.warn('Chapter audio not available - generate audio first')
@@ -325,8 +336,7 @@
   }
 
   function handleClose() {
-    // Don't stop the audio; keep playback running and minimize the persistent player
-    audioPlayerStore.minimize()
+    audioService.stop()
     onBack()
   }
 
@@ -382,8 +392,7 @@
   }
 
   onDestroy(() => {
-    // We don't stop audio on destroy anymore!
-    // But we might want to unsubscribe if we had manual subscriptions
+    audioService.stop()
   })
 </script>
 
@@ -438,12 +447,14 @@
       {/if}
     </div>
 
-    <!-- Bottom Bar -->
-    <AudioPlayerBar
-      mode="reader"
-      {showSettings}
-      onSettings={() => (showSettings = !showSettings)}
-    />
+    <!-- Audio Player Bar -->
+    {#if !loadError && audioAvailable}
+      <AudioPlayerBar
+        mode="reader"
+        {showSettings}
+        onSettings={() => (showSettings = !showSettings)}
+      />
+    {/if}
 
     <!-- Settings Menu -->
     {#if showSettings}
@@ -552,29 +563,38 @@
 
 <style>
   :global(:root) {
-    --bg-color: #ffffff;
-    --text-color: #000000;
-    --secondary-text: #475569;
-    --active-bg: #ffe0b2;
-    --active-text: #000;
-    --header-bg: #ffffff;
-    --border-color: #e0e0e0;
-    --surface-color: #f5f5f5;
-    --unprocessed-text: #000000;
-    --hover-bg: rgba(255, 183, 77, 0.15);
+    /* Theme Variables - Default Dark */
+    --bg-color: #1e1e1e;
+    --text-color: #e0e0e0;
+    --secondary-text: #a0a0a0;
+    --active-bg: rgba(59, 130, 246, 0.2);
+    --active-text: #fff;
+    --header-bg: rgba(30, 30, 30, 0.95);
+    --border-color: rgba(255, 255, 255, 0.1);
+    --surface-color: #2a2a2a;
+    --highlight-bg: rgba(255, 255, 0, 0.2);
+    --highlight-text: inherit;
+    --highlight-border: #ffd700;
+    --buffered-text: #d0d0d0;
+    --unprocessed-text: #808080;
+    --hover-bg: rgba(255, 255, 255, 0.05);
   }
 
   [data-theme='light'] {
     --bg-color: #ffffff;
-    --text-color: #000000;
-    --secondary-text: #475569;
-    --active-bg: #ffe0b2;
+    --text-color: #1a1a1a;
+    --secondary-text: #666666;
+    --active-bg: rgba(59, 130, 246, 0.1);
     --active-text: #000;
-    --header-bg: #ffffff;
-    --border-color: #e0e0e0;
-    --surface-color: #f5f5f5;
-    --unprocessed-text: #000000;
-    --hover-bg: rgba(255, 183, 77, 0.15);
+    --header-bg: rgba(255, 255, 255, 0.95);
+    --border-color: #e5e7eb;
+    --surface-color: #f3f4f6;
+    --highlight-bg: rgba(255, 255, 0, 0.3);
+    --highlight-text: inherit;
+    --highlight-border: #fbbf24;
+    --buffered-text: #374151;
+    --unprocessed-text: #9ca3af;
+    --hover-bg: rgba(0, 0, 0, 0.05);
   }
 
   [data-theme='dark'] {

@@ -82,12 +82,8 @@
       {/if}
       <button
         class="action-btn"
-        class:disabled={status !== 'done'}
-        disabled={status !== 'done'}
         onclick={() => onRead(chapter)}
-        title={status === 'done'
-          ? `Read chapter: ${chapter.title}`
-          : 'Generate audio to read with sync'}
+        title="Read chapter"
         aria-label={`Read chapter: ${chapter.title}`}
       >
         <span class="icon" aria-hidden="true">📖</span> Read
