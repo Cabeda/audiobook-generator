@@ -4,6 +4,7 @@ import {
   hasLanguageOverride,
   getLanguageLabel,
   LANGUAGE_OPTIONS,
+  DEFAULT_LANGUAGE,
 } from './languageResolver'
 import type { Book, Chapter } from '../types/book'
 
@@ -42,7 +43,7 @@ describe('languageResolver', () => {
       expect(resolveChapterLanguage(chapter, book)).toBe('fr')
     })
 
-    it('should fall back to "en" when neither book nor chapter language is set', () => {
+    it('should fall back to DEFAULT_LANGUAGE when neither book nor chapter language is set', () => {
       const book: Book = {
         title: 'Test Book',
         author: 'Test Author',
@@ -54,7 +55,7 @@ describe('languageResolver', () => {
         content: 'Content',
       }
 
-      expect(resolveChapterLanguage(chapter, book)).toBe('en')
+      expect(resolveChapterLanguage(chapter, book)).toBe(DEFAULT_LANGUAGE)
     })
 
     it('should handle empty string as undefined', () => {
@@ -71,8 +72,8 @@ describe('languageResolver', () => {
         language: '',
       }
 
-      // Empty strings are falsy, so should fall back to 'en'
-      expect(resolveChapterLanguage(chapter, book)).toBe('en')
+      // Empty strings are falsy, so should fall back to DEFAULT_LANGUAGE
+      expect(resolveChapterLanguage(chapter, book)).toBe(DEFAULT_LANGUAGE)
     })
   })
 

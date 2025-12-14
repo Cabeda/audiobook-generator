@@ -25,6 +25,7 @@
   import ChapterItem from './ChapterItem.svelte'
   import { createEventDispatcher } from 'svelte'
   import type { Chapter } from '../lib/types/book'
+  import type { LibraryBook } from '../lib/libraryDB'
   import {
     countWords,
     estimateSpeechDurationSeconds,
@@ -32,6 +33,13 @@
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
   import { LANGUAGE_OPTIONS } from '../lib/utils/languageResolver'
+
+  /**
+   * Type guard to check if a book is a LibraryBook with an ID
+   */
+  function isLibraryBook(book: any): book is LibraryBook & { id: number } {
+    return book !== null && book !== undefined && 'id' in book && typeof book.id === 'number'
+  }
 
   const numberFormatter = new Intl.NumberFormat()
 
@@ -161,11 +169,10 @@
     }
 
     // Update in database if this is a library book
-    const libBook = $book as any
-    if (libBook.id && typeof libBook.id === 'number') {
+    if (isLibraryBook($book)) {
       const { updateChapterLanguage } = await import('../lib/libraryDB')
       try {
-        await updateChapterLanguage(libBook.id, chapterId, language)
+        await updateChapterLanguage($book.id, chapterId, language)
       } catch (err) {
         console.error('Failed to update chapter language:', err)
         toastStore.error('Failed to save language setting')
@@ -181,11 +188,10 @@
     book.set($book)
 
     // Update in database if this is a library book
-    const libBook = $book as any
-    if (libBook.id && typeof libBook.id === 'number') {
+    if (isLibraryBook($book)) {
       const { updateBookLanguage } = await import('../lib/libraryDB')
       try {
-        await updateBookLanguage(libBook.id, language)
+        await updateBookLanguage($book.id, language)
       } catch (err) {
         console.error('Failed to update book language:', err)
         toastStore.error('Failed to save language setting')

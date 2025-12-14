@@ -1,11 +1,16 @@
 import type { Book, Chapter } from '../types/book'
 
 /**
+ * Default language when none is specified
+ */
+export const DEFAULT_LANGUAGE = 'en'
+
+/**
  * Resolves the effective language for a chapter.
- * Returns chapter language if set, otherwise falls back to book language, then 'en'.
+ * Returns chapter language if set, otherwise falls back to book language, then DEFAULT_LANGUAGE.
  */
 export function resolveChapterLanguage(chapter: Chapter, book: Book): string {
-  return chapter.language || book.language || 'en'
+  return chapter.language || book.language || DEFAULT_LANGUAGE
 }
 
 /**

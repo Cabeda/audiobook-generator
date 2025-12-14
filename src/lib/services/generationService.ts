@@ -23,7 +23,7 @@ import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
-import { resolveChapterLanguage } from '../utils/languageResolver'
+import { resolveChapterLanguage, DEFAULT_LANGUAGE } from '../utils/languageResolver'
 
 /**
  * Type representing a LibraryBook with a guaranteed ID property
@@ -417,7 +417,9 @@ class GenerationService {
         const currentBook = get(book)
 
         // Resolve the effective language for this chapter
-        const effectiveLanguage = currentBook ? resolveChapterLanguage(ch, currentBook) : 'en'
+        const effectiveLanguage = currentBook
+          ? resolveChapterLanguage(ch, currentBook)
+          : DEFAULT_LANGUAGE
 
         // Validate content
         if (!ch.content || !ch.content.trim()) {
