@@ -25,7 +25,12 @@ import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { convert } from 'html-to-text'
 import { resolveChapterLanguageWithDetection, DEFAULT_LANGUAGE } from '../utils/languageResolver'
-import { selectKokoroVoiceForLanguage, selectPiperVoiceForLanguage } from '../utils/voiceSelector'
+
+import {
+  selectKokoroVoiceForLanguage,
+  selectPiperVoiceForLanguage,
+  isKokoroLanguageSupported,
+} from '../utils/voiceSelector'
 import { PiperClient } from '../piper/piperClient'
 
 /**
@@ -434,17 +439,28 @@ class GenerationService {
         const ch = chapters[i]
         const currentBook = get(book)
 
-        // Use chapter-specific model if set, otherwise use global model
-        const effectiveModel = ch.model || model
-        const currentVoice = ch.voice || get(selectedVoice)
-        const currentQuantization = get(selectedQuantization)
-        const currentDevice = get(selectedDevice)
-        const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
-
         // Resolve the effective language for this chapter (with auto-detection support)
         const effectiveLanguage = currentBook
           ? resolveChapterLanguageWithDetection(ch, currentBook)
           : DEFAULT_LANGUAGE
+
+        // Resolve model: Use chapter-specific model if set, otherwise use global model
+        // Fallback: If current model doesn't support the language, try to switch
+        let effectiveModel = ch.model || model
+        let isFallbackModel = false
+
+        if (effectiveModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
+          logger.warn(
+            `Language '${effectiveLanguage}' not supported by Kokoro. Switching to Piper for chapter ${ch.id}`
+          )
+          effectiveModel = 'piper'
+          isFallbackModel = true
+        }
+
+        const currentVoice = ch.voice || get(selectedVoice)
+        const currentQuantization = get(selectedQuantization)
+        const currentDevice = get(selectedDevice)
+        const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
 
         // Validate content
         if (!ch.content || !ch.content.trim()) {
@@ -456,13 +472,23 @@ class GenerationService {
         // Update status to processing
         chapterStatus.update((m) => new Map(m).set(ch.id, 'processing'))
 
-        // Select appropriate voice based on language (only if not explicitly set for chapter)
+        // Select appropriate voice based on language
         let effectiveVoice = currentVoice
-        if (!ch.voice) {
-          // Auto-select voice based on language only if no explicit voice is set
+
+        // We determine if we need to auto-select a voice.
+        // Auto-select if:
+        // 1. No explicit voice set for this chapter (ch.voice is undefined)
+        // 2. OR we fell back to a different model (meaning ch.voice or global voice might be invalid for new model)
+        const shouldAutoSelectVoice = !ch.voice || isFallbackModel
+
+        if (shouldAutoSelectVoice) {
+          // Auto-select voice based on language
+          // If fallback happened, we ignore 'currentVoice' as a preference because it's likely for the wrong model (e.g. Kokoro voice 'af_heart' when we want Piper)
+          const preferredVoice = isFallbackModel ? undefined : currentVoice
+
           if (effectiveModel === 'kokoro') {
             // Automatically select Kokoro voice based on language
-            effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, currentVoice)
+            effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, preferredVoice)
             const kokoroVoices = listKokoroVoices()
             if (!kokoroVoices.includes(effectiveVoice as VoiceId)) {
               logger.warn(
@@ -480,7 +506,7 @@ class GenerationService {
             effectiveVoice = selectPiperVoiceForLanguage(
               effectiveLanguage,
               availableVoices,
-              currentVoice
+              preferredVoice
             )
             logger.info(
               `Auto-selected Piper voice for language ${effectiveLanguage}: ${effectiveVoice}`

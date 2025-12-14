@@ -71,6 +71,16 @@ const KOKORO_LANGUAGE_MAP: Record<string, VoiceId[]> = {
 }
 
 /**
+ * Check if the Kokoro model supports a given language
+ */
+export function isKokoroLanguageSupported(language: string): boolean {
+  const normalizedLang = language.toLowerCase().trim()
+  if (KOKORO_LANGUAGE_MAP[normalizedLang]) return true
+  const baseLang = normalizedLang.split(/[-_]/)[0]
+  return !!KOKORO_LANGUAGE_MAP[baseLang]
+}
+
+/**
  * Select an appropriate Kokoro voice based on language
  * @param language ISO 639-1 language code or language-region code (e.g., 'en', 'en-US', 'en-GB')
  * @param preferredVoice Optional preferred voice ID to use if compatible

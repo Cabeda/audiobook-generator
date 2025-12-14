@@ -26,6 +26,7 @@
     progress,
     onModelChange,
     onVoiceChange,
+    onLanguageChange,
   } = $props<{
     chapter: Chapter
     book?: Book
@@ -56,15 +57,9 @@
 
   // Update local state when chapter prop changes
   $effect(() => {
-    if (chapterModel !== chapter.model) {
-      chapterModel = chapter.model
-    }
-    if (chapterVoice !== chapter.voice) {
-      chapterVoice = chapter.voice
-    }
-    if (chapterLanguage !== chapter.language) {
-      chapterLanguage = chapter.language
-    }
+    chapterModel = chapter.model
+    chapterVoice = chapter.voice
+    chapterLanguage = chapter.language
   })
 
   function copy() {
