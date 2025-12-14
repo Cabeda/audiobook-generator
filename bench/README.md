@@ -10,140 +10,75 @@ This directory contains performance benchmarks for the audiobook generator, focu
 pnpm run bench
 ```
 
-### Run Individual Benchmarks
+This runs both the Kokoro TTS latency and audio concatenation benchmarks using the test infrastructure (vitest).
+
+### Quick Benchmark Run
 
 ```bash
-# Kokoro TTS chunk generation latency
-pnpm run bench:kokoro
-
-# Audio concatenation throughput
-pnpm run bench:concat
+pnpm run bench:quick
 ```
 
-## Benchmark Options
+Runs benchmarks with verbose output showing detailed progress.
 
-The main runner (`bench/run.js`) supports various options:
+### Running Specific Benchmarks
 
-```bash
-node bench/run.js [options]
-
-Options:
-  -i, --iterations <n>     Number of iterations per test (default: 3)
-  -c, --max-chunks <n>     Maximum number of chunks for concat test (default: 20)
-  -f, --format <format>    Audio format for concat test (default: wav)
-  -o, --output <file>      Write results to JSON file
-  --skip-kokoro            Skip Kokoro latency benchmark
-  --skip-concat            Skip concatenation throughput benchmark
-  -h, --help               Show this help message
-```
-
-### Examples
+You can also run individual benchmark tests using vitest:
 
 ```bash
-# Run with more iterations for better accuracy
-pnpm run bench -- --iterations 5
+# Run only concatenation benchmark
+vitest run bench/run.test.ts -t "concatenation"
 
-# Test only concatenation with MP3 format
-pnpm run bench -- --skip-kokoro --format mp3
-
-# Save results to a file
-pnpm run bench -- --output benchmark-results.json
-
-# Quick test with fewer chunks
-pnpm run bench -- --max-chunks 10 --iterations 2
+# Run only Kokoro benchmark
+vitest run bench/run.test.ts -t "Kokoro"
 ```
 
 ## Benchmarks
 
 ### 1. Kokoro TTS Chunk Generation Latency
 
-**File:** `kokoro-latency.js`
+**File:** `kokoro-latency.ts`
 
-Measures the time to generate audio from text chunks of varying sizes (500-2000 characters).
+Measures the time to generate audio from text chunks of varying sizes.
 
 **Metrics:**
+
 - Min/max/mean/median latency per text length
 - Throughput in characters per second
 - Average blob size
 
-**Test Samples:**
-- 500 characters
-- 1000 characters
-- 1500 characters
-- 2000 characters
+**Test Configuration:**
+
+- Text lengths tested: 500-2000 characters
+- Uses WASM backend for reproducibility
+- Multiple iterations for statistical accuracy
 
 ### 2. Audio Concatenation Throughput
 
-**File:** `concat-throughput.js`
+**File:** `concat-throughput.ts`
 
-Measures the performance of `concatenateAudioChapters()` with varying numbers of audio chunks (1-20).
+Measures the performance of `concatenateAudioChapters()` with varying numbers of audio chunks.
 
 **Metrics:**
+
 - Time to concatenate N chunks
 - Throughput in bytes per second
 - Output file size
 - Scaling efficiency
 
-**Test Configurations:**
-- Chunk counts: 1, 2, 5, 10, 15, 20
-- Each chunk: 5 seconds of audio
-- Format: WAV (or configurable)
+**Test Configuration:**
+
+- Chunk counts: 1, 2, 5 (for quick tests)
+- Each chunk: 5 seconds of silent audio
+- Format: WAV
+- Multiple iterations for statistical accuracy
 
 ## Output Format
 
-When using `--output`, results are saved as JSON:
+Benchmarks output results to the console with detailed metrics:
 
-```json
-{
-  "timestamp": "2024-01-01T12:00:00.000Z",
-  "platform": {
-    "node": "v20.x.x",
-    "arch": "x64",
-    "platform": "linux"
-  },
-  "benchmarks": {
-    "kokoro": {
-      "name": "Kokoro TTS Chunk Generation Latency",
-      "results": [
-        {
-          "textLength": 500,
-          "iterations": 3,
-          "latencyMs": {
-            "min": 150.2,
-            "max": 165.8,
-            "mean": 158.4,
-            "median": 159.1
-          },
-          "avgBlobSize": 44100,
-          "throughputCharsPerSec": 3156.5
-        }
-      ]
-    },
-    "concat": {
-      "name": "Audio Concatenation Throughput",
-      "results": [
-        {
-          "chunkCount": 5,
-          "iterations": 3,
-          "timingMs": {
-            "min": 45.2,
-            "max": 52.1,
-            "mean": 48.6,
-            "median": 48.5
-          },
-          "throughputBytesPerSec": {
-            "min": 1250000,
-            "max": 1450000,
-            "mean": 1350000,
-            "median": 1340000
-          },
-          "avgOutputSize": 2205044
-        }
-      ]
-    }
-  }
-}
-```
+- **Kokoro Latency**: Shows timing stats for each text length
+- **Concatenation Throughput**: Shows timing and throughput for different chunk counts
+- **Scaling Analysis**: Efficiency metrics showing how performance scales with load
 
 ## CI Integration
 
@@ -185,32 +120,36 @@ See `.github/workflows/benchmark.yml` for CI configuration.
 
 To add new benchmarks:
 
-1. Create a new file in `bench/` (e.g., `bench/my-benchmark.js`)
-2. Export a main function that returns benchmark results
-3. Add to `bench/run.js` to include in the main runner
-4. Add a script to `package.json` for standalone execution
+1. Create a new TypeScript file in `bench/` (e.g., `bench/my-benchmark.ts`)
+2. Export benchmark functions that return results with proper typing
+3. Add test cases to `bench/run.test.ts`
+4. Ensure benchmarks work with the existing test infrastructure
 
 Example structure:
 
-```javascript
-export async function runMyBenchmark(options = {}) {
+```typescript
+export interface MyBenchmarkResult {
+  // Define result types
+}
+
+export async function runMyBenchmark(options = {}): Promise<MyBenchmarkResult[]> {
   // Setup
-  const results = []
-  
+  const results: MyBenchmarkResult[] = []
+
   // Run tests
   // ...
-  
+
   // Return results
   return results
 }
+```
 
-// Allow standalone execution
-if (import.meta.url === `file://${process.argv[1]}`) {
-  runMyBenchmark()
-    .then(() => process.exit(0))
-    .catch(err => {
-      console.error(err)
-      process.exit(1)
-    })
-}
+Then add to `bench/run.test.ts`:
+
+```typescript
+it('should run my benchmark', async () => {
+  const results = await runMyBenchmark()
+  expect(results).toBeDefined()
+  // Add assertions
+}, 60000)
 ```
