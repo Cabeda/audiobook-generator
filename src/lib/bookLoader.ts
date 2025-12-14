@@ -1,9 +1,45 @@
 import { detectFormat } from './formatDetector'
 import logger from './utils/logger'
-import { epubParser } from './epubParser'
-import { txtParser } from './parsers/txtParser'
-import { htmlParser } from './parsers/htmlParser'
 import type { Book, BookParser } from './types/book'
+
+/**
+ * Lazy load EPUB parser to support dynamic imports
+ */
+async function getEpubParser(): Promise<BookParser | null> {
+  try {
+    const { epubParser } = await import('./epubParser')
+    return epubParser
+  } catch (e) {
+    logger.warn('EPUB parser not available:', e)
+    return null
+  }
+}
+
+/**
+ * Lazy load TXT parser to support dynamic imports
+ */
+async function getTxtParser(): Promise<BookParser | null> {
+  try {
+    const { txtParser } = await import('./parsers/txtParser')
+    return txtParser
+  } catch (e) {
+    logger.warn('TXT parser not available:', e)
+    return null
+  }
+}
+
+/**
+ * Lazy load HTML parser to support dynamic imports
+ */
+async function getHtmlParser(): Promise<BookParser | null> {
+  try {
+    const { htmlParser } = await import('./parsers/htmlParser')
+    return htmlParser
+  } catch (e) {
+    logger.warn('HTML parser not available:', e)
+    return null
+  }
+}
 
 /**
  * Lazy load PDF parser to avoid Node.js test environment issues
@@ -26,17 +62,17 @@ async function getPdfParser(): Promise<BookParser | null> {
 
 /**
  * Get all available parsers
- * PDF parser is loaded dynamically only in browser
+ * All parsers are loaded dynamically to support code splitting and dynamic imports
  */
 async function getAllParsers(): Promise<BookParser[]> {
-  const parsers: BookParser[] = [epubParser, txtParser, htmlParser]
+  const parsers: (BookParser | null)[] = await Promise.all([
+    getEpubParser(),
+    getTxtParser(),
+    getHtmlParser(),
+    getPdfParser(),
+  ])
 
-  const pdfParser = await getPdfParser()
-  if (pdfParser) {
-    parsers.push(pdfParser)
-  }
-
-  return parsers
+  return parsers.filter((parser): parser is BookParser => parser !== null)
 }
 
 /**

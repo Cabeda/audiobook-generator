@@ -57,3 +57,101 @@ export const lastPiperVoice = persistedWritable<string>(
   'en_US-hfc_female-medium'
 )
 export const lastWebSpeechVoice = persistedWritable<string>('audiobook_voice_webspeech', '')
+
+import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
+
+// Initialize default advanced settings
+const defaultAdvancedSettings: Record<string, any> = {}
+for (const [modelId, settings] of Object.entries(ADVANCED_SETTINGS_SCHEMA)) {
+  defaultAdvancedSettings[modelId] = {}
+  for (const setting of settings) {
+    defaultAdvancedSettings[modelId][setting.key] = setting.defaultValue
+  }
+}
+
+function mergeAdvancedSettings(
+  stored: Record<string, any> | null,
+  defaults: Record<string, any>
+): Record<string, any> {
+  const merged = JSON.parse(JSON.stringify(defaults)) as Record<string, any>
+  if (!stored) return merged
+
+  for (const [modelId, settings] of Object.entries(stored)) {
+    if (!merged[modelId]) merged[modelId] = {}
+    for (const [key, value] of Object.entries(settings || {})) {
+      merged[modelId][key] = value ?? merged[modelId][key]
+    }
+  }
+  return merged
+}
+
+function persistedAdvancedSettings(key: string): Writable<Record<string, any>> {
+  let initialValue = defaultAdvancedSettings
+
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem(key)
+      if (stored) {
+        initialValue = mergeAdvancedSettings(
+          JSON.parse(stored) as Record<string, any>,
+          defaultAdvancedSettings
+        )
+      }
+    } catch (e) {
+      logger.warn(`Failed to load ${key} from localStorage:`, e)
+    }
+  }
+
+  const store = writable<Record<string, any>>(initialValue)
+
+  if (typeof window !== 'undefined') {
+    store.subscribe((value) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(value))
+      } catch (e) {
+        logger.warn(`Failed to save ${key} to localStorage:`, e)
+      }
+    })
+  }
+
+  return store
+}
+
+export const advancedSettings = persistedAdvancedSettings('audiobook_advanced_settings')
+
+export interface VoiceOption {
+  id: string
+  label: string
+}
+
+export const availableVoices = writable<VoiceOption[]>([])
+
+export const voiceLabels: Record<string, string> = {
+  af_heart: '❤️ Heart (Female American)',
+  af_alloy: '🎵 Alloy (Female American)',
+  af_aoede: '🎭 Aoede (Female American)',
+  af_bella: '💫 Bella (Female American)',
+  af_jessica: '🌸 Jessica (Female American)',
+  af_kore: '🌺 Kore (Female American)',
+  af_nicole: '✨ Nicole (Female American)',
+  af_nova: '⭐ Nova (Female American)',
+  af_river: '🌊 River (Female American)',
+  af_sarah: '🌹 Sarah (Female American)',
+  af_sky: '☁️ Sky (Female American)',
+  am_adam: '👨 Adam (Male American)',
+  am_echo: '📢 Echo (Male American)',
+  am_eric: '🎤 Eric (Male American)',
+  am_liam: '🎸 Liam (Male American)',
+  am_michael: '🎩 Michael (Male American)',
+  am_onyx: '💎 Onyx (Male American)',
+  am_puck: '🎭 Puck (Male American)',
+  am_santa: '🎅 Santa (Male American)',
+  bf_emma: '🇬🇧 Emma (Female British)',
+  bf_isabella: '🇬🇧 Isabella (Female British)',
+  bf_alice: '🇬🇧 Alice (Female British)',
+  bf_lily: '🇬🇧 Lily (Female British)',
+  bm_george: '🇬🇧 George (Male British)',
+  bm_lewis: '🇬🇧 Lewis (Male British)',
+  bm_daniel: '🇬🇧 Daniel (Male British)',
+  bm_fable: '🇬🇧 Fable (Male British)',
+}

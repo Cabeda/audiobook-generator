@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -15,7 +16,7 @@
     "lint": "eslint . && prettier --check .",
     "lint:fix": "eslint . --fix && prettier --write .",
     "format": "prettier --write .",
-    "type-check": "tsgo --noEmit",
+    "type-check": "tsc --noEmit",
     "prepare": "husky",
     "build:epub": "pandoc --metadata-file=books/short-epub/metadata.yaml --toc -o books/test-short.epub books/short-epub/01-chapter-1.md books/short-epub/02-chapter-2.md books/short-epub/03-chapter-3.md",
     "test:e2e:fast": "pnpm run build:epub && playwright test -g \"SHORT EPUB\" --project=chromium --reporter=list --workers=1 --enable-unsafe-webgpu"
@@ -36,7 +37,7 @@
     "@typescript-eslint/eslint-plugin": "^8.47.0",
     "@typescript-eslint/parser": "^8.47.0",
     "@typescript/native-preview": "7.0.0-dev.20251203.1",
-    "@vitest/ui": "^3.2.4",
+    "@vitest/ui": "^4.0.15",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-svelte": "^3.13.0",
@@ -53,7 +54,7 @@
     "typescript": "^5.9.3",
     "vite": "^7.2.4",
     "vite-plugin-pwa": "^1.1.0",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.15"
   },
   "dependencies": {
     "@diffusionstudio/vits-web": "^1.0.3",

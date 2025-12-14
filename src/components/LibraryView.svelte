@@ -248,7 +248,7 @@
     margin: 0;
     font-size: 2rem;
     font-weight: 700;
-    color: #1f2937;
+    color: var(--text-color);
   }
 
   .storage-info {
@@ -260,13 +260,13 @@
 
   .storage-text {
     font-size: 0.75rem;
-    color: #6b7280;
+    color: var(--secondary-text);
   }
 
   .storage-bar {
     width: 120px;
     height: 6px;
-    background: #e5e7eb;
+    background: var(--border-color);
     border-radius: 3px;
     overflow: hidden;
   }
@@ -294,42 +294,45 @@
     flex: 1;
     min-width: 200px;
     padding: 10px 16px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     font-size: 0.95rem;
+    background: var(--input-bg);
+    color: var(--text-color);
     transition: border-color 0.2s;
   }
 
   .search-input:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: var(--primary-color);
     border-width: 2px;
-    padding: 9px 15px; /* Adjust padding to prevent shift */
+    padding: 9px 15px;
   }
 
   .sort-select {
     padding: 10px 12px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     font-size: 0.95rem;
-    background: white;
+    background: var(--input-bg);
+    color: var(--text-color);
     cursor: pointer;
     transition: border-color 0.2s;
   }
 
   .sort-select:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: var(--primary-color);
     border-width: 2px;
     padding: 9px 11px;
   }
 
   .view-toggle {
     display: flex;
-    background: #f3f4f6;
+    background: var(--feature-bg);
     border-radius: 8px;
     padding: 2px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--border-color);
   }
 
   .toggle-btn {
@@ -340,19 +343,19 @@
     height: 36px;
     border: none;
     background: transparent;
-    color: #6b7280;
+    color: var(--secondary-text);
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
   }
 
   .toggle-btn:hover {
-    color: #374151;
+    color: var(--text-color);
   }
 
   .toggle-btn.active {
-    background: white;
-    color: #3b82f6;
+    background: var(--surface-color);
+    color: var(--primary-color);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
 
@@ -379,7 +382,7 @@
   .library-stats {
     text-align: center;
     padding: 16px;
-    color: #6b7280;
+    color: var(--secondary-text);
     font-size: 0.875rem;
   }
 
@@ -397,8 +400,8 @@
   .spinner {
     width: 48px;
     height: 48px;
-    border: 4px solid #e5e7eb;
-    border-top-color: #3b82f6;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--primary-color);
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin-bottom: 16px;
@@ -411,12 +414,12 @@
   }
 
   .loading-state p {
-    color: #6b7280;
+    color: var(--secondary-text);
     margin: 0;
   }
 
   .error-state {
-    color: #dc2626;
+    color: var(--error-color);
   }
 
   .error-icon {
@@ -431,7 +434,7 @@
 
   .error-state button {
     padding: 10px 24px;
-    background: #dc2626;
+    background: var(--error-color);
     color: white;
     border: none;
     border-radius: 8px;
@@ -452,12 +455,12 @@
   .empty-state h3 {
     margin: 0 0 8px 0;
     font-size: 1.5rem;
-    color: #1f2937;
+    color: var(--text-color);
   }
 
   .empty-state p {
     margin: 0;
-    color: #6b7280;
+    color: var(--secondary-text);
   }
 
   /* Responsive */
@@ -490,35 +493,5 @@
     }
   }
 
-  /* Dark mode support */
-  @media (prefers-color-scheme: dark) {
-    h2 {
-      color: #f9fafb;
-    }
-
-    .search-input,
-    .sort-select,
-    .view-toggle {
-      background: #1f2937;
-      color: #f9fafb;
-      border-color: #374151;
-    }
-
-    .toggle-btn {
-      color: #9ca3af;
-    }
-
-    .toggle-btn:hover {
-      color: #e5e7eb;
-    }
-
-    .toggle-btn.active {
-      background: #374151;
-      color: #60a5fa;
-    }
-
-    .empty-state h3 {
-      color: #f9fafb;
-    }
-  }
+  /* Dark mode support - handled by CSS variables */
 </style>

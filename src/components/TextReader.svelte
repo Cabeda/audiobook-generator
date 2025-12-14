@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack, onMount } from 'svelte'
   import { fade } from 'svelte/transition'
+  import { get } from 'svelte/store'
   import type { Chapter } from '../lib/types/book'
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
@@ -29,13 +30,6 @@
     onChapterChange?: (chapter: Chapter) => void
   }>()
 
-  interface TextSegment {
-    index: number
-    text: string
-  }
-
-  // Local state for rendering
-  let segments = $state<TextSegment[]>([])
   const SPEED_KEY = 'text_reader_speed'
 
   // Initialize from localStorage if available
@@ -47,16 +41,6 @@
     // ignore
   }
 
-  // Split text into segments (sentences)
-  function splitIntoSegments(text: string): TextSegment[] {
-    const sentences = text.split(/(?<=[.!?])\s+/)
-    return sentences
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .map((text, index) => ({ index, text }))
-  }
-
-  // Initialize
   // Settings menu state
   let showSettings = $state(false)
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
@@ -65,100 +49,64 @@
   // Will be initialized after first initialization to avoid false change detection
   let currentModelFromStore = $state<'kokoro' | 'piper' | 'web_speech' | null>(null)
   let currentVoiceFromStore = $state<string | null>(null)
+  let textContentEl: HTMLDivElement | null = null
 
-  // Helper function to restart TTS playback with new settings
-  function restartTTSWithNewSettings(
-    newModel: 'kokoro' | 'piper' | 'web_speech',
-    newVoice: string
-  ) {
-    const currentSegment = audioService.currentSegmentIndex
-    const wasPlaying = audioService.isPlaying
+  // State for initialization
+  let loadError = $state(false)
+  let isLoading = $state(true)
 
-    // Re-initialize with new settings
-    audioService.initialize(bookId, bookTitle, chapter, {
-      voice: newVoice,
-      quantization,
-      device,
-      selectedModel: newModel,
-      playbackSpeed: audioService.playbackSpeed,
-    })
-
-    // Restart from the current segment
-    // playFromSegment preserves the playing state (sets isPlaying = wasPlaying)
-    // so if we weren't playing, it won't start playing
-    if (currentSegment >= 0) {
-      audioService.playFromSegment(currentSegment).catch((err) => {
-        console.error('Failed to restart with new settings:', err)
-      })
-    }
-  }
-
-  // Initialize
+  // Initialize by loading pre-generated data from DB
   $effect(() => {
-    if (chapter) {
-      segments = splitIntoSegments(chapter.content)
+    if (chapter && bookId) {
+      const cId = chapter.id
+      const bId = bookId
 
-      // Check if we need to initialize the service
-      // Use untrack to read store without subscribing (prevents infinite loop)
-      const needsInit = untrack(() => {
-        const store = $audioPlayerStore
-        // If the player is already set up for this chapter, don't re-initialize
-        if (store.bookId === bookId && store.chapterId === chapter.id) {
-          return false
-        }
-        return true
+      // Check if already loaded for this chapter
+      const needsLoad = untrack(() => {
+        const store = get(audioPlayerStore)
+        return !(store.bookId === bId && store.chapterId === cId)
       })
 
-      if (needsInit) {
-        // Use store values (from $modelStore and $voiceStore) for initialization.
-        // This ensures that the initial values match those tracked by the reactive effect,
-        // preventing unnecessary restarts when the component mounts or when store values change.
-        const currentModel = untrack(() => $modelStore)
-        const currentVoice = untrack(() => $voiceStore)
+      if (needsLoad) {
+        isLoading = true
+        loadError = false
 
-        audioService.initialize(bookId, bookTitle, chapter, {
-          voice: currentVoice,
-          quantization,
-          device,
-          selectedModel: currentModel,
-          playbackSpeed: initialSpeed,
-        })
+        // Load chapter from DB using pure playback method
+        audioService
+          .loadChapter(bId, bookTitle, chapter)
+          .then((success) => {
+            isLoading = false
+            if (success) {
+              const store = get(audioPlayerStore)
+              const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
 
-        // Initialize tracked values after successful initialization to avoid false change detection
-        currentModelFromStore = currentModel
-        currentVoiceFromStore = currentVoice
-
-        // Auto-play when opening a new chapter (async without blocking effect)
-        audioService.play().catch((err) => {
-          console.error('Auto-play failed:', err)
-        })
+              audioService
+                .playFromSegment(startSeg)
+                .then(() => audioService.play())
+                .catch((err) => {
+                  console.error('Auto-play failed:', err)
+                })
+            } else {
+              loadError = true
+              console.warn('Chapter audio not available - generate audio first')
+            }
+          })
+          .catch((err) => {
+            isLoading = false
+            loadError = true
+            console.error('Failed to load chapter:', err)
+          })
+      } else {
+        isLoading = false
+        const store = get(audioPlayerStore)
+        const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
+        audioService
+          .playFromSegment(startSeg)
+          .then(() => audioService.play())
+          .catch((err) => {
+            console.error('Auto-play failed:', err)
+          })
       }
-    }
-  })
-
-  // React to model or voice changes from the store
-  $effect(() => {
-    const newModel = $modelStore
-    const newVoice = $voiceStore
-
-    // Only react to changes if we're already playing/initialized
-    const store = untrack(() => $audioPlayerStore)
-    if (store.chapterId !== chapter.id) return
-
-    // Skip if tracked values haven't been initialized yet (first run)
-    if (currentModelFromStore === null || currentVoiceFromStore === null) return
-
-    // Check if model or voice changed
-    const modelChanged = newModel !== currentModelFromStore
-    const voiceChanged = newVoice !== currentVoiceFromStore
-
-    // Always update tracked values to stay in sync
-    currentModelFromStore = newModel
-    currentVoiceFromStore = newVoice
-
-    // Restart if either model or voice changed
-    if (modelChanged || voiceChanged) {
-      restartTTSWithNewSettings(newModel, newVoice)
     }
   })
 
@@ -172,18 +120,160 @@
     }
   }
 
+  function rangeFromTextOffsets(root: HTMLElement, start: number, end: number): Range | null {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let offset = 0
+    let startNode: Node | null = null
+    let startOffset = 0
+    let endNode: Node | null = null
+    let endOffset = 0
+
+    let current = walker.nextNode()
+    while (current) {
+      const len = current.textContent?.length ?? 0
+      if (!startNode && start >= offset && start <= offset + len) {
+        startNode = current
+        startOffset = start - offset
+      }
+      if (!endNode && end <= offset + len) {
+        endNode = current
+        endOffset = end - offset
+        break
+      }
+      offset += len
+      current = walker.nextNode()
+    }
+
+    if (!startNode || !endNode) return null
+    const range = document.createRange()
+    range.setStart(startNode, startOffset)
+    range.setEnd(endNode, endOffset)
+    return range
+  }
+
+  function injectSegmentsIntoContent() {
+    if (!textContentEl) return
+    const root = textContentEl
+
+    // If segments are already present (e.g., pre-wrapped content), keep them
+    const existing = root.querySelectorAll('span[id^="seg-"]')
+    if (existing.length) {
+      existing.forEach((el) => el.classList.add('segment'))
+      return
+    }
+
+    const segments = audioService.segments
+    if (!segments?.length) return
+
+    const fullText = root.textContent || ''
+
+    const normalizeWithMap = (text: string) => {
+      const normalizedChars: string[] = []
+      const normToOriginal: number[] = []
+      let lastWasSpace = false
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i]
+        if (/\s/.test(ch)) {
+          if (lastWasSpace) continue
+          normalizedChars.push(' ')
+          normToOriginal.push(i)
+          lastWasSpace = true
+        } else {
+          normalizedChars.push(ch)
+          normToOriginal.push(i)
+          lastWasSpace = false
+        }
+      }
+      return { normalized: normalizedChars.join(''), normToOriginal }
+    }
+
+    const normalizedFull = normalizeWithMap(fullText)
+    let searchNormIndex = 0
+
+    for (const segment of segments) {
+      const normalizedSegment = normalizeWithMap(segment.text)
+      if (!normalizedSegment.normalized) continue
+
+      const startNorm = normalizedFull.normalized.indexOf(
+        normalizedSegment.normalized,
+        searchNormIndex
+      )
+      if (startNorm === -1) continue
+      const endNorm = startNorm + normalizedSegment.normalized.length
+
+      const start = normalizedFull.normToOriginal[startNorm]
+      const endOriginalIdx = normalizedFull.normToOriginal[endNorm - 1]
+      const end = endOriginalIdx !== undefined ? endOriginalIdx + 1 : start + segment.text.length
+
+      const range = rangeFromTextOffsets(root, start, end)
+      if (!range || range.collapsed) continue
+
+      const span = document.createElement('span')
+      span.className = 'segment'
+      span.id = `seg-${segment.index}`
+      span.setAttribute('role', 'button')
+      span.setAttribute('tabindex', '0')
+      span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
+
+      try {
+        const contents = range.extractContents()
+        span.appendChild(contents)
+        range.insertNode(span)
+      } catch (err) {
+        console.warn('Failed to wrap segment for highlighting', err)
+      }
+
+      searchNormIndex = endNorm
+    }
+  }
+
   // Scroll to current segment
   $effect(() => {
     const index = audioService.currentSegmentIndex
     if (index >= 0) {
+      updateActiveSegment(index)
       scrollToSegment(index)
     }
   })
 
+  // Inject segment wrappers so the active sentence can be highlighted
+  $effect(() => {
+    const ready = !isLoading && !loadError
+    const segmentCount = audioService.segments.length
+    const chapterId = chapter?.id
+    if (!ready || !segmentCount || !chapterId) return
+
+    injectSegmentsIntoContent()
+
+    if (audioService.currentSegmentIndex >= 0) {
+      updateActiveSegment(audioService.currentSegmentIndex)
+      scrollToSegment(audioService.currentSegmentIndex)
+    }
+  })
+
+  // Ensure initial highlight if already playing
+  $effect(() => {
+    if (audioService.isPlaying && audioService.currentSegmentIndex >= 0) {
+      updateActiveSegment(audioService.currentSegmentIndex)
+    }
+  })
+
+  function updateActiveSegment(index: number) {
+    // Remove active class from all segments
+    const active = document.querySelectorAll('.segment.active')
+    active.forEach((el) => el.classList.remove('active'))
+
+    // Add to current
+    const el = document.getElementById(`seg-${index}`)
+    if (el) {
+      el.classList.add('active')
+    }
+  }
+
   function scrollToSegment(index: number) {
     requestAnimationFrame(() => {
-      const element = document.getElementById(`segment-${index}`)
-      const container = document.querySelector('.reader-container') // Updated selector
+      const element = document.getElementById(`seg-${index}`)
+      const container = document.querySelector('.reader-container')
 
       if (element && container) {
         const elementRect = element.getBoundingClientRect()
@@ -203,16 +293,36 @@
     })
   }
 
-  function togglePlayPause() {
-    audioService.togglePlayPause()
+  function getSegmentIndex(element: HTMLElement | null): number | null {
+    if (!element || !element.id.startsWith('seg-')) return null
+    const index = parseInt(element.id.replace('seg-', ''), 10)
+    return isNaN(index) ? null : index
   }
 
-  function pause() {
-    audioService.pause()
+  function handleContentClick(event: MouseEvent) {
+    showSettings = false
+    const target = event.target as HTMLElement
+    // Check if clicked element is a segment or inside one
+    const segmentEl = target.closest('.segment') as HTMLElement | null
+    const index = getSegmentIndex(segmentEl)
+    if (index !== null) {
+      audioService.playFromSegment(index)
+    }
   }
 
-  function stop() {
-    audioService.stop()
+  function handleContentKeyDown(event: KeyboardEvent) {
+    const target = event.target as HTMLElement
+    // Check if the focused element is a segment
+    if (target.classList.contains('segment') && target.id.startsWith('seg-')) {
+      // Handle Enter or Space key
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        const index = getSegmentIndex(target)
+        if (index !== null) {
+          audioService.playFromSegment(index)
+        }
+      }
+    }
   }
 
   function handleClose() {
@@ -225,6 +335,17 @@
   type Theme = 'light' | 'dark' | 'sepia'
   const THEME_KEY = 'text_reader_theme'
   let currentTheme = $state<Theme>('dark')
+  const themeOrder: Theme[] = ['light', 'dark', 'sepia']
+  const themeIcons: Record<Theme, string> = {
+    light: '☀️',
+    dark: '🌙',
+    sepia: '📖',
+  }
+  const themeLabels: Record<Theme, string> = {
+    light: 'Light',
+    dark: 'Dark',
+    sepia: 'Sepia',
+  }
 
   onMount(() => {
     try {
@@ -255,6 +376,12 @@
     }
   }
 
+  function cycleTheme() {
+    const currentIndex = themeOrder.indexOf(currentTheme)
+    const nextTheme = themeOrder[(currentIndex + 1) % themeOrder.length]
+    changeTheme(nextTheme)
+  }
+
   onDestroy(() => {
     // We don't stop audio on destroy anymore!
     // But we might want to unsubscribe if we had manual subscriptions
@@ -265,36 +392,53 @@
   <div class="reader-container">
     <!-- Header -->
     <div class="reader-header">
-      <button class="back-button" onclick={handleClose} aria-label="Back to book"> ← Back </button>
-      <h2 id="chapter-title">{chapter.title}</h2>
-      <div class="header-spacer"></div>
+      <div class="header-row top">
+        <button class="back-button" onclick={handleClose} aria-label="Back to book">
+          ← Back
+        </button>
+        <div class="header-title">
+          <div class="eyebrow">{bookTitle}</div>
+          <div class="main-title" aria-label="Chapter title">{chapter.title}</div>
+        </div>
+        <div class="header-actions">
+          <button
+            class="theme-toggle"
+            onclick={cycleTheme}
+            aria-label={`Switch theme (current ${themeLabels[currentTheme]})`}
+          >
+            <span class="theme-icon">{themeIcons[currentTheme]}</span>
+            <span class="theme-label">{themeLabels[currentTheme]}</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Text Content -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="text-content" role="main" onclick={() => (showSettings = false)}>
-      {#each segments as segment (segment.index)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <span
-          id="segment-{segment.index}"
-          class="segment"
-          class:active={audioService.currentSegmentIndex === segment.index}
-          class:unprocessed={segment.index > audioService.currentSegmentIndex}
-          onclick={(e) => {
-            e.stopPropagation()
-            audioService.playFromSegment(segment.index)
-          }}
-          role="button"
-          tabindex="0"
-          aria-current={audioService.currentSegmentIndex === segment.index ? 'true' : undefined}
-        >
-          {segment.text}{' '}
-        </span>
-      {/each}
+    <div
+      class="text-content"
+      role="main"
+      onclick={handleContentClick}
+      onkeydown={handleContentKeyDown}
+      bind:this={textContentEl}
+    >
+      {#if isLoading}
+        <div class="loading-indicator">
+          <div class="spinner"></div>
+          <p>Loading chapter audio...</p>
+        </div>
+      {:else if loadError}
+        <div class="error-message">
+          <p>⚠️ Audio not available</p>
+          <p>Generate audio for this chapter first.</p>
+          <button class="back-link" onclick={handleClose}>← Back to book</button>
+        </div>
+      {:else}
+        <!-- We render the full HTML content with segments. Active segment highlighting is managed by the updateActiveSegment function. -->
+        {@html chapter.content}
+      {/if}
     </div>
 
-    <!-- Bottom Bar -->
     <!-- Bottom Bar -->
     <AudioPlayerBar
       mode="reader"
@@ -411,6 +555,20 @@
   :global(:root) {
     --bg-color: #ffffff;
     --text-color: #000000;
+    --secondary-text: #475569;
+    --active-bg: #ffe0b2;
+    --active-text: #000;
+    --header-bg: #ffffff;
+    --border-color: #e0e0e0;
+    --surface-color: #f5f5f5;
+    --unprocessed-text: #000000;
+    --hover-bg: rgba(255, 183, 77, 0.15);
+  }
+
+  [data-theme='light'] {
+    --bg-color: #ffffff;
+    --text-color: #000000;
+    --secondary-text: #475569;
     --active-bg: #ffe0b2;
     --active-text: #000;
     --header-bg: #ffffff;
@@ -422,9 +580,11 @@
 
   [data-theme='dark'] {
     --bg-color: #1a1a1a;
-    --text-color: #e0e0e0;
+    --text-color: #f1f5f9;
+    --secondary-text: #cbd5e1;
     --active-bg: #3d3d3d;
     --active-text: #fff;
+    --bg-color: #1a1a1a;
     --header-bg: #1a1a1a;
     --border-color: #333;
     --surface-color: #2a2a2a;
@@ -435,6 +595,7 @@
   [data-theme='sepia'] {
     --bg-color: #f4ecd8;
     --text-color: #5b4636;
+    --secondary-text: #7b604b;
     --active-bg: #e6dcb8;
     --active-text: #000;
     --header-bg: #f4ecd8;
@@ -483,11 +644,17 @@
 
   .reader-header {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
     padding: 16px 24px;
     border-bottom: 1px solid var(--border-color);
     background: var(--header-bg);
+    color: var(--text-color);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    isolation: isolate;
+    mix-blend-mode: normal;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
     transition:
       background-color 0.3s,
       border-color 0.3s;
@@ -511,18 +678,102 @@
     border-color: var(--text-color);
   }
 
-  .reader-header h2 {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 600;
+  .reader-page[data-theme='dark'] .back-button {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--border-color);
     color: var(--text-color);
-    flex: 1;
-    letter-spacing: -0.01em;
-    text-align: center;
   }
 
-  .header-spacer {
-    width: 80px; /* Same width as back button to center title */
+  .reader-page[data-theme='dark'] .back-button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--text-color);
+  }
+
+  .header-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .header-row.top {
+    width: 100%;
+  }
+
+  .header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .header-title .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--secondary-text, var(--text-color));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-title .main-title {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--text-color);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 140px;
+    justify-self: flex-end;
+  }
+
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-color);
+    color: var(--text-color);
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    min-width: 110px;
+  }
+
+  .theme-toggle:hover {
+    border-color: var(--text-color);
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+  }
+
+  .reader-page[data-theme='dark'] .theme-toggle {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(148, 163, 184, 0.35);
+  }
+
+  .reader-page[data-theme='dark'] .theme-toggle:hover {
+    border-color: var(--text-color);
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .theme-icon {
+    font-size: 1rem;
+  }
+
+  .theme-label {
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
 
   .text-content {
@@ -538,6 +789,31 @@
     font-size: 18px;
     color: var(--text-color);
     transition: color 0.3s;
+  }
+
+  /* Style for injected segments */
+  :global(.segment) {
+    cursor: pointer;
+    border-radius: 2px;
+    transition:
+      background-color 0.2s,
+      color 0.2s;
+  }
+
+  :global(.segment:hover) {
+    background-color: var(--hover-bg);
+  }
+
+  :global(.segment:focus) {
+    outline: 2px solid var(--highlight-border, #ffb74d);
+    outline-offset: 2px;
+    background-color: var(--hover-bg);
+  }
+
+  :global(.segment.active) {
+    background-color: var(--active-bg);
+    color: var(--active-text);
+    box-shadow: 0 0 0 2px var(--highlight-border, #ffb74d);
   }
 
   /* Settings Menu */
@@ -620,48 +896,6 @@
     background: var(--bg-color);
     color: var(--text-color);
     font-size: 14px;
-  }
-
-  .segment {
-    cursor: pointer;
-    transition:
-      color 0.6s cubic-bezier(0.4, 0, 0.2, 1),
-      background-color 0.3s ease,
-      transform 0.2s ease,
-      box-shadow 0.3s ease;
-    border-radius: 4px;
-    padding: 2px 4px;
-    margin: -2px -4px;
-  }
-
-  .segment:hover {
-    background: var(--hover-bg);
-    transform: translateY(-1px);
-  }
-
-  .segment.unprocessed {
-    color: var(--unprocessed-text);
-    font-weight: 500;
-  }
-
-  .segment.active {
-    background: var(--highlight-bg, #ffe0b2);
-    color: var(--highlight-text, #000);
-    box-shadow: 0 0 0 2px var(--highlight-border, #ffb74d);
-    border-radius: 4px;
-    animation: highlightPulse 0.4s ease-out;
-  }
-
-  @keyframes highlightPulse {
-    0% {
-      transform: scale(1);
-    }
-    50% {
-      transform: scale(1.02);
-    }
-    100% {
-      transform: scale(1);
-    }
   }
 
   /* Subtle indicator for buffered segments */

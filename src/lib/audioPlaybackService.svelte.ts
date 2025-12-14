@@ -2,10 +2,14 @@ import { getTTSWorker } from './ttsWorkerManager'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import type { Chapter } from './types/book'
+import { getChapterSegments, getChapterAudio } from './libraryDB'
+import type { AudioSegment } from './types/audio'
 
 interface TextSegment {
   index: number
   text: string
+  duration?: number
+  startTime?: number
 }
 
 class AudioPlaybackService {
@@ -14,11 +18,12 @@ class AudioPlaybackService {
   currentSegmentIndex = $state(-1)
   currentTime = $state(0)
   duration = $state(0)
+  segments = $state<TextSegment[]>([])
 
   // Audio & Data
   private audio: HTMLAudioElement | null = null
   private speechUtterance: SpeechSynthesisUtterance | null = null
-  private segments: TextSegment[] = []
+  // private segments: TextSegment[] = [] // Moved to state public property
   private audioSegments = new Map<number, string>() // index -> blob URL
   private segmentDurations = new Map<number, number>() // index -> seconds
   private wordsPerSegment: number[] = []
@@ -26,6 +31,7 @@ class AudioPlaybackService {
   private wordsMeasured = 0
   private pendingGenerations = new Map<number, Promise<void>>()
   private bufferTarget = 5
+  private chapterAudioUrl: string | null = null // Track chapter audio URL for cleanup
 
   // Configuration
   private voice = ''
@@ -55,7 +61,7 @@ class AudioPlaybackService {
   }
 
   // Initialize with a chapter
-  initialize(
+  async initialize(
     bookId: number | null,
     bookTitle: string,
     chapter: Chapter,
@@ -75,24 +81,51 @@ class AudioPlaybackService {
   ) {
     this.stop() // Stop previous playback
 
-    this.segments = this.splitIntoSegments(chapter.content)
-    // Compute words per segment & estimated chapter duration
-    this.wordsPerSegment = this.segments.map(
-      (s) => s.text.trim().split(/\s+/).filter(Boolean).length
-    )
-    this.totalWords = this.wordsPerSegment.reduce((a, b) => a + b, 0)
-    this.wordsMeasured = 0
-    this.segmentDurations.clear()
-    // Heuristic words per minute for speech (adjustable/tunable)
-    const WORDS_PER_MINUTE = 160
-    const wordsPerSecond = WORDS_PER_MINUTE / 60
-    const estimateSeconds = this.totalWords / (wordsPerSecond || 1)
-    audioPlayerStore.setChapterDuration(estimateSeconds)
     this.voice = settings.voice
     this.quantization = settings.quantization
     this.device = settings.device || 'auto'
     this.selectedModel = settings.selectedModel || 'kokoro'
     this.playbackSpeed = settings.playbackSpeed || 1.0
+
+    // Check for existing segments in DB
+    let dbSegments: AudioSegment[] = []
+    if (bookId) {
+      try {
+        dbSegments = await getChapterSegments(bookId, chapter.id)
+      } catch (e) {
+        logger.warn('Failed to load segments from DB', e)
+      }
+    }
+
+    if (dbSegments.length > 0) {
+      logger.info(`Loaded ${dbSegments.length} segments from DB for chapter ${chapter.id}`)
+      this.segments = dbSegments.map((s) => ({ index: s.index, text: s.text }))
+
+      // Hydrate audio map
+      for (const s of dbSegments) {
+        this.audioSegments.set(s.index, URL.createObjectURL(s.audioBlob))
+        // We'll lazy load durations as we play or if we walk them
+      }
+    } else {
+      // Fallback to local splitting logic
+      this.segments = this.splitIntoSegments(chapter.content)
+    }
+
+    // Compute words per segment & estimated chapter duration
+    this.wordsPerSegment = this.segments.map(
+      (s) => s.text.trim().split(/\s+/).filter(Boolean).length
+    )
+    this.totalWords = this.wordsPerSegment.reduce((a, b) => a + b, 0)
+    // ... rest of init logic (reset state, store init)
+
+    this.wordsMeasured = 0
+    this.segmentDurations.clear()
+
+    // Heuristic words per minute for speech (adjustable/tunable)
+    const WORDS_PER_MINUTE = 160
+    const wordsPerSecond = WORDS_PER_MINUTE / 60
+    const estimateSeconds = this.totalWords / (wordsPerSecond || 1)
+    audioPlayerStore.setChapterDuration(estimateSeconds)
 
     this.currentSegmentIndex = 0
     this.currentTime = 0
@@ -104,10 +137,6 @@ class AudioPlaybackService {
     this.duration = 0
     this.isPlaying = false
 
-    // Clear old audio segments
-    this.audioSegments.clear()
-    this.segmentDurations.clear()
-
     // Initialize store
     audioPlayerStore.startPlayback(
       bookId,
@@ -118,23 +147,27 @@ class AudioPlaybackService {
       options?.startMinimized ?? false
     )
 
-    // If we have a starting segment index, ensure it's generated and create an audio element
+    // If we have a starting segment index, ensure it's generated (if not already loaded) and create audio element
     if (options?.startSegmentIndex !== undefined) {
       const index = options.startSegmentIndex
 
       if (this.selectedModel === 'web_speech') {
         // For web speech, we just set the index and let play() handle it
-        // No pre-generation needed
       } else {
-        // Generate segment in background
-        this.generateSegment(index).catch((e) =>
-          logger.debug('Failed to generate initial segment:', e)
-        )
+        // Generate segment in background if needed (already loaded if from DB)
+        if (!this.audioSegments.has(index)) {
+          this.generateSegment(index).catch((e) =>
+            logger.debug('Failed to generate initial segment:', e)
+          )
+        }
+
         // Prepare audio element but do not play
         const prepareAudio = async () => {
           try {
             // We need to wait for the segment to be available
-            await this.generateSegment(index)
+            if (!this.audioSegments.has(index)) {
+              await this.generateSegment(index)
+            }
             const url = this.audioSegments.get(index)
             if (!url) return
             if (this.audio) {
@@ -170,12 +203,25 @@ class AudioPlaybackService {
     }
   }
 
-  private splitIntoSegments(text: string): TextSegment[] {
-    const sentences = text.split(/(?<=[.!?])\s+/)
-    return sentences
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .map((text, index) => ({ index, text }))
+  private splitIntoSegments(html: string): TextSegment[] {
+    try {
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(html, 'text/html')
+      const fullText = doc.body.textContent || ''
+      const sentences = fullText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [fullText]
+
+      return sentences
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((text, index) => ({ index, text }))
+    } catch (err) {
+      logger.warn('Failed to segment HTML for fallback playback', err)
+      const sentences = html.split(/(?<=[.!?])\s+/)
+      return sentences
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((text, index) => ({ index, text }))
+    }
   }
 
   private async getDurationFromUrl(url: string): Promise<number> {
@@ -197,13 +243,126 @@ class AudioPlaybackService {
     })
   }
 
+  /**
+   * Load a pre-generated chapter for pure playback.
+   * This method uses stored segments with timing data and a single concatenated audio file.
+   * No on-demand generation is performed.
+   */
+  async loadChapter(bookId: number, bookTitle: string, chapter: Chapter): Promise<boolean> {
+    this.stop()
+
+    // Load segments with timing data
+    let dbSegments: AudioSegment[] = []
+    try {
+      dbSegments = await getChapterSegments(bookId, chapter.id)
+    } catch (e) {
+      logger.warn('Failed to load segments from DB', e)
+      return false
+    }
+
+    if (dbSegments.length === 0) {
+      logger.info('No segments found in DB for chapter', chapter.id)
+      return false
+    }
+
+    // Load concatenated chapter audio
+    let chapterAudioBlob: Blob | null = null
+    try {
+      chapterAudioBlob = await getChapterAudio(bookId, chapter.id)
+    } catch (e) {
+      logger.warn('Failed to load chapter audio from DB', e)
+      return false
+    }
+
+    if (!chapterAudioBlob) {
+      logger.info('No chapter audio found in DB for chapter', chapter.id)
+      return false
+    }
+
+    // Populate segments with timing data
+    this.segments = dbSegments.map((s) => ({
+      index: s.index,
+      text: s.text,
+      duration: s.duration,
+      startTime: s.startTime,
+    }))
+
+    // Create audio element from chapter blob
+    const chapterAudioUrl = URL.createObjectURL(chapterAudioBlob)
+    this.chapterAudioUrl = chapterAudioUrl // Store for cleanup
+    this.audio = new Audio(chapterAudioUrl)
+    this.audio.playbackRate = this.playbackSpeed
+
+    // Calculate total duration from last segment
+    const lastSeg = this.segments[this.segments.length - 1]
+    const totalDuration = (lastSeg.startTime || 0) + (lastSeg.duration || 0)
+    audioPlayerStore.setChapterDuration(totalDuration)
+    this.duration = totalDuration
+
+    // Set up time-based segment tracking
+    this.audio.ontimeupdate = () => {
+      if (!this.audio) return
+      this.currentTime = this.audio.currentTime
+
+      // Find which segment we're in based on currentTime
+      const seg = this.segments.find(
+        (s) =>
+          s.startTime !== undefined &&
+          s.duration !== undefined &&
+          this.audio!.currentTime >= s.startTime &&
+          this.audio!.currentTime < s.startTime + s.duration
+      )
+      if (seg && seg.index !== this.currentSegmentIndex) {
+        this.currentSegmentIndex = seg.index
+      }
+    }
+
+    this.audio.onended = () => {
+      this.isPlaying = false
+      audioPlayerStore.pause()
+    }
+
+    this.audio.onerror = (e) => {
+      logger.error('Chapter audio playback error:', e)
+      this.isPlaying = false
+    }
+
+    this.currentSegmentIndex = 0
+    this.currentTime = 0
+
+    // Initialize store
+    audioPlayerStore.startPlayback(
+      bookId,
+      bookTitle,
+      chapter,
+      { voice: '', quantization: 'q8' },
+      false,
+      false
+    )
+
+    logger.info(`Loaded chapter ${chapter.id} with ${dbSegments.length} segments for pure playback`)
+    return true
+  }
+
   // Playback Control
   async play() {
     if (this.isPlaying) return
 
+    // If audio element exists (loaded by loadChapter or other means), play it directly
+    if (this.audio) {
+      this.isPlaying = true
+      try {
+        await this.audio.play()
+      } catch (e) {
+        logger.error('Failed to play audio:', e)
+        this.isPlaying = false
+      }
+      return
+    }
+
+    // Web Speech fallback
     if (this.selectedModel === 'web_speech') {
       this.isPlaying = true
-      // Resume if paused, otherwise play current segment
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume()
       } else {
@@ -212,15 +371,8 @@ class AudioPlaybackService {
       return
     }
 
-    if (this.audio && this.audio.paused && !this.audio.ended) {
-      this.isPlaying = true
-      try {
-        await this.audio.play()
-      } catch (e) {
-        logger.error('Failed to resume audio:', e)
-        this.isPlaying = false
-      }
-    } else if (this.currentSegmentIndex >= 0) {
+    // Fallback: try to play from first segment (legacy on-demand mode)
+    if (this.currentSegmentIndex >= 0) {
       this.isPlaying = true
       await this.playCurrentSegment()
     } else {
@@ -258,7 +410,26 @@ class AudioPlaybackService {
   async playFromSegment(index: number) {
     if (index < 0 || index >= this.segments.length) return
 
-    // Remember if we were playing
+    const segment = this.segments[index]
+
+    // If audio was loaded via loadChapter (single audio file with timing data), seek to segment position
+    if (this.audio && segment && segment.startTime !== undefined) {
+      this.currentSegmentIndex = index
+      this.audio.currentTime = segment.startTime
+
+      if (!this.isPlaying) {
+        this.isPlaying = true
+        try {
+          await this.audio.play()
+        } catch (e) {
+          logger.error('Failed to play from segment:', e)
+          this.isPlaying = false
+        }
+      }
+      return
+    }
+
+    // Legacy on-demand generation mode
     const wasPlaying = this.isPlaying
 
     // Stop current audio completely to prevent race condition
@@ -280,7 +451,7 @@ class AudioPlaybackService {
     this.pendingGenerations.clear()
 
     this.currentSegmentIndex = index
-    this.isPlaying = wasPlaying // Preserve playing state
+    this.isPlaying = wasPlaying
 
     if (this.selectedModel === 'web_speech') {
       if (this.isPlaying) {
@@ -291,7 +462,6 @@ class AudioPlaybackService {
 
     // Ensure generated
     if (!this.audioSegments.has(index)) {
-      // Indicate buffering while we wait for this segment to be generated
       if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(true)
       try {
         await this.generateSegment(index)
@@ -304,10 +474,8 @@ class AudioPlaybackService {
       if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(false)
     }
 
-    // Check if switched while generating
     if (this.currentSegmentIndex !== index) return
 
-    // Buffer ahead
     this.bufferSegments(index + 1, this.bufferTarget).catch((err) =>
       logger.error('[AudioPlayback]', err)
     )
@@ -354,6 +522,18 @@ class AudioPlaybackService {
       this.audio = null
     }
     this.cancelWebSpeech()
+
+    // Revoke all blob URLs to prevent memory leaks
+    for (const url of this.audioSegments.values()) {
+      URL.revokeObjectURL(url)
+    }
+    this.audioSegments.clear()
+
+    // Revoke chapter audio URL if it exists
+    if (this.chapterAudioUrl) {
+      URL.revokeObjectURL(this.chapterAudioUrl)
+      this.chapterAudioUrl = null
+    }
 
     this.currentSegmentIndex = -1
     // Clear derived info
@@ -530,6 +710,12 @@ class AudioPlaybackService {
             dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
             device: this.device,
           })
+
+          // Defensive: revoke old URL if exists (normal flow checks has(index) before calling this method)
+          const oldUrl = this.audioSegments.get(index)
+          if (oldUrl) {
+            URL.revokeObjectURL(oldUrl)
+          }
 
           const url = URL.createObjectURL(blob)
           this.audioSegments.set(index, url)

@@ -363,4 +363,103 @@ describe('kokoroClient', () => {
       })
     })
   })
+
+  describe('MIN_TEXT_LENGTH filtering', () => {
+    it('should filter out segments shorter than MIN_TEXT_LENGTH (3 chars)', async () => {
+      const { splitTextIntoChunks } = await import('./kokoroClient.ts')
+      // Text with very short segments mixed with valid text
+      const text = 'Valid sentence here. 1. Another valid sentence. 2. Final valid text.'
+      const chunks = splitTextIntoChunks(text, 1000)
+
+      // All chunks should be >= 3 characters
+      chunks.forEach((chunk: string) => {
+        expect(chunk.trim().length).toBeGreaterThanOrEqual(3)
+      })
+
+      // Should have filtered out the "1." and "2." segments
+      expect(chunks.some((c: string) => c.trim() === '1.')).toBe(false)
+      expect(chunks.some((c: string) => c.trim() === '2.')).toBe(false)
+    })
+
+    it('should return original text when all segments are too short', async () => {
+      const { splitTextIntoChunks } = await import('./kokoroClient.ts')
+      // Text with only very short segments
+      const text = '1. 2. 3.'
+      const chunks = splitTextIntoChunks(text, 1000)
+
+      // Should return the original text as fallback when all segments are filtered
+      // (splitTextIntoChunks returns [text] when chunks.length === 0)
+      expect(chunks).toHaveLength(1)
+      expect(chunks[0]).toBe(text)
+    })
+
+    it('should handle mixed short and long segments correctly', async () => {
+      const { splitTextIntoChunks } = await import('./kokoroClient.ts')
+      const text = 'This is valid. 1. Another sentence. 2. 3. Final.'
+      const chunks = splitTextIntoChunks(text, 50)
+
+      // All returned chunks should be >= 3 characters
+      chunks.forEach((chunk: string) => {
+        expect(chunk.trim().length).toBeGreaterThanOrEqual(3)
+      })
+
+      // Should have filtered out short segments
+      expect(chunks.length).toBeGreaterThan(0)
+      expect(chunks.some((c: string) => c.trim().length < 3)).toBe(false)
+    })
+  })
+
+  describe('generateVoiceSegments with MIN_TEXT_LENGTH', () => {
+    it('should return silent audio for text shorter than MIN_TEXT_LENGTH', async () => {
+      const { generateVoiceSegments } = await import('./kokoroClient.ts')
+
+      // Very short text
+      const result = await generateVoiceSegments({
+        text: '1.',
+        voice: 'af_heart',
+      })
+
+      // Should return a result with silent audio
+      expect(result).toHaveLength(1)
+      expect(result[0].blob).toBeInstanceOf(Blob)
+      expect(result[0].blob.type).toBe('audio/wav')
+      expect(result[0].text).toBe('1.') // Text should be preserved
+    })
+
+    it('should return silent audio when all chunks are filtered out', async () => {
+      const { generateVoiceSegments } = await import('./kokoroClient.ts')
+
+      // Long text but all segments are too short
+      const longShortText = '1. 2. 3. 4. 5. 6. 7. 8. 9. 0. a. b. c. d. e. f. g. h. i. j.'
+      const result = await generateVoiceSegments({
+        text: longShortText,
+        voice: 'af_heart',
+      })
+
+      // Should return a result with silent audio
+      expect(result).toHaveLength(1)
+      expect(result[0].blob).toBeInstanceOf(Blob)
+      expect(result[0].blob.type).toBe('audio/wav')
+      expect(result[0].text).toBe(longShortText) // Original text should be preserved
+    })
+
+    it('should generate audio for valid text with short segments filtered', async () => {
+      const { generateVoiceSegments } = await import('./kokoroClient.ts')
+
+      // Mix of valid and short segments
+      const text = 'This is a valid sentence. 1. Another valid sentence.'
+      const result = await generateVoiceSegments({
+        text: text,
+        voice: 'af_heart',
+      })
+
+      // Should successfully generate audio segments
+      expect(result.length).toBeGreaterThan(0)
+      result.forEach((segment) => {
+        expect(segment.blob).toBeInstanceOf(Blob)
+        expect(segment.blob.type).toBe('audio/wav')
+        expect(segment.text).toBeTruthy()
+      })
+    })
+  })
 })

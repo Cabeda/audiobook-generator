@@ -21,7 +21,7 @@ test.describe('Multi-Format eBook Support', () => {
     expect(uploadText).toContain('HTML')
   })
 
-  test.skip('should show format badge after EPUB upload', async ({ page }) => {
+  test.skip('should show format badge after EPUB upload', async ({ page: _page }) => {
     // Skipped: requires specific EPUB file
     // This functionality is tested manually and in other existing E2E tests
   })

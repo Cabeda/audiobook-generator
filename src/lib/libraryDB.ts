@@ -1,4 +1,5 @@
 import type { Book } from './types/book'
+import type { AudioSegment } from './types/audio'
 
 /**
  * Extended Book interface for library storage
@@ -29,9 +30,10 @@ export interface BookMetadata {
 }
 
 const DB_NAME = 'AudiobookLibrary'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const STORE_NAME = 'books'
 const AUDIO_STORE_NAME = 'chapterAudio'
+const SEGMENT_STORE_NAME = 'chapterSegments'
 
 /**
  * Initialize and return the IndexedDB database
@@ -73,8 +75,14 @@ async function openDB(): Promise<IDBDatabase> {
         audioStore.createIndex('bookId', 'bookId', { unique: false })
       }
 
-      // v3: No schema changes needed, existing records will have undefined settings
-      // which is handled gracefully in the code
+      // v4: Create segments store
+      if (!db.objectStoreNames.contains(SEGMENT_STORE_NAME)) {
+        const segmentStore = db.createObjectStore(SEGMENT_STORE_NAME, {
+          keyPath: ['bookId', 'chapterId', 'index'],
+        })
+        segmentStore.createIndex('bookId', 'bookId', { unique: false })
+        segmentStore.createIndex('chapterId', ['bookId', 'chapterId'], { unique: false })
+      }
     }
   })
 }
@@ -217,6 +225,42 @@ export async function updateLastAccessed(id: number): Promise<void> {
 }
 
 /**
+ * Update the content of a specific chapter
+ */
+export async function updateChapterContent(
+  bookId: number,
+  chapterId: string,
+  newContent: string
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get(bookId)
+
+    request.onsuccess = () => {
+      const book = request.result as LibraryBook
+      if (book) {
+        const chapterIndex = book.chapters.findIndex((c) => c.id === chapterId)
+        if (chapterIndex !== -1) {
+          book.chapters[chapterIndex].content = newContent
+          store.put(book)
+          resolve()
+        } else {
+          reject(new Error('Chapter not found'))
+        }
+      } else {
+        reject(new Error('Book not found'))
+      }
+    }
+
+    request.onerror = () => reject(new Error('Failed to get book for updating content'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
  * Delete a book from the library
  */
 export async function deleteBook(id: number): Promise<void> {
@@ -256,6 +300,44 @@ export async function searchBooks(query: string): Promise<BookMetadata[]> {
       book.title.toLowerCase().includes(lowerQuery) ||
       book.author.toLowerCase().includes(lowerQuery)
   )
+}
+/**
+ * Returns the set of chapter IDs that have generated segments in the database for the given book.
+ */
+export async function getBookGenerationStatus(bookId: number): Promise<Set<string>> {
+  const db = await openDB()
+
+  return new Promise((resolve) => {
+    // Check segments store
+    if (!db.objectStoreNames.contains(SEGMENT_STORE_NAME)) {
+      db.close()
+      resolve(new Set())
+      return
+    }
+
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    const index = store.index('bookId')
+    const request = index.getAllKeys(IDBKeyRange.only(bookId))
+
+    request.onsuccess = () => {
+      const result = request.result
+      const generatedChapterIds = new Set<string>()
+
+      // Result is array of keys: [bookId, chapterId, index]
+      for (const key of result) {
+        if (Array.isArray(key) && key.length >= 2) {
+          generatedChapterIds.add(key[1] as string)
+        }
+      }
+      resolve(generatedChapterIds)
+    }
+
+    request.onerror = () => {
+      console.warn('Failed to check generation status', request.error)
+      resolve(new Set()) // Fail safe
+    }
+  })
 }
 
 /**
@@ -304,16 +386,23 @@ export async function clearLibrary(): Promise<void> {
   const db = await openDB()
 
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME, AUDIO_STORE_NAME], 'readwrite')
+    const transaction = db.transaction(
+      [STORE_NAME, AUDIO_STORE_NAME, SEGMENT_STORE_NAME],
+      'readwrite'
+    )
     const bookStore = transaction.objectStore(STORE_NAME)
     const audioStore = transaction.objectStore(AUDIO_STORE_NAME)
 
+    const segmentStore = transaction.objectStore(SEGMENT_STORE_NAME)
+
     const bookRequest = bookStore.clear()
     const audioRequest = audioStore.clear()
+    const segmentRequest = segmentStore.clear()
 
     const handleError = () => reject(new Error('Failed to clear library'))
     bookRequest.onerror = handleError
     audioRequest.onerror = handleError
+    segmentRequest.onerror = handleError
 
     transaction.oncomplete = () => {
       db.close()
@@ -417,29 +506,106 @@ export async function getChapterAudioWithSettings(
 }
 
 /**
- * Delete all audio for a specific book
+ * Save audio segments for a chapter
+ */
+export async function saveChapterSegments(
+  bookId: number,
+  chapterId: string,
+  segments: AudioSegment[]
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+
+    segments.forEach((segment) => {
+      store.put({
+        ...segment,
+        bookId,
+        chapterId,
+      })
+    })
+
+    transaction.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+
+    transaction.onerror = () => {
+      reject(new Error('Failed to save chapter segments'))
+    }
+  })
+}
+
+/**
+ * Get all audio segments for a chapter
+ */
+export async function getChapterSegments(
+  bookId: number,
+  chapterId: string
+): Promise<AudioSegment[]> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    const index = store.index('chapterId')
+    // Query by composite key [bookId, chapterId]
+    const request = index.getAll(IDBKeyRange.only([bookId, chapterId]))
+
+    request.onsuccess = () => {
+      const results = request.result || []
+      // Sort by index just in case
+      results.sort((a, b) => a.index - b.index)
+      resolve(results as AudioSegment[])
+    }
+
+    request.onerror = () => reject(new Error('Failed to get chapter segments'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
+ * Delete all audio for a specific book (including segments)
  */
 export async function deleteBookAudio(bookId: number): Promise<void> {
   const db = await openDB()
 
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(AUDIO_STORE_NAME, 'readwrite')
-    const store = transaction.objectStore(AUDIO_STORE_NAME)
-    const index = store.index('bookId')
-    const request = index.openKeyCursor(IDBKeyRange.only(bookId))
+    const transaction = db.transaction([AUDIO_STORE_NAME, SEGMENT_STORE_NAME], 'readwrite')
 
-    request.onsuccess = () => {
-      const cursor = request.result
+    // Delete from main audio store
+    const audioStore = transaction.objectStore(AUDIO_STORE_NAME)
+    const audioIndex = audioStore.index('bookId')
+    const audioRequest = audioIndex.openKeyCursor(IDBKeyRange.only(bookId))
+
+    audioRequest.onsuccess = () => {
+      const cursor = audioRequest.result
       if (cursor) {
-        store.delete(cursor.primaryKey)
+        audioStore.delete(cursor.primaryKey)
         cursor.continue()
-      } else {
-        // No more entries
-        resolve()
       }
     }
 
-    request.onerror = () => reject(new Error('Failed to delete book audio'))
-    transaction.oncomplete = () => db.close()
+    // Delete from segments store
+    const segmentStore = transaction.objectStore(SEGMENT_STORE_NAME)
+    const segmentIndex = segmentStore.index('bookId')
+    const segmentRequest = segmentIndex.openKeyCursor(IDBKeyRange.only(bookId))
+
+    segmentRequest.onsuccess = () => {
+      const cursor = segmentRequest.result
+      if (cursor) {
+        segmentStore.delete(cursor.primaryKey)
+        cursor.continue()
+      }
+    }
+
+    transaction.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+
+    transaction.onerror = () => reject(new Error('Failed to delete book audio'))
   })
 }

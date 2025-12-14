@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { BookMetadata } from '../lib/libraryDB'
+  import { toastStore } from '../stores/toastStore'
 
   interface Props {
     book: BookMetadata
@@ -50,7 +51,7 @@
         await ondelete(book)
       } catch (err) {
         console.error('Delete failed:', err)
-        alert('Failed to delete book')
+        toastStore.error('Failed to delete book')
         deleting = false
       }
     }
@@ -86,14 +87,16 @@
         <span class="book-icon">📚</span>
       </div>
     {/if}
-    <button
-      class="delete-btn"
-      onclick={handleDelete}
-      disabled={deleting}
-      aria-label={`Delete ${book.title}`}
-    >
-      {deleting ? '...' : '🗑️'}
-    </button>
+    {#if viewMode === 'grid'}
+      <button
+        class="delete-btn"
+        onclick={handleDelete}
+        disabled={deleting}
+        aria-label={`Delete ${book.title}`}
+      >
+        {deleting ? '...' : '🗑️'}
+      </button>
+    {/if}
   </div>
 
   <div class="book-info">
@@ -115,6 +118,18 @@
       </div>
     </div>
   </div>
+
+  {#if viewMode === 'list'}
+    <button
+      class="delete-btn-list"
+      onclick={handleDelete}
+      disabled={deleting}
+      aria-label={`Delete ${book.title}`}
+      title={`Delete "${book.title}"`}
+    >
+      {deleting ? '⏳' : '🗑️'}
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -145,13 +160,13 @@
     flex-direction: row;
     height: auto;
     align-items: center;
-    padding: 12px;
+    padding: 12px 16px;
     gap: 16px;
-    border-radius: 8px; /* Slightly less rounded in list */
+    border-radius: 8px;
   }
 
   .book-card.list-view:hover {
-    transform: translateX(4px); /* Valid visual feedback for row */
+    transform: translateX(2px);
   }
 
   .book-cover {
@@ -198,48 +213,61 @@
     position: absolute;
     top: 8px;
     right: 8px;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.6);
     border: none;
     border-radius: 6px;
-    padding: 8px;
-    font-size: 1.2rem;
+    padding: 6px;
+    font-size: 1.1rem;
     cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.2s ease;
+    opacity: 1;
+    transition: all 0.2s ease;
     z-index: 10;
-  }
-
-  /* In list view, make delete button always visible */
-  .book-card.list-view .delete-btn {
-    position: static;
-    opacity: 1; /* Always visible */
-    background: transparent;
-    color: #ef4444; /* Red color */
-    padding: 8px;
-    margin-left: auto; /* Push to right */
-    transition: all 0.2s;
-  }
-
-  .book-card.list-view:hover .delete-btn {
-    opacity: 1;
-    background: rgba(239, 68, 68, 0.1);
-  }
-
-  .book-card:hover .delete-btn {
-    opacity: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    min-height: 32px;
   }
 
   .delete-btn:hover {
     background: rgba(220, 38, 38, 0.9);
-    color: white;
+    transform: scale(1.1);
   }
 
-  .book-card.list-view .delete-btn:hover {
-    background: rgba(220, 38, 38, 0.9);
-    color: white;
+  .delete-btn:active {
+    transform: scale(0.95);
   }
 
-  .delete-btn:disabled {
+  .delete-btn-list {
+    background: transparent;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 1rem;
+    cursor: pointer;
+    color: #6b7280;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .delete-btn-list:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+    border-color: #dc2626;
+    transform: scale(1.05);
+  }
+
+  .delete-btn-list:active {
+    transform: scale(0.95);
+  }
+
+  .delete-btn:disabled,
+  .delete-btn-list:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
@@ -257,7 +285,8 @@
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: 12px;
+    flex: 1;
   }
 
   .info-header {
@@ -265,6 +294,7 @@
     flex-direction: column;
     gap: 4px;
     flex: 1;
+    min-width: 0; /* Allow text truncation */
   }
 
   .info-details {
@@ -276,9 +306,10 @@
   .book-card.list-view .info-details {
     flex-direction: row;
     align-items: center;
-    gap: 24px;
-    min-width: 300px;
+    gap: 12px;
+    min-width: 0;
     justify-content: flex-end;
+    flex-shrink: 0;
   }
 
   .book-title {
@@ -287,8 +318,8 @@
     font-weight: 600;
     color: #1f2937;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -345,16 +376,124 @@
     font-weight: 500;
   }
 
-  /* Responsive for list view */
-  @media (max-width: 640px) {
-    .book-card.list-view .info-details {
-      display: none; /* Hide details on very small screens in list mode to keep strict layout? or stack? */
+  /* Responsive for list view - Tablets & Medium screens (768px and below) */
+  @media (max-width: 768px) {
+    .book-card.list-view {
+      padding: 12px;
+      gap: 12px;
     }
 
-    .book-card.list-view .book-info {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 4px;
+    .book-card.list-view .book-cover {
+      width: 50px;
+      height: 75px;
+    }
+
+    .book-meta {
+      gap: 6px;
+    }
+
+    .format-badge {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+    }
+
+    .chapter-count {
+      font-size: 0.7rem;
+    }
+
+    .book-card.list-view .info-details {
+      gap: 8px;
+      font-size: 0.8rem;
+    }
+
+    .delete-btn-list {
+      min-width: 40px;
+      min-height: 40px;
+      padding: 6px 8px;
+      font-size: 0.9rem;
+    }
+  }
+
+  /* Responsive for list view - Mobile phones (640px and below) */
+  @media (max-width: 640px) {
+    .book-card.list-view {
+      padding: 10px 12px;
+      gap: 10px;
+    }
+
+    .book-card.list-view .book-cover {
+      width: 45px;
+      height: 67px;
+      border-radius: 3px;
+    }
+
+    .book-icon {
+      font-size: 2rem;
+    }
+
+    .book-title {
+      font-size: 0.9rem;
+    }
+
+    .book-author {
+      font-size: 0.75rem;
+    }
+
+    .format-badge {
+      font-size: 0.65rem;
+      padding: 2px 5px;
+    }
+
+    .chapter-count {
+      font-size: 0.65rem;
+    }
+
+    .book-card.list-view .info-details {
+      display: none; /* Hide details on very small screens to keep compact */
+    }
+
+    .book-meta {
+      display: none; /* Hide meta on very small screens */
+    }
+
+    .delete-btn-list {
+      min-width: 36px;
+      min-height: 36px;
+      padding: 4px 6px;
+      font-size: 0.85rem;
+      border: none;
+      background: transparent;
+    }
+
+    .delete-btn-list:hover {
+      background: rgba(239, 68, 68, 0.1);
+    }
+  }
+
+  /* Very small phones (below 480px) */
+  @media (max-width: 480px) {
+    .book-card.list-view {
+      padding: 8px 10px;
+      gap: 8px;
+    }
+
+    .book-card.list-view .book-cover {
+      width: 40px;
+      height: 60px;
+    }
+
+    .book-title {
+      font-size: 0.85rem;
+    }
+
+    .book-author {
+      display: none; /* Hide author on very small screens */
+    }
+
+    .delete-btn-list {
+      min-width: 32px;
+      min-height: 32px;
+      font-size: 0.8rem;
     }
   }
 
@@ -375,6 +514,18 @@
     .format-badge {
       background: #374151;
       color: #d1d5db;
+    }
+
+    .delete-btn-list {
+      background: transparent;
+      border-color: #374151;
+      color: #9ca3af;
+    }
+
+    .delete-btn-list:hover {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: #dc2626;
+      color: #fca5a5;
     }
   }
 </style>

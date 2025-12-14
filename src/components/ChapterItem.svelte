@@ -1,5 +1,11 @@
 <script lang="ts">
   import type { Chapter } from '../lib/types/book'
+  import {
+    countWords,
+    estimateSpeechDurationSeconds,
+    formatDurationShort,
+  } from '../lib/utils/textStats'
+  import { toastStore } from '../stores/toastStore'
 
   let {
     chapter,
@@ -12,6 +18,7 @@
     status,
     error,
     onRetry,
+    progress,
   } = $props<{
     chapter: Chapter
     selected?: boolean
@@ -23,10 +30,17 @@
     onDownloadWav: (id: string) => void
     onDownloadMp3: (id: string) => void
     onRetry?: (id: string) => void
+    progress?: { current: number; total: number; message?: string }
   }>()
 
+  const numberFormatter = new Intl.NumberFormat()
+  let wordCount = $derived(countWords(chapter.content))
+  let estimatedDurationSeconds = $derived(estimateSpeechDurationSeconds(wordCount))
+
   function copy() {
-    navigator.clipboard?.writeText(chapter.content).catch(() => alert('Clipboard not available'))
+    navigator.clipboard
+      ?.writeText(chapter.content)
+      .catch(() => toastStore.error('Clipboard not available'))
   }
   let audioElement = $state<HTMLAudioElement | null>(null)
 
@@ -50,15 +64,30 @@
         />
         <span class="chapter-title">{chapter.title}</span>
       </label>
+      <div class="chapter-meta">
+        <span>{numberFormatter.format(wordCount)} words</span>
+        <span class="dot" aria-hidden="true">•</span>
+        <span>~{formatDurationShort(estimatedDurationSeconds)}</span>
+      </div>
       <p class="chapter-preview">
         {chapter.content.slice(0, 180)}{chapter.content.length > 180 ? '…' : ''}
       </p>
     </div>
 
     <div class="card-actions">
+      {#if status === 'processing'}
+        <div class="spinner-container">
+          <span class="spinner" aria-hidden="true"></span>
+        </div>
+      {/if}
       <button
         class="action-btn"
+        class:disabled={status !== 'done'}
+        disabled={status !== 'done'}
         onclick={() => onRead(chapter)}
+        title={status === 'done'
+          ? `Read chapter: ${chapter.title}`
+          : 'Generate audio to read with sync'}
         aria-label={`Read chapter: ${chapter.title}`}
       >
         <span class="icon" aria-hidden="true">📖</span> Read
@@ -75,10 +104,55 @@
     </div>
   </div>
 
+  {#if status === 'processing'}
+    <div class="progress-details">
+      {#if progress?.total}
+        <div class="progress-bar-bg">
+          <div
+            class="progress-fill"
+            style="width: {(progress.current / progress.total) * 100}%"
+          ></div>
+        </div>
+        <div class="progress-text">
+          <span>Generating chunk {progress.current} of {progress.total}</span>
+          {#if progress.message}
+            <span class="progress-sub">{progress.message}</span>
+          {/if}
+        </div>
+      {:else}
+        <div class="progress-text">
+          {progress?.message || 'Preparing generation...'}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   {#if status === 'error' && error}
     <div class="error-container">
-      <span class="error-message">❌ {error}</span>
-      <button class="retry-btn" onclick={() => onRetry?.(chapter.id)}> 🔄 Retry </button>
+      <details class="error-details">
+        <summary class="error-summary">
+          <span class="error-icon">❌</span>
+          <span class="error-title">Generation Failed</span>
+        </summary>
+        <div class="error-content">
+          <pre class="error-text">{error}</pre>
+        </div>
+      </details>
+      <div class="error-actions">
+        <button
+          class="copy-stack-btn"
+          onclick={() => {
+            navigator.clipboard
+              .writeText(error)
+              .then(() => toastStore.success('Error copied to clipboard'))
+              .catch(() => toastStore.error('Failed to copy error'))
+          }}
+          title="Copy stack trace to clipboard"
+        >
+          📋 Copy Stack Trace
+        </button>
+        <button class="retry-btn" onclick={() => onRetry?.(chapter.id)}> 🔄 Retry </button>
+      </div>
     </div>
   {/if}
 
@@ -169,6 +243,20 @@
     padding-left: 30px;
   }
 
+  .chapter-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--secondary-text);
+    font-size: 0.85rem;
+    padding-left: 30px;
+    margin: 4px 0;
+  }
+
+  .dot {
+    color: var(--border-color);
+  }
+
   .card-actions {
     display: flex;
     gap: 8px;
@@ -193,6 +281,20 @@
     background: var(--bg-color);
     border-color: var(--text-color);
     color: var(--text-color);
+  }
+
+  .action-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--surface-color);
+    border-color: var(--border-color);
+    color: var(--secondary-text);
+  }
+
+  .action-btn:disabled:hover {
+    background: var(--surface-color);
+    border-color: var(--border-color);
+    color: var(--secondary-text);
   }
 
   .action-btn.icon-only {
@@ -274,23 +376,6 @@
     }
   }
 
-  .error-container {
-    padding: 12px;
-    background-color: rgba(255, 59, 48, 0.1);
-    border: 1px solid var(--error-color, #ff3b30);
-    border-radius: 6px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .error-message {
-    color: var(--error-color, #ff3b30);
-    font-size: 0.9rem;
-    font-weight: 500;
-  }
-
   .retry-btn {
     background-color: var(--error-color, #ff3b30);
     color: white;
@@ -305,5 +390,128 @@
 
   .retry-btn:hover {
     opacity: 0.9;
+  }
+
+  .error-container {
+    margin-top: 8px;
+    padding: 8px;
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    color: #ef4444;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .error-details {
+    width: 100%;
+  }
+
+  .error-summary {
+    cursor: pointer;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .error-content {
+    margin-top: 8px;
+    background: #fff;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #fca5a5;
+  }
+
+  .error-text {
+    font-family: monospace;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 150px;
+    overflow-y: auto;
+    margin: 0;
+    color: #b91c1c;
+  }
+
+  .error-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .copy-stack-btn {
+    flex: 1;
+    font-size: 0.85rem;
+    padding: 6px 12px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #b91c1c;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .copy-stack-btn:hover {
+    background: #fee2e2;
+    border-color: #fca5a5;
+  }
+  .spinner-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color, #3b82f6);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  .progress-details {
+    margin-top: 8px;
+    padding: 12px;
+    background: var(--bg-color);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+  }
+
+  .progress-bar-bg {
+    height: 6px;
+    background: var(--border-color);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--primary-color, #3b82f6);
+    transition: width 0.3s ease;
+  }
+
+  .progress-text {
+    font-size: 0.85rem;
+    color: var(--secondary-text);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .progress-sub {
+    font-size: 0.8rem;
+    opacity: 0.8;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>
