@@ -12,6 +12,8 @@ import {
   getChapterAudio,
   getChapterAudioWithSettings,
   deleteBookAudio,
+  updateChapterLanguage,
+  updateBookLanguage,
   type AudioGenerationSettings,
 } from './libraryDB'
 import type { Book } from './types/book'
@@ -257,6 +259,62 @@ describe('libraryDB', () => {
       expect(result1?.settings?.device).toBe('webgpu')
       expect(result2?.settings?.quantization).toBeUndefined()
       expect(result2?.settings?.device).toBeUndefined()
+    })
+  })
+
+  describe('Language updates', () => {
+    let bookId: number
+
+    beforeEach(async () => {
+      bookId = await addBook(mockBook)
+    })
+
+    it('should update chapter language', async () => {
+      await updateChapterLanguage(bookId, '1', 'es')
+
+      const book = await getBook(bookId)
+      expect(book?.chapters[0].language).toBe('es')
+      expect(book?.chapters[1].language).toBeUndefined()
+    })
+
+    it('should clear chapter language when set to undefined', async () => {
+      await updateChapterLanguage(bookId, '1', 'es')
+      await updateChapterLanguage(bookId, '1', undefined)
+
+      const book = await getBook(bookId)
+      expect(book?.chapters[0].language).toBeUndefined()
+    })
+
+    it('should reject when updating non-existent chapter', async () => {
+      await expect(updateChapterLanguage(bookId, 'nonexistent', 'es')).rejects.toThrow(
+        'Chapter not found'
+      )
+    })
+
+    it('should reject when updating chapter in non-existent book', async () => {
+      await expect(updateChapterLanguage(99999, '1', 'es')).rejects.toThrow('Book not found')
+    })
+
+    it('should update book language', async () => {
+      await updateBookLanguage(bookId, 'fr')
+
+      const book = await getBook(bookId)
+      expect(book?.language).toBe('fr')
+    })
+
+    it('should reject when updating non-existent book language', async () => {
+      await expect(updateBookLanguage(99999, 'es')).rejects.toThrow('Book not found')
+    })
+
+    it('should persist language updates across multiple operations', async () => {
+      await updateBookLanguage(bookId, 'de')
+      await updateChapterLanguage(bookId, '1', 'es')
+      await updateChapterLanguage(bookId, '2', 'fr')
+
+      const book = await getBook(bookId)
+      expect(book?.language).toBe('de')
+      expect(book?.chapters[0].language).toBe('es')
+      expect(book?.chapters[1].language).toBe('fr')
     })
   })
 })

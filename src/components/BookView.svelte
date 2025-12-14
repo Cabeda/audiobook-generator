@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { fade, fly } from 'svelte/transition'
+  import { get } from 'svelte/store'
   import {
     book,
     selectedChapters,
@@ -25,12 +26,29 @@
   import ChapterItem from './ChapterItem.svelte'
   import { createEventDispatcher } from 'svelte'
   import type { Chapter } from '../lib/types/book'
+  import type { LibraryBook } from '../lib/libraryDB'
   import {
     countWords,
     estimateSpeechDurationSeconds,
     formatDurationShort,
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
+
+  /**
+   * Type guard to check if a book is a LibraryBook with an ID
+   */
+  function isLibraryBook(book: any): book is LibraryBook & { id: number } {
+    return (
+      book !== null &&
+      typeof book === 'object' &&
+      typeof book.id === 'number' &&
+      typeof book.title === 'string' &&
+      typeof book.author === 'string' &&
+      typeof book.dateAdded === 'string' &&
+      typeof book.lastAccessed === 'string' &&
+      Array.isArray(book.chapters)
+    )
+  }
 
   const numberFormatter = new Intl.NumberFormat()
 
@@ -61,6 +79,54 @@
       newMap.set(id, !newMap.get(id))
       return newMap
     })
+  }
+
+  async function handleModelChange(chapterId: string, model: string | undefined) {
+    if (currentBook && isLibraryBook(currentBook)) {
+      const { updateChapterModel } = await import('../lib/libraryDB')
+      try {
+        await updateChapterModel(currentBook.id, chapterId, model)
+        // Update local state
+        book.update((b) => {
+          if (b) {
+            const chapterIndex = b.chapters.findIndex((c) => c.id === chapterId)
+            if (chapterIndex !== -1) {
+              b.chapters[chapterIndex].model = model
+            }
+          }
+          return b
+        })
+        const modelName = model ? TTS_MODELS.find((m) => m.id === model)?.name || model : 'default'
+        toastStore.success(model ? `Model set to ${modelName}` : 'Model reset to default')
+      } catch (error) {
+        toastStore.error(`Failed to update chapter model: ${error}`)
+      }
+    }
+  }
+
+  async function handleVoiceChange(chapterId: string, voice: string | undefined) {
+    if (currentBook && isLibraryBook(currentBook)) {
+      const { updateChapterVoice } = await import('../lib/libraryDB')
+      try {
+        await updateChapterVoice(currentBook.id, chapterId, voice)
+        // Update local state
+        book.update((b) => {
+          if (b) {
+            const chapterIndex = b.chapters.findIndex((c) => c.id === chapterId)
+            if (chapterIndex !== -1) {
+              b.chapters[chapterIndex].voice = voice
+            }
+          }
+          return b
+        })
+        const voiceLabel = voice
+          ? get(availableVoices).find((v) => v.id === voice)?.label || voiceLabels[voice] || voice
+          : 'auto-select'
+        toastStore.success(voice ? `Voice set to ${voiceLabel}` : 'Voice reset to auto-select')
+      } catch (error) {
+        toastStore.error(`Failed to update chapter voice: ${error}`)
+      }
+    }
   }
 
   function selectAll() {
@@ -304,6 +370,7 @@
         {#each currentBook.chapters as chapter (chapter.id)}
           <ChapterItem
             {chapter}
+            book={currentBook}
             selected={selections.get(chapter.id)}
             status={selectedModel === 'web_speech' ? 'done' : statusMap.get(chapter.id)}
             error={errorsMap.get(chapter.id)}
@@ -314,6 +381,8 @@
             onRetry={handleRetry}
             onDownloadWav={() => {}}
             onDownloadMp3={() => {}}
+            onModelChange={handleModelChange}
+            onVoiceChange={handleVoiceChange}
           />
         {/each}
       </div>
