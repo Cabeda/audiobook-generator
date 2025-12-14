@@ -77,6 +77,11 @@
   let piperVoices = $state<VoiceOption[]>([])
   let piperVoicesLoading = $state(false)
 
+  // Piper voices with full metadata (loaded async)
+  let piperVoicesWithMetadata = $state<
+    Array<{ key: string; name: string; language: string; quality: string }>
+  >([])
+
   // Load piper voices on mount
   $effect(() => {
     if (!piperVoicesLoading) {
@@ -85,7 +90,8 @@
         PiperClient.getInstance()
           .getVoices()
           .then((voices) => {
-            piperVoices = voices.map((v) => ({ id: v.key, label: v.label }))
+            piperVoicesWithMetadata = voices
+            piperVoices = voices.map((v) => ({ id: v.key, label: v.name }))
           })
       })
     }
@@ -126,13 +132,15 @@
         .filter((v) => languageVoices.includes(v))
         .map((v) => ({ id: v, label: voiceLabels[v] || v }))
     } else if (effectiveModel === 'piper') {
-      // Filter piper voices by language
-      if (piperVoices.length > 0) {
-        return piperVoices.filter((v) => {
-          // Voice IDs typically start with language code, e.g., "en_US-..."
-          const voiceLang = v.id.split(/[-_]/)[0]?.toLowerCase()
-          return voiceLang === effectiveLanguage.toLowerCase()
-        })
+      // Filter piper voices by language using metadata
+      if (piperVoicesWithMetadata.length > 0) {
+        return piperVoicesWithMetadata
+          .filter((v) => {
+            // Use the language property from voice metadata for accurate filtering
+            const voiceLang = v.language.split(/[-_]/)[0]?.toLowerCase()
+            return voiceLang === effectiveLanguage.toLowerCase()
+          })
+          .map((v) => ({ id: v.key, label: v.name }))
       }
       return []
     } else if (effectiveModel === 'web_speech') {
