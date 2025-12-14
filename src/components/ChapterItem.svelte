@@ -9,6 +9,7 @@
   import { toastStore } from '../stores/toastStore'
   import { selectedModel, selectedVoice, availableVoices } from '../stores/ttsStore'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
+  import { LANGUAGE_OPTIONS, getLanguageLabel } from '../lib/utils/languageResolver'
 
   let {
     chapter,
@@ -40,6 +41,7 @@
     progress?: { current: number; total: number; message?: string }
     onModelChange?: (chapterId: string, model: string | undefined) => void
     onVoiceChange?: (chapterId: string, voice: string | undefined) => void
+    onLanguageChange?: (chapterId: string, language: string | undefined) => void
   }>()
 
   const numberFormatter = new Intl.NumberFormat()
@@ -50,6 +52,7 @@
   // Local state for chapter overrides
   let chapterModel = $state(chapter.model)
   let chapterVoice = $state(chapter.voice)
+  let chapterLanguage = $state(chapter.language)
 
   // Update local state when chapter prop changes
   $effect(() => {
@@ -58,6 +61,9 @@
     }
     if (chapterVoice !== chapter.voice) {
       chapterVoice = chapter.voice
+    }
+    if (chapterLanguage !== chapter.language) {
+      chapterLanguage = chapter.language
     }
   })
 
@@ -88,14 +94,25 @@
     onVoiceChange?.(chapter.id, value)
   }
 
+  function handleLanguageChange(event: Event) {
+    const target = event.target as HTMLSelectElement
+    const value = target.value === 'default' ? undefined : target.value
+    chapterLanguage = value
+    onLanguageChange?.(chapter.id, value)
+  }
+
   function resetToDefault() {
     chapterModel = undefined
     chapterVoice = undefined
+    chapterLanguage = undefined
     onModelChange?.(chapter.id, undefined)
     onVoiceChange?.(chapter.id, undefined)
+    onLanguageChange?.(chapter.id, undefined)
   }
 
-  let hasOverrides = $derived(chapterModel !== undefined || chapterVoice !== undefined)
+  let hasOverrides = $derived(
+    chapterModel !== undefined || chapterVoice !== undefined || chapterLanguage !== undefined
+  )
 </script>
 
 <div class="chapter-card" class:selected role="listitem">
@@ -115,6 +132,18 @@
         <span>{numberFormatter.format(wordCount)} words</span>
         <span class="dot" aria-hidden="true">•</span>
         <span>~{formatDurationShort(estimatedDurationSeconds)}</span>
+        {#if chapter.detectedLanguage && chapter.detectedLanguage !== 'und'}
+          <span class="dot" aria-hidden="true">•</span>
+          <span
+            class="language-badge"
+            title={`Detected: ${chapter.detectedLanguage} (confidence: ${Math.round((chapter.languageConfidence || 0) * 100)}%)`}
+          >
+            🌐 {chapter.detectedLanguage.toUpperCase()}
+            {#if chapter.languageConfidence !== undefined}
+              <span class="confidence">{Math.round(chapter.languageConfidence * 100)}%</span>
+            {/if}
+          </span>
+        {/if}
       </div>
       <p class="chapter-preview">
         {chapter.content.slice(0, 180)}{chapter.content.length > 180 ? '…' : ''}
@@ -262,6 +291,45 @@
           </div>
 
           <div class="setting-row">
+            <label for={`language-${chapter.id}`} class="setting-label">
+              <span>Language</span>
+              <span class="setting-help">
+                {#if chapterLanguage}
+                  Override
+                {:else if chapter.detectedLanguage && chapter.detectedLanguage !== 'und'}
+                  Auto-detected: {chapter.detectedLanguage.toUpperCase()} ({Math.round(
+                    (chapter.languageConfidence || 0) * 100
+                  )}%)
+                {:else if book?.language}
+                  Using book default
+                {:else}
+                  Using app default
+                {/if}
+              </span>
+            </label>
+            <select
+              id={`language-${chapter.id}`}
+              class="setting-select"
+              value={chapterLanguage ?? 'default'}
+              onchange={handleLanguageChange}
+            >
+              <option value="default">
+                🌐 Auto-detect
+                {#if chapter.detectedLanguage && chapter.detectedLanguage !== 'und'}
+                  ({chapter.detectedLanguage.toUpperCase()})
+                {:else if book?.language}
+                  (Book: {book.language.toUpperCase()})
+                {:else}
+                  (EN)
+                {/if}
+              </option>
+              {#each LANGUAGE_OPTIONS as lang}
+                <option value={lang.code}>{getLanguageLabel(lang.code)}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="setting-row">
             <label for={`voice-${chapter.id}`} class="setting-label">
               <span>Voice</span>
               <span class="setting-help"
@@ -373,6 +441,23 @@
 
   .dot {
     color: var(--border-color);
+  }
+
+  .language-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--bg-color);
+    border: 1px solid var(--input-border);
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+
+  .language-badge .confidence {
+    opacity: 0.7;
+    font-size: 0.75rem;
   }
 
   .card-actions {

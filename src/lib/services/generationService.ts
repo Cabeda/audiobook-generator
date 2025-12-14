@@ -24,7 +24,7 @@ import { toastStore } from '../../stores/toastStore'
 import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { convert } from 'html-to-text'
-import { resolveChapterLanguage, DEFAULT_LANGUAGE } from '../utils/languageResolver'
+import { resolveChapterLanguageWithDetection, DEFAULT_LANGUAGE } from '../utils/languageResolver'
 import { selectKokoroVoiceForLanguage, selectPiperVoiceForLanguage } from '../utils/voiceSelector'
 import { PiperClient } from '../piper/piperClient'
 
@@ -441,9 +441,9 @@ class GenerationService {
         const currentDevice = get(selectedDevice)
         const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
 
-        // Resolve the effective language for this chapter
+        // Resolve the effective language for this chapter (with auto-detection support)
         const effectiveLanguage = currentBook
-          ? resolveChapterLanguage(ch, currentBook)
+          ? resolveChapterLanguageWithDetection(ch, currentBook)
           : DEFAULT_LANGUAGE
 
         // Validate content

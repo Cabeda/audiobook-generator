@@ -158,6 +158,20 @@
           const { addBook } = await import('./lib/libraryDB')
           const id = await addBook(b)
           currentLibraryBookId.set(id)
+
+          // Run language detection in background (non-blocking)
+          try {
+            const { detectAndPersistLanguagesForBook } = await import(
+              './lib/services/languageDetectionService'
+            )
+            // Fire and forget - don't block UI
+            detectAndPersistLanguagesForBook(id, b).catch((err) => {
+              console.warn('Language detection failed but continuing:', err)
+            })
+          } catch (detectionError) {
+            console.warn('Could not start language detection:', detectionError)
+          }
+
           // Also refresh library list if we are listener
           const { refreshLibrary } = await import('./stores/libraryStore')
           refreshLibrary()
