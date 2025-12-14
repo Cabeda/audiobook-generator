@@ -34,6 +34,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run benchmarks
+        id: benchmark
         run: |
           echo "Running benchmarks..."
           pnpm run bench
@@ -45,10 +46,16 @@ jobs:
         run: |
           echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Benchmarks completed successfully." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The benchmarks measure:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Kokoro TTS latency**: Time to generate audio from text chunks" >> $GITHUB_STEP_SUMMARY
-          echo "- **Concatenation throughput**: Performance of audio chapter concatenation" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "See test output above for detailed metrics." >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.benchmark.outcome }}" == "success" ]; then
+            echo "✅ Benchmarks completed successfully." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The benchmarks measure:" >> $GITHUB_STEP_SUMMARY
+            echo "- **Kokoro TTS latency**: Time to generate audio from text chunks" >> $GITHUB_STEP_SUMMARY
+            echo "- **Concatenation throughput**: Performance of audio chapter concatenation" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "See test output above for detailed metrics." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Benchmarks failed." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the test output above for error details." >> $GITHUB_STEP_SUMMARY
+          fi
