@@ -32,7 +32,6 @@
     voiceLabels,
     lastKokoroVoice,
     lastPiperVoice,
-    lastWebSpeechVoice,
   } from './stores/ttsStore'
   import { audioPlayerStore } from './stores/audioPlayerStore'
   import { currentLibraryBookId } from './stores/libraryStore'
@@ -57,14 +56,6 @@
       console.error('Failed to load Piper voices', e)
       return []
     }
-  }
-
-  function loadWebSpeechVoices() {
-    const voices = window.speechSynthesis.getVoices()
-    return voices.map((v) => ({
-      id: v.name,
-      label: `${v.name} (${v.lang})`,
-    }))
   }
 
   // Reactive Voice Updater
@@ -97,17 +88,6 @@
               selectedVoice.set(voices[0].id)
             }
           })
-        }
-      })
-    } else if (model === 'web_speech') {
-      const voices = loadWebSpeechVoices()
-      availableVoices.set(voices)
-      untrack(() => {
-        const last = $lastWebSpeechVoice
-        if (voices.find((v) => v.id === last)) {
-          selectedVoice.set(last)
-        } else if (voices.length > 0) {
-          selectedVoice.set(voices[0].id)
         }
       })
     }
@@ -187,15 +167,6 @@
 
   // Initialization
   onMount(() => {
-    // Web Speech Init
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = () => {
-        if ($selectedModel === 'web_speech') {
-          availableVoices.set(loadWebSpeechVoices())
-        }
-      }
-    }
-
     // Hash Routing for persistence
     const handleHash = async () => {
       const parsed = parseHash(location.hash)

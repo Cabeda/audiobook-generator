@@ -137,9 +137,6 @@
           .map((v) => ({ id: v.key, label: v.name }))
       }
       return []
-    } else if (effectiveModel === 'web_speech') {
-      // Use global available voices for web speech
-      return $availableVoices
     }
     return []
   })

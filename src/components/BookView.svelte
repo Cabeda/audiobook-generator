@@ -398,7 +398,7 @@
             {chapter}
             book={currentBook}
             selected={selections.get(chapter.id)}
-            status={selectedModel === 'web_speech' ? 'done' : statusMap.get(chapter.id)}
+            status={statusMap.get(chapter.id)}
             error={errorsMap.get(chapter.id)}
             progress={$chapterProgress.get(chapter.id)}
             audioData={audioMap.get(chapter.id)}

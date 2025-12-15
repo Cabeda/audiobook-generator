@@ -419,12 +419,6 @@ class GenerationService {
     }
 
     const model = get(selectedModel)
-    if (model === 'web_speech') {
-      toastStore.warning(
-        'Web Speech API does not support file generation. Please use Kokoro or Piper models for generating audio files.'
-      )
-      return
-    }
 
     this.running = true
     this.canceled = false // Reset canceled state
