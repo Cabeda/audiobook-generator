@@ -38,6 +38,7 @@ A modern, browser-based audiobook generator that converts EPUB books into high-q
 - 🎭 **Playwright E2E** - Real browser testing with actual TTS
 - 🔄 **CI/CD** - Automated testing on every commit
 - 📊 **Type Safety** - Full TypeScript support
+- ⚡ **Performance Benchmarks** - TTS latency and concatenation throughput tracking
 
 ## 🚀 Quick Start
 
@@ -128,6 +129,10 @@ pnpm run test:ui      # Run tests with UI
 pnpm run test:e2e     # Run E2E tests
 pnpm run test:e2e:ui  # Run E2E tests with UI
 pnpm run test:e2e:headed  # Run E2E with visible browser
+
+# Benchmarks
+pnpm run bench        # Run performance benchmarks
+pnpm run bench:quick  # Run benchmarks with verbose output
 ```
 
 ### Project Structure
@@ -165,6 +170,7 @@ audiobook-generator/
 - **[Audio Formats](docs/AUDIO_FORMATS.md)** - Format comparison, quality settings, use cases
 - **[Audio Concatenation](docs/AUDIO_CONCATENATION.md)** - Concatenation API, chapter markers, usage
 - **[E2E Testing](docs/E2E_TESTING.md)** - Test coverage, running tests, debugging
+- **[Performance Benchmarks](docs/BENCHMARKS.md)** - Benchmark details, interpreting results, performance goals
 - **[Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md)** - Technical overview, architecture
 - **[Troubleshooting Guide](docs/CHUNKING_AND_CONCATENATION.md)** - Chunking behavior, environment requirements, debugging tips
 
