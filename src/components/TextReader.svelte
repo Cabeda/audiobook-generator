@@ -90,16 +90,31 @@
             selectedModel,
           })
           .then((result) => {
-            isLoading = false
             if (result.success) {
               // Check if we have partial audio from progressive generation
-              const progressiveAudio = untrack(() => {
-                const progress = get(segmentProgress).get(cId)
-                return progress && progress.generatedIndices.size > 0
-              })
+              const progressStore = untrack(() => get(segmentProgress).get(cId))
+              const progressiveAudio = progressStore && progressStore.generatedIndices.size > 0
 
               // Audio is available if we have merged audio, segments, web speech, or progressive audio
               audioAvailable = result.hasAudio || !!progressiveAudio
+
+              // Populate audioService.segments from progressive store if not already set
+              if (
+                progressiveAudio &&
+                progressStore &&
+                progressStore.segmentTexts.size > 0 &&
+                audioService.segments.length === 0
+              ) {
+                const segs: Array<{ index: number; text: string }> = []
+                progressStore.segmentTexts.forEach((text, index) => {
+                  segs.push({ index, text })
+                })
+                segs.sort((a, b) => a.index - b.index)
+                audioService.segments = segs
+              }
+
+              // Mark loading complete AFTER segments are populated
+              isLoading = false
 
               const store = get(audioPlayerStore)
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
@@ -111,15 +126,25 @@
               }
             } else {
               // Check if we have partial audio from progressive generation
-              const progressiveAudio = untrack(() => {
-                const progress = get(segmentProgress).get(cId)
-                return progress && progress.generatedIndices.size > 0
-              })
+              const progressStore = untrack(() => get(segmentProgress).get(cId))
+              const progressiveAudio = progressStore && progressStore.generatedIndices.size > 0
 
-              if (progressiveAudio) {
+              if (progressiveAudio && progressStore) {
                 // Don't show error, we have partial audio available
                 audioAvailable = true
+                // Populate audioService.segments from progressive store so injection works
+                if (progressStore.segmentTexts.size > 0 && audioService.segments.length === 0) {
+                  const segs: Array<{ index: number; text: string }> = []
+                  progressStore.segmentTexts.forEach((text, index) => {
+                    segs.push({ index, text })
+                  })
+                  segs.sort((a, b) => a.index - b.index)
+                  audioService.segments = segs
+                }
+                // Mark loading complete AFTER segments are populated
+                isLoading = false
               } else {
+                isLoading = false
                 loadError = true
                 console.warn('Chapter audio not available - generate audio first')
               }
@@ -257,6 +282,23 @@
       searchNormIndex = endNorm
     }
   }
+
+  // Keep audioService.segments in sync with segmentProgressStore during generation
+  // This ensures segments are available for injection even when navigating during generation
+  $effect(() => {
+    const progress = $segmentProgress.get(chapter?.id ?? '')
+    if (!progress || !chapter?.id) return
+
+    // Only update if we have segment texts and audioService needs them
+    if (progress.segmentTexts.size > 0 && audioService.segments.length === 0) {
+      const segs: Array<{ index: number; text: string }> = []
+      progress.segmentTexts.forEach((text, index) => {
+        segs.push({ index, text })
+      })
+      segs.sort((a, b) => a.index - b.index)
+      audioService.segments = segs
+    }
+  })
 
   // Scroll to current segment
   $effect(() => {
@@ -917,14 +959,18 @@
   /* Style for injected segments */
   :global(.segment) {
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: 3px;
+    padding: 2px 4px;
+    margin: -2px -4px;
     transition:
-      background-color 0.2s,
-      color 0.2s;
+      background-color 0.15s ease,
+      box-shadow 0.15s ease,
+      color 0.15s ease;
   }
 
   :global(.segment:hover) {
-    background-color: var(--hover-bg);
+    background-color: var(--segment-hover-bg, rgba(59, 130, 246, 0.2));
+    box-shadow: 0 0 0 2px var(--segment-hover-border, rgba(59, 130, 246, 0.4));
   }
 
   :global(.segment:focus) {
@@ -946,10 +992,20 @@
     cursor: default;
   }
 
+  :global(.segment-pending:hover) {
+    background-color: rgba(156, 163, 175, 0.15);
+    box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.3);
+  }
+
   :global(.segment-generating) {
     opacity: 0.7;
     animation: pulseSegment 1.5s ease-in-out infinite;
     background-color: rgba(59, 130, 246, 0.1);
+  }
+
+  :global(.segment-generating:hover) {
+    background-color: rgba(59, 130, 246, 0.2);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
   }
 
   @keyframes pulseSegment {
@@ -969,7 +1025,8 @@
   }
 
   :global(.segment-generated:hover) {
-    background-color: rgba(34, 197, 94, 0.15);
+    background-color: rgba(34, 197, 94, 0.2);
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.5);
   }
 
   :global(.segment-generated::after) {
@@ -985,7 +1042,7 @@
   }
 
   :global(.segment-generated:hover::after) {
-    opacity: 0.5;
+    opacity: 0.7;
   }
 
   /* Settings Menu */
