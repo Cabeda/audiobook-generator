@@ -266,6 +266,7 @@ export class TTSWorkerManager {
     voice?: string
     speed?: number
     pitch?: number
+    language?: string
     onProgress?: (message: string) => void
     onChunkProgress?: (current: number, total: number) => void
     dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
@@ -294,6 +295,7 @@ export class TTSWorkerManager {
         voice: options.voice,
         speed: options.speed,
         pitch: options.pitch,
+        language: options.language,
         dtype: options.dtype,
         model: options.model,
         device: options.device,

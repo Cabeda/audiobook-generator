@@ -1,6 +1,6 @@
 {
   "name": "audiobook-generator-web",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -63,6 +63,7 @@
     "@ffmpeg/util": "^0.12.2",
     "@mozilla/readability": "^0.6.0",
     "epubjs": "^0.3.93",
+    "franc-min": "^6.2.0",
     "html-to-text": "^9.0.5",
     "jszip": "^3.10.1",
     "kokoro-js": "^1.2.1",

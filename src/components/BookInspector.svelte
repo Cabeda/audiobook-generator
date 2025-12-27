@@ -19,7 +19,7 @@
     selectedVoice: string
     selectedQuantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     selectedDevice?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+    selectedModel?: 'kokoro' | 'piper'
     chapterStatus?: Map<string, 'pending' | 'processing' | 'done' | 'error'>
     chapterErrors?: Map<string, string>
   }>()

@@ -152,6 +152,32 @@
     }
   }
 
+  async function handleLanguageChange(chapterId: string, language: string | undefined) {
+    if (currentBook && isLibraryBook(currentBook)) {
+      const { updateChapterLanguage } = await import('../lib/libraryDB')
+      try {
+        await updateChapterLanguage(currentBook.id, chapterId, language)
+        // Update local state
+        book.update((b) => {
+          if (b) {
+            const chapterIndex = b.chapters.findIndex((c) => c.id === chapterId)
+            if (chapterIndex !== -1) {
+              b.chapters[chapterIndex].language = language
+            }
+          }
+          return b
+        })
+        const { getLanguageLabel } = await import('../lib/utils/languageResolver')
+        const languageLabel = language ? getLanguageLabel(language) : 'auto-detect'
+        toastStore.success(
+          language ? `Language set to ${languageLabel}` : 'Language reset to auto-detect'
+        )
+      } catch (error) {
+        toastStore.error(`Failed to update chapter language: ${error}`)
+      }
+    }
+  }
+
   function selectAll() {
     if (!$book) return
     selectedChapters.update((m) => {
@@ -455,7 +481,7 @@
             {chapter}
             book={currentBook}
             selected={selections.get(chapter.id)}
-            status={selectedModel === 'web_speech' ? 'done' : statusMap.get(chapter.id)}
+            status={statusMap.get(chapter.id)}
             error={errorsMap.get(chapter.id)}
             progress={$chapterProgress.get(chapter.id)}
             audioData={audioMap.get(chapter.id)}
@@ -466,6 +492,7 @@
             onDownloadMp3={() => {}}
             onModelChange={handleModelChange}
             onVoiceChange={handleVoiceChange}
+            onLanguageChange={handleLanguageChange}
           />
         {/each}
       </div>

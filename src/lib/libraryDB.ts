@@ -286,7 +286,7 @@ export async function updateChapterLanguage(
           putRequest.onerror = (event) =>
             reject(
               new Error(
-                `Failed to save chapter language: ${event.target?.error?.message || 'Unknown error'}`
+                `Failed to save chapter language: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
               )
             )
         } else {
@@ -298,6 +298,50 @@ export async function updateChapterLanguage(
     }
 
     request.onerror = () => reject(new Error('Failed to get book for updating language'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
+ * Update the detected language and confidence for a specific chapter
+ */
+export async function updateChapterDetectedLanguage(
+  bookId: number,
+  chapterId: string,
+  detectedLanguage: string | undefined,
+  languageConfidence: number | undefined
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get(bookId)
+
+    request.onsuccess = () => {
+      const book = request.result as LibraryBook
+      if (book) {
+        const chapterIndex = book.chapters.findIndex((c) => c.id === chapterId)
+        if (chapterIndex !== -1) {
+          book.chapters[chapterIndex].detectedLanguage = detectedLanguage
+          book.chapters[chapterIndex].languageConfidence = languageConfidence
+          const putRequest = store.put(book)
+          putRequest.onsuccess = () => resolve()
+          putRequest.onerror = (event) =>
+            reject(
+              new Error(
+                `Failed to save chapter detected language: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
+              )
+            )
+        } else {
+          reject(new Error('Chapter not found'))
+        }
+      } else {
+        reject(new Error('Book not found'))
+      }
+    }
+
+    request.onerror = () => reject(new Error('Failed to get book for updating detected language'))
     transaction.oncomplete = () => db.close()
   })
 }
@@ -322,7 +366,7 @@ export async function updateBookLanguage(bookId: number, language: string): Prom
         putRequest.onerror = (event) =>
           reject(
             new Error(
-              `Failed to save book language: ${event.target?.error?.message || 'Unknown error'}`
+              `Failed to save book language: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
             )
           )
       } else {
@@ -361,7 +405,7 @@ export async function updateChapterModel(
           putRequest.onerror = (event) =>
             reject(
               new Error(
-                `Failed to save chapter model: ${event.target?.error?.message || 'Unknown error'}`
+                `Failed to save chapter model: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
               )
             )
         } else {
@@ -403,7 +447,7 @@ export async function updateChapterVoice(
           putRequest.onerror = (event) =>
             reject(
               new Error(
-                `Failed to save chapter voice: ${event.target?.error?.message || 'Unknown error'}`
+                `Failed to save chapter voice: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
               )
             )
         } else {

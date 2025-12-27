@@ -37,7 +37,7 @@ class AudioPlaybackService {
   private voice = ''
   private quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   private device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
-  private selectedModel: 'kokoro' | 'piper' | 'web_speech' = 'kokoro'
+  private selectedModel: 'kokoro' | 'piper' = 'kokoro'
   playbackSpeed = $state(1.0)
 
   constructor() {
@@ -69,7 +69,7 @@ class AudioPlaybackService {
       voice: string
       quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+      selectedModel?: 'kokoro' | 'piper'
       playbackSpeed?: number
     },
     options?: {
@@ -151,55 +151,51 @@ class AudioPlaybackService {
     if (options?.startSegmentIndex !== undefined) {
       const index = options.startSegmentIndex
 
-      if (this.selectedModel === 'web_speech') {
-        // For web speech, we just set the index and let play() handle it
-      } else {
-        // Generate segment in background if needed (already loaded if from DB)
-        if (!this.audioSegments.has(index)) {
-          this.generateSegment(index).catch((e) =>
-            logger.debug('Failed to generate initial segment:', e)
-          )
-        }
-
-        // Prepare audio element but do not play
-        const prepareAudio = async () => {
-          try {
-            // We need to wait for the segment to be available
-            if (!this.audioSegments.has(index)) {
-              await this.generateSegment(index)
-            }
-            const url = this.audioSegments.get(index)
-            if (!url) return
-            if (this.audio) {
-              this.audio.pause()
-              this.audio.src = ''
-              this.audio = null
-            }
-            this.audio = new Audio(url)
-            this.audio.playbackRate = this.playbackSpeed
-            this.audio.onloadedmetadata = () => {
-              if (this.audio && options.startTime !== undefined) {
-                try {
-                  // Some browsers require setting currentTime after metadata
-                  this.audio.currentTime = options.startTime as number
-                } catch (e) {
-                  logger.debug('Failed to set currentTime on restore', e)
-                }
-              }
-              if (this.audio) this.duration = this.audio.duration
-            }
-            this.audio.ontimeupdate = () => {
-              if (this.audio) this.currentTime = this.audio.currentTime
-            }
-            this.audio.onended = () => {
-              // No-op: we don't auto-play here
-            }
-          } catch (err) {
-            logger.debug('Failed to prepare audio for restore', err)
-          }
-        }
-        void prepareAudio()
+      // Generate segment in background if needed (already loaded if from DB)
+      if (!this.audioSegments.has(index)) {
+        this.generateSegment(index).catch((e) =>
+          logger.debug('Failed to generate initial segment:', e)
+        )
       }
+
+      // Prepare audio element but do not play
+      const prepareAudio = async () => {
+        try {
+          // We need to wait for the segment to be available
+          if (!this.audioSegments.has(index)) {
+            await this.generateSegment(index)
+          }
+          const url = this.audioSegments.get(index)
+          if (!url) return
+          if (this.audio) {
+            this.audio.pause()
+            this.audio.src = ''
+            this.audio = null
+          }
+          this.audio = new Audio(url)
+          this.audio.playbackRate = this.playbackSpeed
+          this.audio.onloadedmetadata = () => {
+            if (this.audio && options.startTime !== undefined) {
+              try {
+                // Some browsers require setting currentTime after metadata
+                this.audio.currentTime = options.startTime as number
+              } catch (e) {
+                logger.debug('Failed to set currentTime on restore', e)
+              }
+            }
+            if (this.audio) this.duration = this.audio.duration
+          }
+          this.audio.ontimeupdate = () => {
+            if (this.audio) this.currentTime = this.audio.currentTime
+          }
+          this.audio.onended = () => {
+            // No-op: we don't auto-play here
+          }
+        } catch (err) {
+          logger.debug('Failed to prepare audio for restore', err)
+        }
+      }
+      void prepareAudio()
     }
   }
 
@@ -257,7 +253,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+      selectedModel?: 'kokoro' | 'piper'
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -287,8 +283,7 @@ class AudioPlaybackService {
       logger.warn('Failed to load chapter audio from DB', e)
     }
 
-    const hasAudio =
-      !!chapterAudioBlob || dbSegments.length > 0 || this.selectedModel === 'web_speech'
+    const hasAudio = !!chapterAudioBlob || dbSegments.length > 0
 
     if (dbSegments.length === 0) {
       // If no segments in DB, but we allow on-the-fly for Web Speech or fallback
@@ -412,18 +407,6 @@ class AudioPlaybackService {
       return
     }
 
-    // Web Speech fallback
-    if (this.selectedModel === 'web_speech') {
-      this.isPlaying = true
-      audioPlayerStore.play()
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume()
-      } else {
-        await this.playCurrentSegment()
-      }
-      return
-    }
-
     // Fallback: try to play from first segment (legacy on-demand mode)
     if (this.currentSegmentIndex >= 0) {
       this.isPlaying = true
@@ -437,11 +420,6 @@ class AudioPlaybackService {
   pause() {
     this.isPlaying = false
     audioPlayerStore.pause()
-
-    if (this.selectedModel === 'web_speech') {
-      window.speechSynthesis.pause()
-      return
-    }
 
     if (this.audio) {
       this.audio.pause()
@@ -514,13 +492,6 @@ class AudioPlaybackService {
       audioPlayerStore.pause()
     }
 
-    if (this.selectedModel === 'web_speech') {
-      if (this.isPlaying) {
-        await this.playCurrentSegment()
-      }
-      return
-    }
-
     // Ensure generated
     if (!this.audioSegments.has(index)) {
       if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(true)
@@ -567,11 +538,6 @@ class AudioPlaybackService {
       this.audio.playbackRate = speed
     }
     audioPlayerStore.setPlaybackSpeed(speed)
-
-    // For Web Speech, we need to restart the utterance to change speed if playing
-    if (this.selectedModel === 'web_speech' && this.isPlaying) {
-      this.playCurrentSegment()
-    }
   }
 
   stop() {
@@ -611,13 +577,6 @@ class AudioPlaybackService {
   // Internal Logic
   private async playCurrentSegment() {
     const index = this.currentSegmentIndex
-
-    if (this.selectedModel === 'web_speech') {
-      const segment = this.segments[index]
-      if (!segment) return
-      this.playWebSpeech(segment.text)
-      return
-    }
 
     let url = this.audioSegments.get(index)
 
@@ -759,8 +718,6 @@ class AudioPlaybackService {
   }
 
   private async generateSegment(index: number): Promise<void> {
-    if (this.selectedModel === 'web_speech') return
-
     if (this.audioSegments.has(index)) return
     if (this.pendingGenerations.has(index)) return this.pendingGenerations.get(index)
 
@@ -774,7 +731,7 @@ class AudioPlaybackService {
           const worker = getTTSWorker()
           const blob = await worker.generateVoice({
             text: segment.text,
-            modelType: this.selectedModel as 'kokoro' | 'piper', // Cast is safe here as we checked for web_speech above
+            modelType: this.selectedModel,
             voice: this.voice,
             dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
             device: this.device,
@@ -842,8 +799,6 @@ class AudioPlaybackService {
   }
 
   private async bufferSegments(startIndex: number, count: number) {
-    if (this.selectedModel === 'web_speech') return
-
     const promises: Promise<void>[] = []
     for (let i = 0; i < count; i++) {
       const index = startIndex + i

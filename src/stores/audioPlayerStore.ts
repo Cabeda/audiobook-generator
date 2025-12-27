@@ -25,7 +25,7 @@ export interface AudioPlayerState {
   voice: string
   quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   device: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-  selectedModel: 'kokoro' | 'piper' | 'web_speech'
+  selectedModel: 'kokoro' | 'piper'
   playbackSpeed: number
 }
 
@@ -107,7 +107,7 @@ function createAudioPlayerStore() {
         voice: string
         quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
         device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-        selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+        selectedModel?: 'kokoro' | 'piper'
         playbackSpeed?: number
       },
       startPlaying: boolean = true,
