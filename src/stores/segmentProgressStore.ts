@@ -1,0 +1,172 @@
+import { writable, derived, get } from 'svelte/store'
+import type { AudioSegment } from '../lib/types/audio'
+
+/**
+ * Represents the generation state of segments within a chapter
+ */
+export interface ChapterSegmentProgress {
+  /** Total number of segments in the chapter */
+  totalSegments: number
+  /** Set of segment indices that have been generated */
+  generatedIndices: Set<number>
+  /** Map of segment index to its text content (for pre-generation display) */
+  segmentTexts: Map<number, string>
+  /** Map of segment index to AudioSegment (for playback of completed segments) */
+  generatedSegments: Map<number, AudioSegment>
+  /** Whether generation is currently in progress */
+  isGenerating: boolean
+}
+
+/**
+ * Store tracking segment-level generation progress for all chapters
+ * Key: chapterId, Value: ChapterSegmentProgress
+ */
+export const segmentProgress = writable(new Map<string, ChapterSegmentProgress>())
+
+/**
+ * Initialize segment tracking for a chapter when segmentation begins
+ */
+export function initChapterSegments(
+  chapterId: string,
+  segments: Array<{ index: number; text: string; id: string }>
+) {
+  segmentProgress.update((map) => {
+    const newMap = new Map(map)
+    const segmentTexts = new Map<number, string>()
+    segments.forEach((s) => segmentTexts.set(s.index, s.text))
+
+    newMap.set(chapterId, {
+      totalSegments: segments.length,
+      generatedIndices: new Set(),
+      segmentTexts,
+      generatedSegments: new Map(),
+      isGenerating: true,
+    })
+    return newMap
+  })
+}
+
+/**
+ * Mark a segment as generated and store its audio data
+ */
+export function markSegmentGenerated(chapterId: string, segment: AudioSegment) {
+  segmentProgress.update((map) => {
+    const newMap = new Map(map)
+    const progress = newMap.get(chapterId)
+    if (progress) {
+      const newProgress = {
+        ...progress,
+        generatedIndices: new Set(progress.generatedIndices),
+        generatedSegments: new Map(progress.generatedSegments),
+      }
+      newProgress.generatedIndices.add(segment.index)
+      newProgress.generatedSegments.set(segment.index, segment)
+      newMap.set(chapterId, newProgress)
+    }
+    return newMap
+  })
+}
+
+/**
+ * Mark chapter generation as complete
+ */
+export function markChapterGenerationComplete(chapterId: string) {
+  segmentProgress.update((map) => {
+    const newMap = new Map(map)
+    const progress = newMap.get(chapterId)
+    if (progress) {
+      newMap.set(chapterId, {
+        ...progress,
+        isGenerating: false,
+      })
+    }
+    return newMap
+  })
+}
+
+/**
+ * Clear segment progress for a chapter
+ */
+export function clearChapterSegments(chapterId: string) {
+  segmentProgress.update((map) => {
+    const newMap = new Map(map)
+    newMap.delete(chapterId)
+    return newMap
+  })
+}
+
+/**
+ * Get segment progress for a specific chapter
+ */
+export function getChapterSegmentProgress(chapterId: string): ChapterSegmentProgress | undefined {
+  return get(segmentProgress).get(chapterId)
+}
+
+/**
+ * Check if a specific segment has been generated
+ */
+export function isSegmentGenerated(chapterId: string, segmentIndex: number): boolean {
+  const progress = get(segmentProgress).get(chapterId)
+  return progress?.generatedIndices.has(segmentIndex) ?? false
+}
+
+/**
+ * Get a generated segment's audio data
+ */
+export function getGeneratedSegment(
+  chapterId: string,
+  segmentIndex: number
+): AudioSegment | undefined {
+  const progress = get(segmentProgress).get(chapterId)
+  return progress?.generatedSegments.get(segmentIndex)
+}
+
+/**
+ * Derived store: percentage complete for each chapter
+ */
+export const segmentProgressPercentage = derived(segmentProgress, ($progress) => {
+  const percentages = new Map<string, number>()
+  $progress.forEach((progress, chapterId) => {
+    if (progress.totalSegments === 0) {
+      percentages.set(chapterId, 0)
+    } else {
+      percentages.set(
+        chapterId,
+        Math.round((progress.generatedIndices.size / progress.totalSegments) * 100)
+      )
+    }
+  })
+  return percentages
+})
+
+/**
+ * Load segment progress from DB for chapters that have been partially or fully generated
+ */
+export async function loadChapterSegmentProgress(bookId: number, chapterId: string) {
+  const { getChapterSegments } = await import('../lib/libraryDB')
+  const segments = await getChapterSegments(bookId, chapterId)
+
+  if (segments.length > 0) {
+    segmentProgress.update((map) => {
+      const newMap = new Map(map)
+      const segmentTexts = new Map<number, string>()
+      const generatedIndices = new Set<number>()
+      const generatedSegments = new Map<number, AudioSegment>()
+
+      segments.forEach((s) => {
+        segmentTexts.set(s.index, s.text)
+        generatedIndices.add(s.index)
+        generatedSegments.set(s.index, s)
+      })
+
+      newMap.set(chapterId, {
+        totalSegments: segments.length,
+        generatedIndices,
+        segmentTexts,
+        generatedSegments,
+        isGenerating: false,
+      })
+      return newMap
+    })
+  }
+}

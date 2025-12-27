@@ -9,6 +9,7 @@
   import { toastStore } from '../stores/toastStore'
   import { selectedModel, selectedVoice, availableVoices } from '../stores/ttsStore'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
+  import { segmentProgress, segmentProgressPercentage } from '../stores/segmentProgressStore'
 
   let {
     chapter,
@@ -46,6 +47,15 @@
   let wordCount = $derived(countWords(chapter.content))
   let estimatedDurationSeconds = $derived(estimateSpeechDurationSeconds(wordCount))
   let showAdvanced = $state(false)
+
+  // Segment progress for this chapter
+  let chapterSegmentProgress = $derived($segmentProgress.get(chapter.id))
+  let segmentPercentage = $derived($segmentProgressPercentage.get(chapter.id) ?? 0)
+  let isPartiallyGenerated = $derived(
+    chapterSegmentProgress &&
+      chapterSegmentProgress.generatedIndices.size > 0 &&
+      chapterSegmentProgress.generatedIndices.size < chapterSegmentProgress.totalSegments
+  )
 
   // Local state for chapter overrides
   let chapterModel = $state(chapter.model)
@@ -149,7 +159,29 @@
 
   {#if status === 'processing'}
     <div class="progress-details">
-      {#if progress?.total}
+      {#if chapterSegmentProgress && chapterSegmentProgress.totalSegments > 0}
+        <div class="segment-progress-container">
+          <div class="segment-progress-bar">
+            <div class="segment-progress-fill" style="width: {segmentPercentage}%"></div>
+          </div>
+          <div class="segment-progress-info">
+            <span class="segment-count">
+              {chapterSegmentProgress.generatedIndices.size} / {chapterSegmentProgress.totalSegments}
+              segments
+            </span>
+            <span class="segment-percentage">{segmentPercentage}%</span>
+          </div>
+          {#if chapterSegmentProgress.generatedIndices.size > 0}
+            <button
+              class="action-btn small preview-btn"
+              onclick={() => onRead(chapter)}
+              title="Preview generated segments"
+            >
+              🎧 Preview Available
+            </button>
+          {/if}
+        </div>
+      {:else if progress?.total}
         <div class="progress-bar-bg">
           <div
             class="progress-fill"
@@ -167,6 +199,24 @@
           {progress?.message || 'Preparing generation...'}
         </div>
       {/if}
+    </div>
+  {/if}
+
+  {#if isPartiallyGenerated && status !== 'processing'}
+    <div class="partial-progress-indicator">
+      <div class="partial-progress-bar">
+        <div class="partial-progress-fill" style="width: {segmentPercentage}%"></div>
+      </div>
+      <span class="partial-progress-text">
+        {segmentPercentage}% generated ({chapterSegmentProgress?.generatedIndices.size ?? 0} segments)
+      </span>
+      <button
+        class="action-btn small"
+        onclick={() => onRead(chapter)}
+        title="Listen to generated segments"
+      >
+        🎧 Listen
+      </button>
     </div>
   {/if}
 
@@ -625,6 +675,101 @@
   .progress-sub {
     font-size: 0.8rem;
     opacity: 0.8;
+  }
+
+  /* Segment Progress Styles */
+  .segment-progress-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .segment-progress-bar {
+    height: 8px;
+    background: var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .segment-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #22c55e, #4ade80);
+    transition: width 0.3s ease;
+    border-radius: 4px;
+  }
+
+  .segment-progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+  }
+
+  .segment-count {
+    color: var(--secondary-text);
+  }
+
+  .segment-percentage {
+    font-weight: 600;
+    color: #22c55e;
+  }
+
+  .preview-btn {
+    align-self: flex-start;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: white;
+    border: none;
+    animation: pulseGlow 2s infinite;
+  }
+
+  .preview-btn:hover {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    color: white;
+    border: none;
+  }
+
+  @keyframes pulseGlow {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+    }
+  }
+
+  /* Partial Progress Indicator (for non-processing state) */
+  .partial-progress-indicator {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(74, 222, 128, 0.05));
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .partial-progress-bar {
+    flex: 1;
+    min-width: 100px;
+    height: 6px;
+    background: var(--border-color);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .partial-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #22c55e, #4ade80);
+    transition: width 0.3s ease;
+  }
+
+  .partial-progress-text {
+    font-size: 0.85rem;
+    color: #16a34a;
+    font-weight: 500;
   }
 
   @keyframes spin {

@@ -21,12 +21,17 @@ import { concatenateAudioChapters, downloadAudioFile, type AudioChapter } from '
 import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
-import { saveChapterSegments, type LibraryBook } from '../libraryDB'
+import { saveChapterSegments, saveSegmentIndividually, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { convert } from 'html-to-text'
 import { resolveChapterLanguage, DEFAULT_LANGUAGE } from '../utils/languageResolver'
 import { selectKokoroVoiceForLanguage, selectPiperVoiceForLanguage } from '../utils/voiceSelector'
 import { PiperClient } from '../piper/piperClient'
+import {
+  initChapterSegments,
+  markSegmentGenerated,
+  markChapterGenerationComplete,
+} from '../../stores/segmentProgressStore'
 
 /**
  * Type representing a LibraryBook with a guaranteed ID property
@@ -553,6 +558,9 @@ class GenerationService {
               logger.info(`Updated content for chapter ${ch.id} with segmented HTML`)
             }
 
+            // Initialize segment progress tracking for live UI updates
+            initChapterSegments(ch.id, textSegments)
+
             // 3. Generate Audio for each segment
             const audioSegments: AudioSegment[] = []
 
@@ -616,7 +624,7 @@ class GenerationService {
               // Calculate cumulative times and build audioSegments array
               let cumulativeTime = 0
               for (const result of results) {
-                audioSegments.push({
+                const segment: AudioSegment = {
                   id: result.segment.id,
                   chapterId: ch.id,
                   index: result.segment.index,
@@ -624,7 +632,17 @@ class GenerationService {
                   audioBlob: result.blob as Blob,
                   duration: result.duration,
                   startTime: cumulativeTime,
-                })
+                }
+                audioSegments.push(segment)
+
+                // Mark segment as generated for UI updates
+                markSegmentGenerated(ch.id, segment)
+
+                // Save segment individually for progressive playback
+                if (bookId) {
+                  await saveSegmentIndividually(bookId, ch.id, segment)
+                }
+
                 cumulativeTime += result.duration
               }
             } else {
@@ -659,7 +677,7 @@ class GenerationService {
 
                 const duration = this.calculateWavDuration(blob)
 
-                audioSegments.push({
+                const segment: AudioSegment = {
                   id: textSegments[i].id,
                   chapterId: ch.id,
                   index: i,
@@ -667,7 +685,17 @@ class GenerationService {
                   audioBlob: blob as Blob,
                   duration,
                   startTime: cumulativeTime,
-                })
+                }
+
+                audioSegments.push(segment)
+
+                // Mark segment as generated for UI updates (real-time)
+                markSegmentGenerated(ch.id, segment)
+
+                // Save segment individually for progressive playback
+                if (bookId) {
+                  await saveSegmentIndividually(bookId, ch.id, segment)
+                }
 
                 cumulativeTime += duration
               }
@@ -675,7 +703,10 @@ class GenerationService {
 
             if (this.canceled) break
 
-            // Save segments to DB
+            // Mark chapter generation as complete
+            markChapterGenerationComplete(ch.id)
+
+            // Save segments to DB (backup save - individual segments already saved progressively)
             if (bookId) {
               await saveChapterSegments(bookId, ch.id, audioSegments)
             }
@@ -740,6 +771,9 @@ class GenerationService {
               await updateChapterContent(bookId, ch.id, html)
             }
 
+            // Initialize segment progress tracking for live UI updates
+            initChapterSegments(ch.id, textSegments)
+
             // 3. Generate
             const audioSegments: AudioSegment[] = []
             const worker = getTTSWorker()
@@ -793,7 +827,7 @@ class GenerationService {
               // Calculate cumulative times and build audioSegments array
               let cumulativeTime = 0
               for (const result of results) {
-                audioSegments.push({
+                const segment: AudioSegment = {
                   id: result.segment.id,
                   chapterId: ch.id,
                   index: result.segment.index,
@@ -801,7 +835,17 @@ class GenerationService {
                   audioBlob: result.blob as Blob,
                   duration: result.duration,
                   startTime: cumulativeTime,
-                })
+                }
+                audioSegments.push(segment)
+
+                // Mark segment as generated for UI updates
+                markSegmentGenerated(ch.id, segment)
+
+                // Save segment individually for progressive playback
+                if (bookId) {
+                  await saveSegmentIndividually(bookId, ch.id, segment)
+                }
+
                 cumulativeTime += result.duration
               }
             } else {
@@ -841,7 +885,7 @@ class GenerationService {
                 // Piper outputs WAV too, use same calculation
                 const duration = this.calculateWavDuration(blob)
 
-                audioSegments.push({
+                const segment: AudioSegment = {
                   id: textSegments[i].id,
                   chapterId: ch.id,
                   index: i,
@@ -849,13 +893,26 @@ class GenerationService {
                   audioBlob: blob as Blob,
                   duration,
                   startTime: cumulativeTime,
-                })
+                }
+
+                audioSegments.push(segment)
+
+                // Mark segment as generated for UI updates (real-time)
+                markSegmentGenerated(ch.id, segment)
+
+                // Save segment individually for progressive playback
+                if (bookId) {
+                  await saveSegmentIndividually(bookId, ch.id, segment)
+                }
 
                 cumulativeTime += duration
               }
             }
 
             if (this.canceled) break
+
+            // Mark chapter generation as complete
+            markChapterGenerationComplete(ch.id)
 
             if (bookId) await saveChapterSegments(bookId, ch.id, audioSegments)
 

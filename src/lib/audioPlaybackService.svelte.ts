@@ -877,6 +877,72 @@ class AudioPlaybackService {
       }
     }
   }
+
+  /**
+   * Play a single segment directly from an AudioSegment object.
+   * This is used for progressive playback during generation, allowing
+   * users to listen to segments as they are generated without waiting
+   * for the entire chapter to complete.
+   */
+  async playSingleSegment(segment: AudioSegment): Promise<void> {
+    // Stop any current playback
+    if (this.audio) {
+      this.audio.pause()
+      this.audio.onended = null
+      this.audio.ontimeupdate = null
+      this.audio.onerror = null
+      this.audio.onloadedmetadata = null
+      this.audio.src = ''
+      this.audio = null
+    }
+    this.cancelWebSpeech()
+
+    // Create audio from the segment blob
+    const url = URL.createObjectURL(segment.audioBlob)
+
+    // Store this segment for playback
+    this.audioSegments.set(segment.index, url)
+    this.currentSegmentIndex = segment.index
+    this.isPlaying = true
+    audioPlayerStore.play()
+
+    // Create audio element
+    this.audio = new Audio(url)
+    this.audio.playbackRate = this.playbackSpeed
+
+    this.audio.onloadedmetadata = () => {
+      if (this.audio) this.duration = this.audio.duration
+    }
+
+    this.audio.ontimeupdate = () => {
+      if (this.audio) this.currentTime = this.audio.currentTime
+    }
+
+    this.audio.onended = () => {
+      this.isPlaying = false
+      audioPlayerStore.pause()
+      URL.revokeObjectURL(url)
+      this.audio = null
+    }
+
+    this.audio.onerror = (err) => {
+      logger.error('Single segment playback error:', err)
+      this.isPlaying = false
+      audioPlayerStore.pause()
+      URL.revokeObjectURL(url)
+      this.audio = null
+    }
+
+    try {
+      await this.audio.play()
+    } catch (err) {
+      logger.error('Failed to play single segment:', err)
+      this.isPlaying = false
+      audioPlayerStore.pause()
+      URL.revokeObjectURL(url)
+      this.audio = null
+    }
+  }
 }
 
 export const audioService = new AudioPlaybackService()

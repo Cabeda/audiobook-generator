@@ -6,6 +6,8 @@
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
+  import { segmentProgress, getGeneratedSegment } from '../stores/segmentProgressStore'
+  import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
 
   let {
@@ -56,6 +58,13 @@
   let isLoading = $state(true)
   let audioAvailable = $state(true)
 
+  // Progressive playback support
+  let chapterSegmentProgress = $derived($segmentProgress.get(chapter?.id ?? ''))
+  let isGenerating = $derived(chapterSegmentProgress?.isGenerating ?? false)
+  let hasPartialAudio = $derived(
+    chapterSegmentProgress && chapterSegmentProgress.generatedIndices.size > 0
+  )
+
   // Initialize by loading pre-generated data from DB
   $effect(() => {
     if (chapter && bookId) {
@@ -83,13 +92,14 @@
           .then((result) => {
             isLoading = false
             if (result.success) {
-              // Hide player if no audio available (hasAudio is check for merged or segments or web speech)
-              // We need a state variable for this. 'loadError' was used for "failed completely".
-              // Let's reuse loadError for "No Audio Logic"? No, user wants text reader available.
-              // So loadError should be false (success).
-              // But we need to hide the player.
-              // We'll add a new state: `audioAvailable`
-              audioAvailable = result.hasAudio
+              // Check if we have partial audio from progressive generation
+              const progressiveAudio = untrack(() => {
+                const progress = get(segmentProgress).get(cId)
+                return progress && progress.generatedIndices.size > 0
+              })
+
+              // Audio is available if we have merged audio, segments, web speech, or progressive audio
+              audioAvailable = result.hasAudio || !!progressiveAudio
 
               const store = get(audioPlayerStore)
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
@@ -100,8 +110,19 @@
                 })
               }
             } else {
-              loadError = true
-              console.warn('Chapter audio not available - generate audio first')
+              // Check if we have partial audio from progressive generation
+              const progressiveAudio = untrack(() => {
+                const progress = get(segmentProgress).get(cId)
+                return progress && progress.generatedIndices.size > 0
+              })
+
+              if (progressiveAudio) {
+                // Don't show error, we have partial audio available
+                audioAvailable = true
+              } else {
+                loadError = true
+                console.warn('Chapter audio not available - generate audio first')
+              }
             }
           })
           .catch((err) => {
@@ -261,6 +282,40 @@
     }
   })
 
+  // Update segment visual states based on generation progress
+  $effect(() => {
+    if (!textContentEl || !chapter?.id) return
+    const progress = $segmentProgress.get(chapter.id)
+    if (!progress) return
+
+    const segmentEls = textContentEl.querySelectorAll('span[id^="seg-"]')
+    segmentEls.forEach((el) => {
+      const segmentId = el.id
+      const indexMatch = segmentId.match(/seg-(\d+)/)
+      if (!indexMatch) return
+
+      const index = parseInt(indexMatch[1], 10)
+      const isGenerated = progress.generatedIndices.has(index)
+
+      // Update classes for visual state
+      el.classList.remove('segment-pending', 'segment-generated', 'segment-generating')
+
+      if (isGenerated) {
+        el.classList.add('segment-generated')
+      } else if (progress.isGenerating) {
+        // Check if this is the next segment to be generated (for a pulsing effect)
+        const lastGenerated = Math.max(...Array.from(progress.generatedIndices), -1)
+        if (index === lastGenerated + 1) {
+          el.classList.add('segment-generating')
+        } else {
+          el.classList.add('segment-pending')
+        }
+      } else {
+        el.classList.add('segment-pending')
+      }
+    })
+  })
+
   // Ensure initial highlight if already playing
   $effect(() => {
     if (audioService.isPlaying && audioService.currentSegmentIndex >= 0) {
@@ -316,7 +371,15 @@
     const segmentEl = target.closest('.segment') as HTMLElement | null
     const index = getSegmentIndex(segmentEl)
     if (index !== null) {
-      audioService.playFromSegment(index)
+      // Check if we have this segment in progressive generation
+      const progressSegment = chapter?.id ? getGeneratedSegment(chapter.id, index) : undefined
+      if (progressSegment) {
+        // Play from progressive generation store
+        audioService.playSingleSegment(progressSegment)
+      } else {
+        // Try normal playback
+        audioService.playFromSegment(index)
+      }
     }
   }
 
@@ -329,7 +392,13 @@
         event.preventDefault()
         const index = getSegmentIndex(target)
         if (index !== null) {
-          audioService.playFromSegment(index)
+          // Check if we have this segment in progressive generation
+          const progressSegment = chapter?.id ? getGeneratedSegment(chapter.id, index) : undefined
+          if (progressSegment) {
+            audioService.playSingleSegment(progressSegment)
+          } else {
+            audioService.playFromSegment(index)
+          }
         }
       }
     }
@@ -833,6 +902,55 @@
     background-color: var(--active-bg);
     color: var(--active-text);
     box-shadow: 0 0 0 2px var(--highlight-border, #ffb74d);
+  }
+
+  /* Progressive Generation Segment States */
+  :global(.segment-pending) {
+    opacity: 0.5;
+    color: var(--secondary-text);
+    cursor: default;
+  }
+
+  :global(.segment-generating) {
+    opacity: 0.7;
+    animation: pulseSegment 1.5s ease-in-out infinite;
+    background-color: rgba(59, 130, 246, 0.1);
+  }
+
+  @keyframes pulseSegment {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 0.9;
+    }
+  }
+
+  :global(.segment-generated) {
+    opacity: 1;
+    cursor: pointer;
+    position: relative;
+  }
+
+  :global(.segment-generated:hover) {
+    background-color: rgba(34, 197, 94, 0.15);
+  }
+
+  :global(.segment-generated::after) {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    width: 100%;
+    height: 2px;
+    background-color: #22c55e;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  :global(.segment-generated:hover::after) {
+    opacity: 0.5;
   }
 
   /* Settings Menu */
