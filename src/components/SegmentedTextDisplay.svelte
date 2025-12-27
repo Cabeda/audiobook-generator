@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { segmentProgress, type ChapterSegmentProgress } from '../stores/segmentProgressStore'
+  import { segmentProgress } from '../stores/segmentProgressStore'
   import type { AudioSegment } from '../lib/types/audio'
 
   let {
