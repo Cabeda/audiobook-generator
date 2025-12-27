@@ -40,8 +40,13 @@
         el.classList.add('segment-generated')
       } else if (isGenerating) {
         // Check if this is the next segment to be generated (for a pulsing effect)
-        // Note: Math.max(-1, ...) handles empty arrays correctly, returning -1
-        const lastGenerated = Math.max(-1, ...Array.from(progress.generatedIndices))
+        // Note: We compute the max without using the spread operator to avoid argument-limit issues
+        let lastGenerated = -1
+        for (const idx of progress.generatedIndices) {
+          if (idx > lastGenerated) {
+            lastGenerated = idx
+          }
+        }
         if (index === lastGenerated + 1) {
           el.classList.add('segment-generating')
         } else {
