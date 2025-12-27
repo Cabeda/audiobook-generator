@@ -25,7 +25,7 @@
     voice: string
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+    selectedModel?: 'kokoro' | 'piper'
     onBack: () => void
     onChapterChange?: (chapter: Chapter) => void
   }>()
@@ -47,7 +47,7 @@
 
   // Track the current model and voice from the store to detect changes
   // Will be initialized after first initialization to avoid false change detection
-  let currentModelFromStore = $state<'kokoro' | 'piper' | 'web_speech' | null>(null)
+  let currentModelFromStore = $state<'kokoro' | 'piper' | null>(null)
   let currentVoiceFromStore = $state<string | null>(null)
   let textContentEl: HTMLDivElement | null = null
 
@@ -529,32 +529,14 @@
           >
             <option value="kokoro">Kokoro</option>
             <option value="piper">Piper</option>
-            <option value="web_speech">Web Speech</option>
           </select>
         </div>
 
         <div class="setting-item info">
-          {#if selectedModel === 'web_speech'}
-            <label for="voice-select">Voice</label>
-            <select
-              id="voice-select"
-              value={voice}
-              onchange={(e) => {
-                // @ts-ignore
-                voiceStore.set(e.currentTarget.value)
-              }}
-              class="voice-select"
-            >
-              {#each webSpeechVoices as v}
-                <option value={v.name}>{v.name} ({v.lang})</option>
-              {/each}
-            </select>
-          {:else}
-            <div class="info-row">
-              <span class="label">Voice:</span>
-              <span class="value">{voice}</span>
-            </div>
-          {/if}
+          <div class="info-row">
+            <span class="label">Voice:</span>
+            <span class="value">{voice}</span>
+          </div>
         </div>
       </div>
     {/if}

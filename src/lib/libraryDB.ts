@@ -303,6 +303,50 @@ export async function updateChapterLanguage(
 }
 
 /**
+ * Update the detected language and confidence for a specific chapter
+ */
+export async function updateChapterDetectedLanguage(
+  bookId: number,
+  chapterId: string,
+  detectedLanguage: string | undefined,
+  languageConfidence: number | undefined
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const request = store.get(bookId)
+
+    request.onsuccess = () => {
+      const book = request.result as LibraryBook
+      if (book) {
+        const chapterIndex = book.chapters.findIndex((c) => c.id === chapterId)
+        if (chapterIndex !== -1) {
+          book.chapters[chapterIndex].detectedLanguage = detectedLanguage
+          book.chapters[chapterIndex].languageConfidence = languageConfidence
+          const putRequest = store.put(book)
+          putRequest.onsuccess = () => resolve()
+          putRequest.onerror = (event) =>
+            reject(
+              new Error(
+                `Failed to save chapter detected language: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
+              )
+            )
+        } else {
+          reject(new Error('Chapter not found'))
+        }
+      } else {
+        reject(new Error('Book not found'))
+      }
+    }
+
+    request.onerror = () => reject(new Error('Failed to get book for updating detected language'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
  * Update the language of the book
  */
 export async function updateBookLanguage(bookId: number, language: string): Promise<void> {

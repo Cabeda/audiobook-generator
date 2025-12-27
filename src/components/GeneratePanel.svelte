@@ -11,12 +11,7 @@
   import { get } from 'svelte/store' // Added 'get'
   import { piperClient } from '../lib/piper/piperClient'
   import { type TTSModelType, TTS_MODELS } from '../lib/tts/ttsModels'
-  import {
-    lastKokoroVoice,
-    lastPiperVoice,
-    lastWebSpeechVoice,
-    advancedSettings,
-  } from '../stores/ttsStore'
+  import { lastKokoroVoice, lastPiperVoice, advancedSettings } from '../stores/ttsStore'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
   import {
     concatenateAudioChapters,
@@ -192,36 +187,6 @@
           }
         })
       })
-    } else if (currentModel === 'web_speech') {
-      // Load Web Speech voices (non-reactive to avoid infinite loop)
-      const voices = window.speechSynthesis.getVoices()
-      availableVoices = voices.map((v) => ({
-        id: v.name, // Use name as ID for web speech
-        label: `${v.name} (${v.lang})`,
-      }))
-
-      // Set default if needed (only if we actually have voices and voice needs changing)
-      untrack(() => {
-        // Try to restore last used Web Speech voice
-        const lastVoice = $lastWebSpeechVoice
-        const lastVoiceExists = availableVoices.find((v) => v.id === lastVoice)
-
-        if (lastVoiceExists) {
-          if (selectedVoice !== lastVoice) {
-            selectedVoice = lastVoice
-            dispatch('voicechanged', { voice: selectedVoice })
-          }
-        } else if (availableVoices.length > 0) {
-          const currentVoiceExists = availableVoices.find((v) => v.id === selectedVoice)
-          if (!currentVoiceExists) {
-            const newVoice = availableVoices[0].id
-            if (selectedVoice !== newVoice) {
-              selectedVoice = newVoice
-              dispatch('voicechanged', { voice: selectedVoice })
-            }
-          }
-        }
-      })
     } else {
       availableVoices = []
     }
@@ -239,10 +204,6 @@
       // This prevents overwriting with a Kokoro voice ID during transition
       if (availableVoices.some((v) => v.id === selectedVoice)) {
         $lastPiperVoice = selectedVoice
-      }
-    } else if (selectedModel === 'web_speech') {
-      if (availableVoices.some((v) => v.id === selectedVoice)) {
-        $lastWebSpeechVoice = selectedVoice
       }
     }
   })
@@ -274,11 +235,6 @@
   }
 
   async function generate(chaptersToProcess?: Chapter[]) {
-    if (selectedModel === 'web_speech') {
-      toastStore.warning('Web Speech API does not support audio file generation.')
-      return
-    }
-
     const chapters = chaptersToProcess || getSelectedChapters()
     if (chapters.length === 0) {
       toastStore.warning('No chapters selected')
@@ -348,8 +304,6 @@
   }
 
   async function generateAudio() {
-    if (selectedModel === 'web_speech') return
-
     const selectedChapters = getSelectedChapters()
 
     // Check if we have existing audio and which chapters need (re)generation
@@ -459,8 +413,6 @@
   }
 
   async function exportEpub() {
-    if (selectedModel === 'web_speech') return
-
     const chapters = getSelectedChapters()
     if (chapters.length === 0) {
       toastStore.warning('No chapters selected')
@@ -801,74 +753,66 @@
 
   <!-- Action Buttons -->
   <div class="actions">
-    {#if selectedModel === 'web_speech'}
-      <div class="warning-message">
-        ⚠️ Web Speech API does not support file generation. Please select another model to generate
-        audio files.
-      </div>
-      <button class="primary" disabled> Generate Disabled </button>
-    {:else}
-      {@const selectedChapters = getSelectedChapters()}
-      {@const allGenerated =
-        selectedChapters.length > 0 && selectedChapters.every((ch) => generatedChapters.has(ch.id))}
+    {@const selectedChapters = getSelectedChapters()}
+    {@const allGenerated =
+      selectedChapters.length > 0 && selectedChapters.every((ch) => generatedChapters.has(ch.id))}
 
-      <div class="button-group">
+    <div class="button-group">
+      <button
+        class="primary"
+        onclick={generateAudio}
+        disabled={running || concatenating || selectedChapters.length === 0}
+        aria-busy={running}
+      >
+        {running ? '⏳ Generating...' : '🎧 Generate Audio'}
+      </button>
+
+      <div class="export-group">
         <button
-          class="primary"
-          onclick={generateAudio}
+          class="secondary export-btn"
+          onclick={exportAudio}
           disabled={running || concatenating || selectedChapters.length === 0}
-          aria-busy={running}
+          aria-busy={concatenating}
         >
-          {running ? '⏳ Generating...' : '🎧 Generate Audio'}
+          {concatenating
+            ? '📦 Exporting...'
+            : allGenerated
+              ? `📥 Export ${selectedFormat.toUpperCase()}`
+              : `⚡ Generate & Export ${selectedFormat.toUpperCase()}`}
         </button>
-
-        <div class="export-group">
+        <div class="export-menu-wrapper">
           <button
-            class="secondary export-btn"
-            onclick={exportAudio}
-            disabled={running || concatenating || selectedChapters.length === 0}
-            aria-busy={concatenating}
+            class="secondary icon-btn"
+            onclick={() => (showExportMenu = !showExportMenu)}
+            disabled={running || concatenating}
+            aria-label="Export options"
+            aria-expanded={showExportMenu}
           >
-            {concatenating
-              ? '📦 Exporting...'
-              : allGenerated
-                ? `📥 Export ${selectedFormat.toUpperCase()}`
-                : `⚡ Generate & Export ${selectedFormat.toUpperCase()}`}
+            ⚙️
           </button>
-          <div class="export-menu-wrapper">
-            <button
-              class="secondary icon-btn"
-              onclick={() => (showExportMenu = !showExportMenu)}
-              disabled={running || concatenating}
-              aria-label="Export options"
-              aria-expanded={showExportMenu}
-            >
-              ⚙️
-            </button>
-            {#if showExportMenu}
-              <!-- Backdrop to close menu -->
-              <div
-                class="menu-backdrop"
-                onclick={() => (showExportMenu = false)}
-                role="presentation"
-              ></div>
-              <div class="export-menu">
-                <div class="menu-header">
-                  <span>Export Options</span>
-                  <button class="close-btn" onclick={() => (showExportMenu = false)}>×</button>
-                </div>
-                <div class="menu-list">
-                  <button class="menu-item" onclick={selectProcessedAndExport}>
-                    <span class="icon">✅</span>
-                    <span class="text">Select Processed & Export</span>
-                  </button>
-                </div>
+          {#if showExportMenu}
+            <!-- Backdrop to close menu -->
+            <div
+              class="menu-backdrop"
+              onclick={() => (showExportMenu = false)}
+              role="presentation"
+            ></div>
+            <div class="export-menu">
+              <div class="menu-header">
+                <span>Export Options</span>
+                <button class="close-btn" onclick={() => (showExportMenu = false)}>×</button>
               </div>
-            {/if}
-          </div>
+              <div class="menu-list">
+                <button class="menu-item" onclick={selectProcessedAndExport}>
+                  <span class="icon">✅</span>
+                  <span class="text">Select Processed & Export</span>
+                </button>
+              </div>
+            </div>
+          {/if}
         </div>
       </div>
-    {/if}
+    </div>
     {#if running}
       <button class="secondary" onclick={cancel} aria-label="Cancel generation"> ✕ Cancel </button>
     {/if}

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Book } from '../types/book'
-import { resolveChapterLanguage } from './languageResolver'
+import { resolveChapterLanguage, resolveChapterLanguageWithDetection } from './languageResolver'
+import { detectChapterLanguage } from './languageDetector'
 
 describe('Language Integration', () => {
   it('should handle a book with mixed-language chapters', () => {
@@ -78,5 +79,154 @@ describe('Language Integration', () => {
     expect(resolveChapterLanguage(book.chapters[1], book)).toBe('en') // English chapters
     expect(resolveChapterLanguage(book.chapters[2], book)).toBe('en')
     expect(resolveChapterLanguage(book.chapters[3], book)).toBe('en')
+  })
+})
+
+describe('Language Detection Integration', () => {
+  it('should detect language for English content', () => {
+    const result = detectChapterLanguage(
+      'This is an English text sample. The quick brown fox jumps over the lazy dog.'
+    )
+    expect(result.languageCode).toBe('en')
+    expect(result.confidence).toBeGreaterThan(0)
+  })
+
+  it('should detect language for Spanish content', () => {
+    const result = detectChapterLanguage(
+      'Este es un texto de ejemplo en español. El rápido zorro marrón salta sobre el perro perezoso.'
+    )
+    expect(result.languageCode).toBe('es')
+    expect(result.confidence).toBeGreaterThan(0)
+  })
+
+  it('should use detected language with high confidence in resolution', () => {
+    const book: Book = {
+      title: 'Test Book',
+      author: 'Test',
+      language: 'en',
+      chapters: [
+        {
+          id: 'ch1',
+          title: 'Chapter 1',
+          content: 'Content',
+          detectedLanguage: 'es',
+          languageConfidence: 0.9,
+        },
+      ],
+    }
+
+    // Should use detected language since confidence is high
+    expect(resolveChapterLanguageWithDetection(book.chapters[0], book)).toBe('es')
+  })
+
+  it('should ignore low-confidence detection and fallback to book language', () => {
+    const book: Book = {
+      title: 'Test Book',
+      author: 'Test',
+      language: 'en',
+      chapters: [
+        {
+          id: 'ch1',
+          title: 'Chapter 1',
+          content: 'Content',
+          detectedLanguage: 'es',
+          languageConfidence: 0.3, // Low confidence
+        },
+      ],
+    }
+
+    // Should fallback to book language
+    expect(resolveChapterLanguageWithDetection(book.chapters[0], book)).toBe('en')
+  })
+
+  it('should prioritize manual override over detection', () => {
+    const book: Book = {
+      title: 'Test Book',
+      author: 'Test',
+      language: 'en',
+      chapters: [
+        {
+          id: 'ch1',
+          title: 'Chapter 1',
+          content: 'Content',
+          language: 'fr', // Manual override
+          detectedLanguage: 'es',
+          languageConfidence: 0.9,
+        },
+      ],
+    }
+
+    // Manual override takes precedence
+    expect(resolveChapterLanguageWithDetection(book.chapters[0], book)).toBe('fr')
+  })
+
+  it('should handle mixed-language book with auto-detection', () => {
+    const book: Book = {
+      title: 'Polyglot Book',
+      author: 'Various',
+      language: 'en',
+      chapters: [
+        {
+          id: 'ch1',
+          title: 'English Chapter',
+          content: 'Hello',
+          detectedLanguage: 'en',
+          languageConfidence: 0.8,
+        },
+        {
+          id: 'ch2',
+          title: 'Spanish Chapter',
+          content: 'Hola',
+          detectedLanguage: 'es',
+          languageConfidence: 0.85,
+        },
+        {
+          id: 'ch3',
+          title: 'Manual French',
+          content: 'Bonjour',
+          language: 'fr', // Manual override
+          detectedLanguage: 'en',
+          languageConfidence: 0.6,
+        },
+        {
+          id: 'ch4',
+          title: 'Low confidence',
+          content: 'Short',
+          detectedLanguage: 'es',
+          languageConfidence: 0.2, // Too low to trust
+        },
+      ],
+    }
+
+    // Chapter 1: uses detected language (en)
+    expect(resolveChapterLanguageWithDetection(book.chapters[0], book)).toBe('en')
+
+    // Chapter 2: uses detected language (es)
+    expect(resolveChapterLanguageWithDetection(book.chapters[1], book)).toBe('es')
+
+    // Chapter 3: manual override takes precedence
+    expect(resolveChapterLanguageWithDetection(book.chapters[2], book)).toBe('fr')
+
+    // Chapter 4: low confidence, falls back to book default (en)
+    expect(resolveChapterLanguageWithDetection(book.chapters[3], book)).toBe('en')
+  })
+
+  it('should handle chapters with no detection data', () => {
+    const book: Book = {
+      title: 'Test Book',
+      author: 'Test',
+      language: 'en',
+      chapters: [
+        {
+          id: 'ch1',
+          title: 'Chapter 1',
+          content: 'Content',
+          // No detection data
+        },
+      ],
+    }
+
+    // Should fallback to book language
+    expect(resolveChapterLanguageWithDetection(book.chapters[0], book)).toBe('en')
   })
 })
