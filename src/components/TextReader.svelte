@@ -282,19 +282,76 @@
     }
   })
 
+  // Track previous progress state to detect changes
+  let prevGeneratedIndices: Set<number> | null = null
+  let prevIsGenerating = false
+
   // Update segment visual states based on generation progress
   $effect(() => {
     if (!textContentEl || !chapter?.id) return
     const progress = $segmentProgress.get(chapter.id)
     if (!progress) return
 
-    const segmentEls = textContentEl.querySelectorAll('span[id^="seg-"]')
-    segmentEls.forEach((el) => {
-      const segmentId = el.id
-      const indexMatch = segmentId.match(/seg-(\d+)/)
-      if (!indexMatch) return
+    // Determine which segments need updating
+    const changedIndices = new Set<number>()
 
-      const index = parseInt(indexMatch[1], 10)
+    // Check if isGenerating state changed (affects all segments)
+    const generatingChanged = progress.isGenerating !== prevIsGenerating
+
+    if (!prevGeneratedIndices || generatingChanged) {
+      // First run or generating state changed - update all segments
+      const segmentEls = textContentEl.querySelectorAll('span[id^="seg-"]')
+      segmentEls.forEach((el) => {
+        const indexMatch = el.id.match(/seg-(\d+)/)
+        if (indexMatch) {
+          changedIndices.add(parseInt(indexMatch[1], 10))
+        }
+      })
+    } else {
+      // Find newly generated segments
+      for (const idx of progress.generatedIndices) {
+        if (!prevGeneratedIndices.has(idx)) {
+          changedIndices.add(idx)
+        }
+      }
+
+      // If generating, also update the "next" segment (for pulsing effect)
+      if (progress.isGenerating) {
+        let lastGenerated = -1
+        for (const idx of progress.generatedIndices) {
+          if (idx > lastGenerated) {
+            lastGenerated = idx
+          }
+        }
+        changedIndices.add(lastGenerated + 1)
+        // Also update the previous "next" segment if different
+        let prevLastGenerated = -1
+        for (const idx of prevGeneratedIndices) {
+          if (idx > prevLastGenerated) {
+            prevLastGenerated = idx
+          }
+        }
+        if (prevLastGenerated + 1 !== lastGenerated + 1) {
+          changedIndices.add(prevLastGenerated + 1)
+        }
+      }
+    }
+
+    // Compute lastGenerated once for reuse
+    let lastGenerated = -1
+    if (progress.isGenerating) {
+      for (const idx of progress.generatedIndices) {
+        if (idx > lastGenerated) {
+          lastGenerated = idx
+        }
+      }
+    }
+
+    // Update only changed segments
+    for (const index of changedIndices) {
+      const el = textContentEl.querySelector(`#seg-${index}`)
+      if (!el) continue
+
       const isGenerated = progress.generatedIndices.has(index)
 
       // Update classes for visual state
@@ -303,14 +360,6 @@
       if (isGenerated) {
         el.classList.add('segment-generated')
       } else if (progress.isGenerating) {
-        // Check if this is the next segment to be generated (for a pulsing effect)
-        // Compute the last generated index safely without using a large spread.
-        let lastGenerated = -1
-        for (const idx of progress.generatedIndices) {
-          if (idx > lastGenerated) {
-            lastGenerated = idx
-          }
-        }
         if (index === lastGenerated + 1) {
           el.classList.add('segment-generating')
         } else {
@@ -319,7 +368,11 @@
       } else {
         el.classList.add('segment-pending')
       }
-    })
+    }
+
+    // Store current state for next comparison
+    prevGeneratedIndices = new Set(progress.generatedIndices)
+    prevIsGenerating = progress.isGenerating
   })
 
   // Ensure initial highlight if already playing

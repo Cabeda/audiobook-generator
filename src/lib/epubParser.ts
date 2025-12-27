@@ -107,7 +107,7 @@ function isSafeUrl(url: string): boolean {
   if (!trimmedUrl) return true
 
   // Decode URL to catch encoded attacks like %6A%61%76%61%73%63%72%69%70%74:
-  let decodedUrl: string
+  let decodedUrl = trimmedUrl
   // Decode multiple times (up to a small limit) to catch nested encoding,
   // but stop if decoding fails or no further changes occur.
   const maxDecodes = 3

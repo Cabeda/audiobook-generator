@@ -73,7 +73,16 @@ class SegmentBatchHandler {
 
       // If batch is full, flush it
       if (this.batch.length >= this.batchSize) {
-        await this.flush()
+        try {
+          await this.flush()
+        } catch (error) {
+          // Log the error but don't stop generation
+          // The final saveChapterSegments call will ensure these segments are saved
+          logger.error('Failed to flush segment batch in addSegment, continuing generation', {
+            error,
+            chapterId: this.chapterId,
+          })
+        }
       }
 
       // Mark segment as generated in UI immediately
@@ -918,7 +927,7 @@ class GenerationService {
               )
 
               // Create batch handler for efficient database writes
-              const piperBatchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
+              const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
 
               // Calculate cumulative times and build audioSegments array
               let cumulativeTime = 0
@@ -935,16 +944,16 @@ class GenerationService {
                 audioSegments.push(segment)
 
                 // Add segment to batch (will auto-flush when batch is full)
-                await piperBatchHandler.addSegment(segment)
+                await batchHandler.addSegment(segment)
 
                 cumulativeTime += result.duration
               }
 
               // Flush any remaining segments in the batch
-              await piperBatchHandler.flush()
+              await batchHandler.flush()
             } else {
               // Sequential processing (original behavior)
-              const piperBatchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
+              const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
               let cumulativeTime = 0
 
               for (let i = 0; i < textSegments.length; i++) {
@@ -993,13 +1002,13 @@ class GenerationService {
                 audioSegments.push(segment)
 
                 // Add segment to batch (will auto-flush when batch is full)
-                await piperBatchHandler.addSegment(segment)
+                await batchHandler.addSegment(segment)
 
                 cumulativeTime += duration
               }
 
               // Flush any remaining segments in the batch
-              await piperBatchHandler.flush()
+              await batchHandler.flush()
             }
 
             if (this.canceled) break

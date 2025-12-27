@@ -141,9 +141,8 @@
 
           // Run language detection in background (non-blocking)
           try {
-            const { detectAndPersistLanguagesForBook } = await import(
-              './lib/services/languageDetectionService'
-            )
+            const { detectAndPersistLanguagesForBook } =
+              await import('./lib/services/languageDetectionService')
             // Fire and forget - don't block UI
             detectAndPersistLanguagesForBook(id, b)
               .then(async () => {
