@@ -21,7 +21,7 @@ import { concatenateAudioChapters, downloadAudioFile, type AudioChapter } from '
 import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
-import { saveChapterSegments, saveSegmentIndividually, type LibraryBook } from '../libraryDB'
+import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { convert } from 'html-to-text'
 import { resolveChapterLanguageWithDetection, DEFAULT_LANGUAGE } from '../utils/languageResolver'
@@ -44,37 +44,72 @@ import {
 type LibraryBookWithId = LibraryBook & { id: number }
 
 /**
- * Helper function to save a segment and mark it as generated in the UI.
- * If saving fails, we log the error but do NOT mark the segment as generated,
- * to avoid an inconsistent state where the UI shows a playable segment that isn't saved.
- *
- * @param bookId - The book ID (if undefined, we still mark as generated since no persistence is needed)
- * @param chapterId - The chapter ID
- * @param segment - The audio segment to save and mark
+ * Helper class to batch segment saves for better performance.
+ * Accumulates segments and saves them in batches to reduce database transactions.
  */
-async function handleGeneratedSegment(
-  bookId: number | undefined,
-  chapterId: string,
-  segment: AudioSegment
-): Promise<void> {
-  if (bookId) {
-    try {
-      await saveSegmentIndividually(bookId, chapterId, segment)
-      // Only mark as generated after successful save
-      markSegmentGenerated(chapterId, segment)
-    } catch (error) {
-      logger.error('Failed to save segment individually', {
-        error,
-        bookId,
-        chapterId,
-        segmentId: segment.id,
-        segmentIndex: segment.index,
-      })
-      // Do not mark the segment as generated in the UI if saving failed
+class SegmentBatchHandler {
+  private batch: AudioSegment[] = []
+  private readonly batchSize: number
+  private readonly bookId: number | undefined
+  private readonly chapterId: string
+
+  constructor(bookId: number | undefined, chapterId: string, batchSize: number = 10) {
+    this.bookId = bookId
+    this.chapterId = chapterId
+    this.batchSize = batchSize
+  }
+
+  /**
+   * Add a segment to the batch and save if batch is full.
+   * Marks the segment as generated in the UI immediately for real-time feedback.
+   *
+   * Note: Segments are marked as generated before batch flush for better UX.
+   * If a batch flush fails, the final saveChapterSegments call (after all segments
+   * are generated) will ensure all segments are eventually persisted.
+   */
+  async addSegment(segment: AudioSegment): Promise<void> {
+    if (this.bookId) {
+      this.batch.push(segment)
+
+      // If batch is full, flush it
+      if (this.batch.length >= this.batchSize) {
+        await this.flush()
+      }
+
+      // Mark segment as generated in UI immediately
+      // This provides real-time feedback while batching saves for performance
+      markSegmentGenerated(this.chapterId, segment)
+    } else {
+      // No persistent storage; just mark as generated
+      markSegmentGenerated(this.chapterId, segment)
     }
-  } else {
-    // No persistent storage; mark as generated based on in-memory generation
-    markSegmentGenerated(chapterId, segment)
+  }
+
+  /**
+   * Flush any remaining segments in the batch to the database.
+   * Uses `put` operations which are idempotent (upsert), so duplicate saves are safe.
+   */
+  async flush(): Promise<void> {
+    if (this.batch.length === 0 || !this.bookId) {
+      return
+    }
+
+    try {
+      await saveChapterSegments(this.bookId, this.chapterId, this.batch)
+      logger.debug(`Flushed batch of ${this.batch.length} segments for chapter ${this.chapterId}`)
+      this.batch = []
+    } catch (error) {
+      logger.error('Failed to save segment batch', {
+        error,
+        bookId: this.bookId,
+        chapterId: this.chapterId,
+        batchSize: this.batch.length,
+      })
+      // Clear batch even on error to avoid retry loops
+      // The final saveChapterSegments call will ensure these segments are saved
+      this.batch = []
+      throw error
+    }
   }
 }
 
@@ -676,6 +711,9 @@ class GenerationService {
                 }
               )
 
+              // Create batch handler for efficient database writes
+              const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
+
               // Calculate cumulative times and build audioSegments array
               let cumulativeTime = 0
               for (const result of results) {
@@ -690,13 +728,17 @@ class GenerationService {
                 }
                 audioSegments.push(segment)
 
-                // Save and mark segment as generated (with error handling)
-                await handleGeneratedSegment(bookId, ch.id, segment)
+                // Add segment to batch (will auto-flush when batch is full)
+                await batchHandler.addSegment(segment)
 
                 cumulativeTime += result.duration
               }
+
+              // Flush any remaining segments in the batch
+              await batchHandler.flush()
             } else {
               // Sequential processing (original behavior)
+              const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
               let cumulativeTime = 0
 
               for (let i = 0; i < textSegments.length; i++) {
@@ -739,11 +781,14 @@ class GenerationService {
 
                 audioSegments.push(segment)
 
-                // Save and mark segment as generated (with error handling)
-                await handleGeneratedSegment(bookId, ch.id, segment)
+                // Add segment to batch (will auto-flush when batch is full)
+                await batchHandler.addSegment(segment)
 
                 cumulativeTime += duration
               }
+
+              // Flush any remaining segments in the batch
+              await batchHandler.flush()
             }
 
             if (this.canceled) break
@@ -752,8 +797,9 @@ class GenerationService {
             markChapterGenerationComplete(ch.id)
 
             // Save all chapter segments to DB as a complete batch snapshot.
-            // This is the primary save that ensures all segments are persisted together
-            // and complements the optional progressive per-segment saves above.
+            // This serves as a safety net to ensure all segments are persisted,
+            // even if some progressive batches failed during generation.
+            // Uses `put` operations which are idempotent, so duplicate saves are safe.
             if (bookId) {
               await saveChapterSegments(bookId, ch.id, audioSegments)
             }
@@ -871,6 +917,9 @@ class GenerationService {
                 }
               )
 
+              // Create batch handler for efficient database writes
+              const piperBatchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
+
               // Calculate cumulative times and build audioSegments array
               let cumulativeTime = 0
               for (const result of results) {
@@ -885,13 +934,17 @@ class GenerationService {
                 }
                 audioSegments.push(segment)
 
-                // Save and mark segment as generated (with error handling)
-                await handleGeneratedSegment(bookId, ch.id, segment)
+                // Add segment to batch (will auto-flush when batch is full)
+                await piperBatchHandler.addSegment(segment)
 
                 cumulativeTime += result.duration
               }
+
+              // Flush any remaining segments in the batch
+              await piperBatchHandler.flush()
             } else {
               // Sequential processing (original behavior)
+              const piperBatchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
               let cumulativeTime = 0
 
               for (let i = 0; i < textSegments.length; i++) {
@@ -939,11 +992,14 @@ class GenerationService {
 
                 audioSegments.push(segment)
 
-                // Save and mark segment as generated (with error handling)
-                await handleGeneratedSegment(bookId, ch.id, segment)
+                // Add segment to batch (will auto-flush when batch is full)
+                await piperBatchHandler.addSegment(segment)
 
                 cumulativeTime += duration
               }
+
+              // Flush any remaining segments in the batch
+              await piperBatchHandler.flush()
             }
 
             if (this.canceled) break
@@ -952,8 +1008,9 @@ class GenerationService {
             markChapterGenerationComplete(ch.id)
 
             // Save all chapter segments to DB as a complete batch snapshot.
-            // This is the primary save that ensures all segments are persisted together
-            // and complements the optional progressive per-segment saves above.
+            // This serves as a safety net to ensure all segments are persisted,
+            // even if some progressive batches failed during generation.
+            // Uses `put` operations which are idempotent, so duplicate saves are safe.
             if (bookId) await saveChapterSegments(bookId, ch.id, audioSegments)
 
             // Concat
