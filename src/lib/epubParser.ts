@@ -200,12 +200,15 @@ function cleanHtml(html: string): string {
       }
     }
 
-    // Sanitize src attributes for images to prevent javascript: URLs
+    // Sanitize src attributes for images to prevent javascript: URLs and data: URLs
+    // Note: data: URLs are blocked for consistency with href handling, even though
+    // they're generally safe for images, they could be used for social engineering
     if (el.hasAttribute('src')) {
       const src = el.getAttribute('src') || ''
       const trimmedSrc = src.trim().toLowerCase()
       if (
         trimmedSrc.startsWith('javascript:') ||
+        trimmedSrc.startsWith('data:') ||
         trimmedSrc.startsWith('vbscript:') ||
         trimmedSrc.startsWith('file:') ||
         trimmedSrc.startsWith('about:')
