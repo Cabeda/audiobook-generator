@@ -892,6 +892,8 @@ class AudioPlaybackService {
       this.audio = null
     }
     this.cancelWebSpeech()
+    // Clear any pending generations to avoid stale state during single segment playback
+    this.pendingGenerations.clear()
 
     // Create audio from the segment blob
     const url = URL.createObjectURL(segment.audioBlob)
