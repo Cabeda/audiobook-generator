@@ -19,9 +19,11 @@
     LANGUAGE_OPTIONS,
     getLanguageLabel,
     resolveChapterLanguageWithDetection,
+    DETECTION_CONFIDENCE_THRESHOLD,
   } from '../lib/utils/languageResolver'
   import { getKokoroVoicesForLanguage, isKokoroLanguageSupported } from '../lib/utils/voiceSelector'
   import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroClient'
+  import { onMount } from 'svelte'
 
   let {
     chapter,
@@ -71,12 +73,12 @@
   let piperVoicesWithMetadata = $state<
     Array<{ key: string; name: string; language: string; quality: string }>
   >([])
-  let piperVoicesLoading = $state(false)
+  let piperVoicesLoadAttempted = $state(false)
 
-  // Load piper voices on mount
-  $effect(() => {
-    if (!piperVoicesLoading) {
-      piperVoicesLoading = true
+  // Load piper voices on mount (once)
+  onMount(() => {
+    if (!piperVoicesLoadAttempted) {
+      piperVoicesLoadAttempted = true
       import('../lib/piper/piperClient')
         .then(({ PiperClient }) => {
           return PiperClient.getInstance().getVoices()
@@ -86,7 +88,6 @@
         })
         .catch((error) => {
           console.error('Failed to load Piper voices:', error)
-          piperVoicesLoading = false
         })
     }
   })
@@ -197,12 +198,20 @@
     // After language change, check if we need to fallback model
     const baseModel = chapterModel || $selectedModel
     if (baseModel === 'kokoro') {
-      // Determine the new effective language
+      // Determine the new effective language after this change
       let newLang = value
       if (!newLang && book) {
-        // Create a temporary chapter object with the updated language to compute effective language
-        const updatedChapter = { ...chapter, language: value }
-        newLang = resolveChapterLanguageWithDetection(updatedChapter, book)
+        // When auto-detect is selected (value is undefined), compute the effective language
+        // using the chapter's current detected language values. Note: chapter.language will
+        // still be the old value here (updated async via callback), but we're checking what
+        // the effective language will be based on the chapter's detectedLanguage field.
+        newLang =
+          chapter.detectedLanguage &&
+          chapter.languageConfidence &&
+          chapter.languageConfidence >= DETECTION_CONFIDENCE_THRESHOLD &&
+          chapter.detectedLanguage !== 'und'
+            ? chapter.detectedLanguage
+            : book.language || 'en'
       }
       if (!newLang) {
         newLang = 'en' // fallback

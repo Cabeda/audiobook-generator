@@ -54,9 +54,11 @@ export function detectLanguage(text: string): LanguageDetectionResult {
   const languageCode = convertISO639_3to1(detected)
 
   // Calculate confidence based on text length and detection result
-  // franc doesn't provide confidence scores, so we estimate based on:
+  // NOTE: franc doesn't provide actual linguistic confidence scores.
+  // These confidence values are heuristic estimates based on:
   // - Whether detection succeeded (not 'und')
-  // - Text length (longer = more confident)
+  // - Text length (longer text = more reliable detection)
+  // These are NOT actual confidence scores from the detection library.
   let confidence = 0
   if (languageCode !== 'und') {
     // Base confidence for successful detection

@@ -1,9 +1,16 @@
 import type { Book, Chapter } from '../types/book'
+import { DETECTION_CONFIDENCE_THRESHOLD as IMPORTED_THRESHOLD } from './languageDetector'
 
 /**
  * Default language when none is specified
  */
 export const DEFAULT_LANGUAGE = 'en'
+
+/**
+ * Confidence threshold for trusting detected language
+ * Re-exported from languageDetector for convenience
+ */
+export const DETECTION_CONFIDENCE_THRESHOLD = IMPORTED_THRESHOLD
 
 /**
  * Resolves the effective language for a chapter.
@@ -12,12 +19,6 @@ export const DEFAULT_LANGUAGE = 'en'
 export function resolveChapterLanguage(chapter: Chapter, book: Book): string {
   return chapter.language || book.language || DEFAULT_LANGUAGE
 }
-
-/**
- * Confidence threshold for trusting detected language
- * Should match the threshold in languageDetector
- */
-export const DETECTION_CONFIDENCE_THRESHOLD = 0.5
 
 /**
  * Resolves the effective language for a chapter including auto-detected language.
@@ -42,7 +43,7 @@ export function resolveChapterLanguageWithDetection(chapter: Chapter, book: Book
     chapter.detectedLanguage &&
     chapter.detectedLanguage !== 'und' &&
     chapter.languageConfidence !== undefined &&
-    chapter.languageConfidence >= DETECTION_CONFIDENCE_THRESHOLD
+    chapter.languageConfidence >= IMPORTED_THRESHOLD
   ) {
     return chapter.detectedLanguage
   }
