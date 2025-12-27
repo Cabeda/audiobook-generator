@@ -2,6 +2,8 @@
 
 A modern, browser-based audiobook generator that converts EPUB books into high-quality audio files using AI-powered text-to-speech. Powered by [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) TTS model running 100% in your browser.
 
+> ⚠️ **Important**: This tool works with **DRM-free files only**. It cannot process files with digital rights management (DRM) protections, such as those purchased from Apple Books, Google Play Books, or Amazon Kindle with DRM enabled.
+
 [![Tests](https://github.com/Cabeda/audiobook-generator/actions/workflows/test.yml/badge.svg)](https://github.com/Cabeda/audiobook-generator/actions/workflows/test.yml)
 
 ## ✨ Features
