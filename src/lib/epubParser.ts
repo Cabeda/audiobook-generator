@@ -108,12 +108,21 @@ function isSafeUrl(url: string): boolean {
 
   // Decode URL to catch encoded attacks like %6A%61%76%61%73%63%72%69%70%74:
   let decodedUrl: string
-  try {
-    // Decode multiple times to catch double-encoding
-    decodedUrl = decodeURIComponent(decodeURIComponent(trimmedUrl))
-  } catch {
-    // If decoding fails, treat as suspicious
-    return false
+  // Decode multiple times (up to a small limit) to catch nested encoding,
+  // but stop if decoding fails or no further changes occur.
+  const maxDecodes = 3
+  for (let i = 0; i < maxDecodes; i++) {
+    try {
+      const onceDecoded = decodeURIComponent(decodedUrl)
+      if (onceDecoded === decodedUrl) {
+        break
+      }
+      decodedUrl = onceDecoded
+    } catch {
+      // If decoding fails at this level, stop decoding but keep the last
+      // successfully decoded value for safety checks.
+      break
+    }
   }
 
   const lowerUrl = decodedUrl.toLowerCase().replace(/\s/g, '')
