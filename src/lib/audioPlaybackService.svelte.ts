@@ -446,12 +446,9 @@ class AudioPlaybackService {
     if (this.audio) {
       this.audio.pause()
     }
-    try {
-      const worker = getTTSWorker()
-      worker.cancelAll()
-    } catch {
-      // ignore
-    }
+    // Note: We intentionally do NOT call worker.cancelAll() here anymore
+    // because that would cancel ongoing chapter generation from generationService.
+    // The audioPlaybackService only handles playback, not generation.
     // Clear pending generation queue to avoid stale buffering state
     this.pendingGenerations.clear()
     audioPlayerStore.setBuffering(false)
@@ -505,9 +502,8 @@ class AudioPlaybackService {
 
     this.cancelWebSpeech()
 
-    // Cancel pending
-    const worker = getTTSWorker()
-    worker.cancelAll()
+    // Clear only this service's pending generations, not the global worker
+    // This prevents canceling ongoing chapter generation from generationService
     this.pendingGenerations.clear()
 
     this.currentSegmentIndex = index
