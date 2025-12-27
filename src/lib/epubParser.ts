@@ -41,141 +41,23 @@ function cleanHtml(html: string): string {
   )
   toRemove.forEach((el) => el.remove())
 
-  // List of all known event handler attributes that could execute JavaScript
-  const eventHandlers = [
-    'onabort',
-    'onafterprint',
-    'onanimationcancel',
-    'onanimationend',
-    'onanimationiteration',
-    'onanimationstart',
-    'onauxclick',
-    'onbeforecopy',
-    'onbeforecut',
-    'onbeforeinput',
-    'onbeforepaste',
-    'onbeforeprint',
-    'onbeforeunload',
-    'onblur',
-    'oncancel',
-    'oncanplay',
-    'oncanplaythrough',
-    'onchange',
-    'onclick',
-    'onclose',
-    'oncontextmenu',
-    'oncopy',
-    'oncuechange',
-    'oncut',
-    'ondblclick',
-    'ondrag',
-    'ondragend',
-    'ondragenter',
-    'ondragleave',
-    'ondragover',
-    'ondragstart',
-    'ondrop',
-    'ondurationchange',
-    'onemptied',
-    'onended',
-    'onerror',
-    'onfocus',
-    'onfocusin',
-    'onfocusout',
-    'onformdata',
-    'ongotpointercapture',
-    'onhashchange',
-    'oninput',
-    'oninvalid',
-    'onkeydown',
-    'onkeypress',
-    'onkeyup',
-    'onlanguagechange',
-    'onload',
-    'onloadeddata',
-    'onloadedmetadata',
-    'onloadstart',
-    'onlostpointercapture',
-    'onmessage',
-    'onmessageerror',
-    'onmousedown',
-    'onmouseenter',
-    'onmouseleave',
-    'onmousemove',
-    'onmouseout',
-    'onmouseover',
-    'onmouseup',
-    'onmousewheel',
-    'onoffline',
-    'ononline',
-    'onpagehide',
-    'onpageshow',
-    'onpaste',
-    'onpause',
-    'onplay',
-    'onplaying',
-    'onpointercancel',
-    'onpointerdown',
-    'onpointerenter',
-    'onpointerleave',
-    'onpointermove',
-    'onpointerout',
-    'onpointerover',
-    'onpointerup',
-    'onpopstate',
-    'onprogress',
-    'onratechange',
-    'onrejectionhandled',
-    'onreset',
-    'onresize',
-    'onscroll',
-    'onsearch',
-    'onsecuritypolicyviolation',
-    'onseeked',
-    'onseeking',
-    'onselect',
-    'onselectionchange',
-    'onselectstart',
-    'onshow',
-    'onstalled',
-    'onstorage',
-    'onsubmit',
-    'onsuspend',
-    'ontimeupdate',
-    'ontoggle',
-    'ontouchcancel',
-    'ontouchend',
-    'ontouchmove',
-    'ontouchstart',
-    'ontransitioncancel',
-    'ontransitionend',
-    'ontransitionrun',
-    'ontransitionstart',
-    'onunhandledrejection',
-    'onunload',
-    'onvolumechange',
-    'onwaiting',
-    'onwebkitanimationend',
-    'onwebkitanimationiteration',
-    'onwebkitanimationstart',
-    'onwebkittransitionend',
-    'onwheel',
-  ]
-
-  // Sanitize all elements
-  const allElements = doc.body.querySelectorAll('*')
+  // Sanitize all elements in the entire document (not just body)
+  const allElements = doc.querySelectorAll('*')
   allElements.forEach((el) => {
-    // Remove all event handler attributes
-    eventHandlers.forEach((handler) => {
-      el.removeAttribute(handler)
+    // Remove all event handler attributes dynamically (any attribute starting with 'on')
+    // This is more future-proof than maintaining a hardcoded list
+    Array.from(el.attributes).forEach((attr) => {
+      if (attr.name.toLowerCase().startsWith('on')) {
+        el.removeAttribute(attr.name)
+      }
     })
 
     // Remove style attribute to prevent CSS-based attacks
     el.removeAttribute('style')
-    
+
     // Remove class attribute to use our own styling
     el.removeAttribute('class')
-    
+
     // Only keep id attributes that match the segment pattern (seg-*)
     if (el.hasAttribute('id')) {
       const id = el.getAttribute('id') || ''
@@ -184,35 +66,18 @@ function cleanHtml(html: string): string {
       }
     }
 
-    // Sanitize href attributes to prevent javascript: URLs
+    // Sanitize href attributes to prevent dangerous URL schemes
     if (el.hasAttribute('href')) {
       const href = el.getAttribute('href') || ''
-      const trimmedHref = href.trim().toLowerCase()
-      // Remove javascript:, data:, vbscript:, and other dangerous protocols
-      if (
-        trimmedHref.startsWith('javascript:') ||
-        trimmedHref.startsWith('data:') ||
-        trimmedHref.startsWith('vbscript:') ||
-        trimmedHref.startsWith('file:') ||
-        trimmedHref.startsWith('about:')
-      ) {
+      if (!isSafeUrl(href)) {
         el.removeAttribute('href')
       }
     }
 
-    // Sanitize src attributes for images to prevent javascript: URLs and data: URLs
-    // Note: data: URLs are blocked for consistency with href handling, even though
-    // they're generally safe for images, they could be used for social engineering
+    // Sanitize src attributes to prevent dangerous URL schemes
     if (el.hasAttribute('src')) {
       const src = el.getAttribute('src') || ''
-      const trimmedSrc = src.trim().toLowerCase()
-      if (
-        trimmedSrc.startsWith('javascript:') ||
-        trimmedSrc.startsWith('data:') ||
-        trimmedSrc.startsWith('vbscript:') ||
-        trimmedSrc.startsWith('file:') ||
-        trimmedSrc.startsWith('about:')
-      ) {
+      if (!isSafeUrl(src)) {
         el.removeAttribute('src')
       }
     }
@@ -228,6 +93,68 @@ function cleanHtml(html: string): string {
   })
 
   return doc.body.innerHTML
+}
+
+/**
+ * Check if a URL is safe to use in href or src attributes.
+ * This function handles URL encoding to prevent bypass attacks.
+ * @param url - The URL to check
+ * @returns true if the URL is safe, false otherwise
+ */
+function isSafeUrl(url: string): boolean {
+  if (!url) return true // Empty URLs are safe (will be removed by browser anyway)
+
+  const trimmedUrl = url.trim()
+  if (!trimmedUrl) return true
+
+  // Decode URL to catch encoded attacks like %6A%61%76%61%73%63%72%69%70%74:
+  let decodedUrl = trimmedUrl
+  try {
+    // Decode multiple times to catch double-encoding
+    decodedUrl = decodeURIComponent(decodeURIComponent(trimmedUrl))
+  } catch {
+    // If decoding fails, treat as suspicious
+    return false
+  }
+
+  const lowerUrl = decodedUrl.toLowerCase().replace(/\s/g, '')
+
+  // Block dangerous protocols
+  const dangerousProtocols = [
+    'javascript:',
+    'data:',
+    'vbscript:',
+    'file:',
+    'about:',
+    'javascript&colon;',
+    'vbscript&colon;',
+  ]
+
+  for (const protocol of dangerousProtocols) {
+    if (lowerUrl.startsWith(protocol)) {
+      return false
+    }
+  }
+
+  // Additional check: try parsing as URL if it looks like an absolute URL
+  if (lowerUrl.includes(':')) {
+    try {
+      const urlObj = new URL(decodedUrl)
+      const protocol = urlObj.protocol.toLowerCase()
+      // Only allow http, https, and relative URLs
+      if (protocol !== 'http:' && protocol !== 'https:' && protocol !== '') {
+        return false
+      }
+    } catch {
+      // If URL parsing fails but it contains ':', it might be malformed - be safe and reject
+      if (lowerUrl.indexOf(':') < 20) {
+        // Protocol should be within first 20 chars
+        return false
+      }
+    }
+  }
+
+  return true
 }
 
 function extractChapterTitle(
