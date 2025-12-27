@@ -89,7 +89,6 @@ function cleanHtml(html: string): string {
     el.removeAttribute('background')
     el.removeAttribute('srcdoc')
     el.removeAttribute('codebase')
-    el.removeAttribute('data')
   })
 
   return doc.body.innerHTML
