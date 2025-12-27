@@ -7,6 +7,7 @@
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
   import { segmentProgress, getGeneratedSegment } from '../stores/segmentProgressStore'
+  import { segmentHtmlContent } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
 
@@ -176,37 +177,6 @@
     }
   }
 
-  function rangeFromTextOffsets(root: HTMLElement, start: number, end: number): Range | null {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    let offset = 0
-    let startNode: Node | null = null
-    let startOffset = 0
-    let endNode: Node | null = null
-    let endOffset = 0
-
-    let current = walker.nextNode()
-    while (current) {
-      const len = current.textContent?.length ?? 0
-      if (!startNode && start >= offset && start <= offset + len) {
-        startNode = current
-        startOffset = start - offset
-      }
-      if (!endNode && end <= offset + len) {
-        endNode = current
-        endOffset = end - offset
-        break
-      }
-      offset += len
-      current = walker.nextNode()
-    }
-
-    if (!startNode || !endNode) return null
-    const range = document.createRange()
-    range.setStart(startNode, startOffset)
-    range.setEnd(endNode, endOffset)
-    return range
-  }
-
   function injectSegmentsIntoContent() {
     if (!textContentEl) return
     const root = textContentEl
@@ -221,65 +191,133 @@
     const segments = audioService.segments
     if (!segments?.length) return
 
-    const fullText = root.textContent || ''
-
-    const normalizeWithMap = (text: string) => {
-      const normalizedChars: string[] = []
-      const normToOriginal: number[] = []
-      let lastWasSpace = false
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i]
-        if (/\s/.test(ch)) {
-          if (lastWasSpace) continue
-          normalizedChars.push(' ')
-          normToOriginal.push(i)
-          lastWasSpace = true
-        } else {
-          normalizedChars.push(ch)
-          normToOriginal.push(i)
-          lastWasSpace = false
-        }
+    // Use TreeWalker to find all text nodes
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null)
+    const textNodes: Text[] = []
+    let node: Text | null
+    while ((node = walker.nextNode() as Text | null)) {
+      if (node.textContent && node.textContent.trim()) {
+        textNodes.push(node)
       }
-      return { normalized: normalizedChars.join(''), normToOriginal }
     }
 
-    const normalizedFull = normalizeWithMap(fullText)
-    let searchNormIndex = 0
+    // Build a map of cumulative text offsets
+    let cumulativeOffset = 0
+    const nodeOffsets: { node: Text; start: number; end: number }[] = []
+    for (const tn of textNodes) {
+      const len = tn.textContent?.length ?? 0
+      nodeOffsets.push({ node: tn, start: cumulativeOffset, end: cumulativeOffset + len })
+      cumulativeOffset += len
+    }
+
+    // Get the full text content for matching
+    const fullText = textNodes.map((n) => n.textContent).join('')
+
+    // Normalize text for matching (collapse whitespace)
+    const normalizeText = (text: string) => text.replace(/\s+/g, ' ').trim()
+
+    let searchIndex = 0
 
     for (const segment of segments) {
-      const normalizedSegment = normalizeWithMap(segment.text)
-      if (!normalizedSegment.normalized) continue
+      const segmentText = normalizeText(segment.text)
+      if (!segmentText) continue
 
-      const startNorm = normalizedFull.normalized.indexOf(
-        normalizedSegment.normalized,
-        searchNormIndex
-      )
-      if (startNorm === -1) continue
-      const endNorm = startNorm + normalizedSegment.normalized.length
+      // Find this segment in the full text (with normalized matching)
+      const normalizedFull = normalizeText(fullText.slice(searchIndex))
+      const matchIndex = normalizedFull.indexOf(segmentText)
 
-      const start = normalizedFull.normToOriginal[startNorm]
-      const endOriginalIdx = normalizedFull.normToOriginal[endNorm - 1]
-      const end = endOriginalIdx !== undefined ? endOriginalIdx + 1 : start + segment.text.length
-
-      const range = rangeFromTextOffsets(root, start, end)
-      if (!range || range.collapsed) continue
-
-      const span = document.createElement('span')
-      span.className = 'segment'
-      span.id = `seg-${segment.index}`
-      span.setAttribute('role', 'button')
-      span.setAttribute('tabindex', '0')
-      span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
-
-      try {
-        const contents = range.extractContents()
-        span.appendChild(contents)
-        range.insertNode(span)
-      } catch (err) {
-        console.warn('Failed to wrap segment for highlighting', err)
+      if (matchIndex === -1) {
+        console.warn(`Segment ${segment.index} not found: "${segmentText.slice(0, 50)}..."`)
+        continue
       }
 
-      searchNormIndex = endNorm
+      // Map back to original text position
+      // Count characters in original text until we've passed 'matchIndex' normalized chars
+      let origStart = searchIndex
+      let normalizedCount = 0
+      let inWhitespace = false
+
+      for (let i = searchIndex; i < fullText.length && normalizedCount < matchIndex; i++) {
+        const ch = fullText[i]
+        if (/\s/.test(ch)) {
+          if (!inWhitespace) {
+            normalizedCount++
+            inWhitespace = true
+          }
+        } else {
+          normalizedCount++
+          inWhitespace = false
+        }
+        origStart = i + 1
+      }
+
+      // Now find the end position
+      let origEnd = origStart
+      normalizedCount = 0
+      inWhitespace = false
+
+      for (let i = origStart; i < fullText.length && normalizedCount < segmentText.length; i++) {
+        const ch = fullText[i]
+        if (/\s/.test(ch)) {
+          if (!inWhitespace) {
+            normalizedCount++
+            inWhitespace = true
+          }
+        } else {
+          normalizedCount++
+          inWhitespace = false
+        }
+        origEnd = i + 1
+      }
+
+      // Find which text nodes this range spans
+      const startNodeInfo = nodeOffsets.find((n) => origStart >= n.start && origStart < n.end)
+      const endNodeInfo = nodeOffsets.find((n) => origEnd > n.start && origEnd <= n.end)
+
+      if (!startNodeInfo || !endNodeInfo) {
+        console.warn(`Could not find nodes for segment ${segment.index}`)
+        continue
+      }
+
+      try {
+        const range = document.createRange()
+        range.setStart(startNodeInfo.node, origStart - startNodeInfo.start)
+        range.setEnd(endNodeInfo.node, origEnd - endNodeInfo.start)
+
+        if (!range.collapsed) {
+          const span = document.createElement('span')
+          span.className = 'segment'
+          span.id = `seg-${segment.index}`
+          span.setAttribute('role', 'button')
+          span.setAttribute('tabindex', '0')
+          span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
+
+          range.surroundContents(span)
+        }
+      } catch (err) {
+        // surroundContents can fail if range crosses element boundaries
+        // Fall back to extractContents approach
+        try {
+          const range = document.createRange()
+          range.setStart(startNodeInfo.node, origStart - startNodeInfo.start)
+          range.setEnd(endNodeInfo.node, origEnd - endNodeInfo.start)
+
+          const span = document.createElement('span')
+          span.className = 'segment'
+          span.id = `seg-${segment.index}`
+          span.setAttribute('role', 'button')
+          span.setAttribute('tabindex', '0')
+          span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
+
+          const contents = range.extractContents()
+          span.appendChild(contents)
+          range.insertNode(span)
+        } catch (err2) {
+          console.warn(`Failed to wrap segment ${segment.index}:`, err2)
+        }
+      }
+
+      searchIndex = origEnd
     }
   }
 
@@ -310,17 +348,28 @@
   })
 
   // Inject segment wrappers so the active sentence can be highlighted
+  // This now works even without audio - segments are computed on-the-fly for preview
   $effect(() => {
     const ready = !isLoading && !loadError
-    const segmentCount = audioService.segments.length
     const chapterId = chapter?.id
-    if (!ready || !segmentCount || !chapterId) return
+    if (!ready || !chapterId) return
 
-    injectSegmentsIntoContent()
+    // If we don't have segments yet, compute them from the content for preview highlighting
+    if (audioService.segments.length === 0 && chapter?.content) {
+      const { segments: computedSegments } = segmentHtmlContent(chapterId, chapter.content)
+      if (computedSegments.length > 0) {
+        audioService.segments = computedSegments.map((s) => ({ index: s.index, text: s.text }))
+      }
+    }
 
-    if (audioService.currentSegmentIndex >= 0) {
-      updateActiveSegment(audioService.currentSegmentIndex)
-      scrollToSegment(audioService.currentSegmentIndex)
+    // Now inject the segments into the DOM
+    if (audioService.segments.length > 0) {
+      injectSegmentsIntoContent()
+
+      if (audioService.currentSegmentIndex >= 0) {
+        updateActiveSegment(audioService.currentSegmentIndex)
+        scrollToSegment(audioService.currentSegmentIndex)
+      }
     }
   })
 
