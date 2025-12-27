@@ -24,6 +24,17 @@
   let prevGeneratedIndices: Set<number> | null = null
   let prevIsGenerating = false
 
+  // Helper function to get max index from a set
+  function getMaxIndex(indices: Set<number>): number {
+    let max = -1
+    for (const idx of indices) {
+      if (idx > max) {
+        max = idx
+      }
+    }
+    return max
+  }
+
   // Apply visual states to segments based on generation progress
   $effect(() => {
     if (!contentEl || !progress) return
@@ -53,20 +64,10 @@
 
       // If generating, also update the "next" segment (for pulsing effect)
       if (isGenerating) {
-        let lastGenerated = -1
-        for (const idx of progress.generatedIndices) {
-          if (idx > lastGenerated) {
-            lastGenerated = idx
-          }
-        }
+        const lastGenerated = getMaxIndex(progress.generatedIndices)
+        const prevLastGenerated = getMaxIndex(prevGeneratedIndices)
         changedIndices.add(lastGenerated + 1)
         // Also update the previous "next" segment if different
-        let prevLastGenerated = -1
-        for (const idx of prevGeneratedIndices) {
-          if (idx > prevLastGenerated) {
-            prevLastGenerated = idx
-          }
-        }
         if (prevLastGenerated + 1 !== lastGenerated + 1) {
           changedIndices.add(prevLastGenerated + 1)
         }
@@ -74,14 +75,7 @@
     }
 
     // Compute lastGenerated once for reuse
-    let lastGenerated = -1
-    if (isGenerating) {
-      for (const idx of progress.generatedIndices) {
-        if (idx > lastGenerated) {
-          lastGenerated = idx
-        }
-      }
-    }
+    const lastGenerated = isGenerating ? getMaxIndex(progress.generatedIndices) : -1
 
     // Update only changed segments
     for (const index of changedIndices) {
