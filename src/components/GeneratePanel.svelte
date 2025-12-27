@@ -554,6 +554,30 @@
     // We export immediately. Since we selected only processed ones, it should jump to concatenation.
     exportAudio()
   }
+
+  // Helper to group settings
+  function getSettingsGroups(model: string) {
+    const schema = ADVANCED_SETTINGS_SCHEMA[model] || []
+    const groups: Record<string, typeof schema> = {}
+
+    schema.forEach((setting) => {
+      const groupName = setting.group || 'General'
+      if (!groups[groupName]) groups[groupName] = []
+      groups[groupName].push(setting)
+    })
+
+    // Sort groups to ensure consistent order (e.g. Performance last, or alphabetical)
+    // Let's prioritize: Text Processing, Audio Characteristics, Performance, General
+    const priority = ['Text Processing', 'Audio Characteristics', 'Performance', 'General']
+    return Object.entries(groups).sort((a, b) => {
+      const idxA = priority.indexOf(a[0])
+      const idxB = priority.indexOf(b[0])
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      return a[0].localeCompare(b[0])
+    })
+  }
 </script>
 
 <div class="panel">
@@ -696,77 +720,81 @@
 
       <!-- Dynamic Advanced Settings -->
       {#if ADVANCED_SETTINGS_SCHEMA[selectedModel]}
-        <div class="advanced-group">
-          <h5 class="group-title">Fine-Tuning</h5>
-          <div class="form-grid">
-            {#each ADVANCED_SETTINGS_SCHEMA[selectedModel] as setting, idx}
-              {#if !setting.conditional || $advancedSettings[selectedModel]?.[setting.conditional.key] === setting.conditional.value}
-                <div class="form-field setting-item">
-                  {#if setting.type === 'boolean'}
-                    <div class="checkbox-wrapper">
-                      <input
-                        id="setting-{selectedModel}-{idx}"
-                        type="checkbox"
-                        bind:checked={$advancedSettings[selectedModel][setting.key]}
-                        disabled={running || concatenating}
-                      />
-                      <label for="setting-{selectedModel}-{idx}" class="checkbox-label">
-                        <span class="label-text">{setting.label}</span>
-                        {#if setting.description}
-                          <p class="help-text">{setting.description}</p>
-                        {/if}
-                      </label>
-                    </div>
-                  {:else}
-                    <label for="setting-{selectedModel}-{idx}">
-                      <span class="label-text" title={setting.description}>{setting.label}</span>
-                      {#if setting.description}
-                        <p class="help-text">{setting.description}</p>
-                      {/if}
-                    </label>
-
-                    {#if setting.type === 'select'}
-                      <select
-                        id="setting-{selectedModel}-{idx}"
-                        bind:value={$advancedSettings[selectedModel][setting.key]}
-                        disabled={running || concatenating}
-                      >
-                        {#each setting.options || [] as opt}
-                          <option value={opt.value}>{opt.label}</option>
-                        {/each}
-                      </select>
-                    {:else if setting.type === 'slider'}
-                      <div class="slider-container">
+        {#each getSettingsGroups(selectedModel) as [groupName, settings]}
+          <div class="advanced-group">
+            <h5 class="group-title">{groupName}</h5>
+            <div class="advanced-form-stack">
+              {#each settings as setting, idx}
+                {#if !setting.conditional || $advancedSettings[selectedModel]?.[setting.conditional.key] === setting.conditional.value}
+                  <div class="setting-item">
+                    {#if setting.type === 'boolean'}
+                      <div class="checkbox-wrapper">
                         <input
-                          id="setting-{selectedModel}-{idx}"
-                          type="range"
-                          min={setting.min}
-                          max={setting.max}
-                          step={setting.step}
-                          bind:value={$advancedSettings[selectedModel][setting.key]}
+                          id="setting-{selectedModel}-{setting.key}"
+                          type="checkbox"
+                          bind:checked={$advancedSettings[selectedModel][setting.key]}
                           disabled={running || concatenating}
                         />
-                        <span class="value-display"
-                          >{$advancedSettings[selectedModel][setting.key]}</span
-                        >
+                        <label for="setting-{selectedModel}-{setting.key}" class="checkbox-label">
+                          <span class="label-text">{setting.label}</span>
+                          {#if setting.description}
+                            <p class="help-text">{setting.description}</p>
+                          {/if}
+                        </label>
                       </div>
-                    {:else if setting.type === 'number'}
-                      <input
-                        id="setting-{selectedModel}-{idx}"
-                        type="number"
-                        min={setting.min}
-                        max={setting.max}
-                        step={setting.step}
-                        bind:value={$advancedSettings[selectedModel][setting.key]}
-                        disabled={running || concatenating}
-                      />
+                    {:else}
+                      <div class="form-field">
+                        <label for="setting-{selectedModel}-{setting.key}">
+                          <span class="label-text">{setting.label}</span>
+                          {#if setting.description}
+                            <p class="help-text">{setting.description}</p>
+                          {/if}
+                        </label>
+
+                        {#if setting.type === 'select'}
+                          <select
+                            id="setting-{selectedModel}-{setting.key}"
+                            bind:value={$advancedSettings[selectedModel][setting.key]}
+                            disabled={running || concatenating}
+                          >
+                            {#each setting.options || [] as opt}
+                              <option value={opt.value}>{opt.label}</option>
+                            {/each}
+                          </select>
+                        {:else if setting.type === 'slider'}
+                          <div class="slider-container">
+                            <input
+                              id="setting-{selectedModel}-{setting.key}"
+                              type="range"
+                              min={setting.min}
+                              max={setting.max}
+                              step={setting.step}
+                              bind:value={$advancedSettings[selectedModel][setting.key]}
+                              disabled={running || concatenating}
+                            />
+                            <span class="value-display"
+                              >{$advancedSettings[selectedModel][setting.key]}</span
+                            >
+                          </div>
+                        {:else if setting.type === 'number'}
+                          <input
+                            id="setting-{selectedModel}-{setting.key}"
+                            type="number"
+                            min={setting.min}
+                            max={setting.max}
+                            step={setting.step}
+                            bind:value={$advancedSettings[selectedModel][setting.key]}
+                            disabled={running || concatenating}
+                          />
+                        {/if}
+                      </div>
                     {/if}
-                  {/if}
-                </div>
-              {/if}
-            {/each}
+                  </div>
+                {/if}
+              {/each}
+            </div>
           </div>
-        </div>
+        {/each}
       {/if}
     </div>
   {/if}
@@ -922,23 +950,6 @@
     color: var(--secondary-text);
   }
 
-  .option-group {
-    margin-bottom: 16px;
-  }
-
-  .option-group.export-options {
-    padding: 16px;
-    background: var(--bg-color);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    margin-bottom: 16px;
-  }
-
-  .option-group label {
-    display: block;
-    margin-bottom: 12px;
-  }
-
   /* Form Card Styling - Better visual grouping */
   .form-card {
     background: var(--bg-color);
@@ -1026,6 +1037,16 @@
     margin-bottom: 0;
   }
 
+  .advanced-form-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .setting-item {
+    width: 100%;
+  }
+
   .group-title {
     font-size: 13px;
     font-weight: 700;
@@ -1037,7 +1058,56 @@
     border-bottom: 1px solid var(--border-color);
   }
 
-  /* Select and Input styling */
+  .slider-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(0, 0, 0, 0.02);
+    padding: 8px 12px;
+    border-radius: 6px;
+  }
+
+  .slider-container input[type='range'] {
+    flex: 1;
+  }
+
+  .value-display {
+    min-width: 24px;
+    text-align: right;
+    font-weight: 600;
+    color: var(--primary-color);
+    font-family: monospace;
+  }
+
+  .checkbox-wrapper {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+
+  .checkbox-wrapper:hover {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: var(--primary-color);
+  }
+
+  .checkbox-wrapper input[type='checkbox'] {
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    cursor: pointer;
+  }
+
+  .checkbox-label {
+    cursor: pointer;
+    margin: 0 !important;
+    flex: 1;
+  }
   select,
   input[type='number'],
   input[type='range'] {

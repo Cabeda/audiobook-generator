@@ -53,6 +53,43 @@ function getBookId(): number {
   return 0
 }
 
+/**
+ * Process items in parallel batches
+ * @param items Array of items to process
+ * @param batchSize Number of items to process concurrently
+ * @param processor Function that processes a single item and returns a result
+ * @param onProgress Optional callback called after each batch completes
+ * @returns Array of results in the same order as the input items
+ */
+async function processBatch<T, R>(
+  items: T[],
+  batchSize: number,
+  processor: (item: T, index: number) => Promise<R>,
+  onProgress?: (completedCount: number, total: number) => void
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let completedCount = 0
+
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, Math.min(i + batchSize, items.length))
+    const batchResults = await Promise.all(
+      batch.map((item, batchIndex) => processor(item, i + batchIndex))
+    )
+
+    // Store results in order
+    batchResults.forEach((result, batchIndex) => {
+      results[i + batchIndex] = result
+    })
+
+    completedCount += batch.length
+    if (onProgress) {
+      onProgress(completedCount, items.length)
+    }
+  }
+
+  return results
+}
+
 export interface SegmentOptions {
   ignoreCodeBlocks?: boolean
   ignoreLinks?: boolean
@@ -527,58 +564,113 @@ class GenerationService {
               })
             )
 
-            // Iterate segments and generate audio one by one
-            // We can't use `generateVoiceStream` easily here because we have discrete text chunks
-            // and we want to map them 1:1 to our segments.
-            // But `generateVoiceStream` splits by sentence internally?
-            // If we pass pre-split sentences, Kokoro might split them further if they are long?
-            // `generateVoiceStream` takes text.
-            // We should use `generateVoice` (blob) for each segment?
-            // `generateVoice` in worker returns a single blob for the input text.
-            // Yes.
+            // Get parallelization setting (default to 1 for sequential processing)
+            const parallelChunks = Math.max(1, Number(currentAdvancedSettings.parallelChunks) || 1)
 
             const worker = getTTSWorker()
-            let cumulativeTime = 0
 
-            for (let i = 0; i < textSegments.length; i++) {
-              if (this.canceled) break
-              const segText = textSegments[i].text
+            // Filter out empty segments first
+            const nonEmptySegments = textSegments.filter((seg) => seg.text.trim())
 
-              // Skip empty segments
-              if (!segText.trim()) continue
-
-              chapterProgress.update((m) =>
-                new Map(m).set(ch.id, {
-                  current: i + 1,
-                  total: textSegments.length,
-                  message: `Generating segment ${i + 1}/${textSegments.length}`,
-                })
+            if (parallelChunks > 1) {
+              // Parallel batch processing
+              logger.info(
+                `[generateChapters] Processing ${nonEmptySegments.length} segments with parallelism ${parallelChunks}`
               )
 
-              // Generate audio for this specific sentence
-              const blob = await worker.generateVoice({
-                text: segText,
-                modelType: 'kokoro',
-                voice: effectiveVoice,
-                dtype: currentQuantization,
-                device: currentDevice,
-                language: effectiveLanguage,
-                advancedSettings: currentAdvancedSettings,
-              })
+              const results = await processBatch(
+                nonEmptySegments,
+                parallelChunks,
+                async (segment) => {
+                  if (this.canceled) {
+                    throw new Error('Generation canceled')
+                  }
 
-              const duration = this.calculateWavDuration(blob)
+                  const blob = await worker.generateVoice({
+                    text: segment.text,
+                    modelType: 'kokoro',
+                    voice: effectiveVoice,
+                    dtype: currentQuantization,
+                    device: currentDevice,
+                    language: effectiveLanguage,
+                    advancedSettings: currentAdvancedSettings,
+                  })
 
-              audioSegments.push({
-                id: textSegments[i].id,
-                chapterId: ch.id,
-                index: i,
-                text: segText,
-                audioBlob: blob as Blob,
-                duration,
-                startTime: cumulativeTime,
-              })
+                  return {
+                    segment,
+                    blob,
+                    duration: this.calculateWavDuration(blob),
+                  }
+                },
+                (completedCount, total) => {
+                  chapterProgress.update((m) =>
+                    new Map(m).set(ch.id, {
+                      current: completedCount,
+                      total,
+                      message: `Generating segment ${completedCount}/${total} (${parallelChunks}x parallel)`,
+                    })
+                  )
+                }
+              )
 
-              cumulativeTime += duration
+              // Calculate cumulative times and build audioSegments array
+              let cumulativeTime = 0
+              for (const result of results) {
+                audioSegments.push({
+                  id: result.segment.id,
+                  chapterId: ch.id,
+                  index: result.segment.index,
+                  text: result.segment.text,
+                  audioBlob: result.blob as Blob,
+                  duration: result.duration,
+                  startTime: cumulativeTime,
+                })
+                cumulativeTime += result.duration
+              }
+            } else {
+              // Sequential processing (original behavior)
+              let cumulativeTime = 0
+
+              for (let i = 0; i < textSegments.length; i++) {
+                if (this.canceled) break
+                const segText = textSegments[i].text
+
+                // Skip empty segments
+                if (!segText.trim()) continue
+
+                chapterProgress.update((m) =>
+                  new Map(m).set(ch.id, {
+                    current: i + 1,
+                    total: textSegments.length,
+                    message: `Generating segment ${i + 1}/${textSegments.length}`,
+                  })
+                )
+
+                // Generate audio for this specific sentence
+                const blob = await worker.generateVoice({
+                  text: segText,
+                  modelType: 'kokoro',
+                  voice: effectiveVoice,
+                  dtype: currentQuantization,
+                  device: currentDevice,
+                  language: effectiveLanguage,
+                  advancedSettings: currentAdvancedSettings,
+                })
+
+                const duration = this.calculateWavDuration(blob)
+
+                audioSegments.push({
+                  id: textSegments[i].id,
+                  chapterId: ch.id,
+                  index: i,
+                  text: segText,
+                  audioBlob: blob as Blob,
+                  duration,
+                  startTime: cumulativeTime,
+                })
+
+                cumulativeTime += duration
+              }
             }
 
             if (this.canceled) break
@@ -651,52 +743,116 @@ class GenerationService {
             // 3. Generate
             const audioSegments: AudioSegment[] = []
             const worker = getTTSWorker()
-            let cumulativeTime = 0
 
-            for (let i = 0; i < textSegments.length; i++) {
-              if (this.canceled) break
-              const segText = textSegments[i].text
+            // Get parallelization setting (default to 1 for sequential processing)
+            const parallelChunks = Math.max(1, Number(currentAdvancedSettings.parallelChunks) || 1)
 
-              if (i === 0) {
-                logger.warn('[generateChapters] About to generate first Piper segment', {
-                  segmentIndex: i,
-                  segmentId: textSegments[i].id,
-                  text: segText,
-                  textLength: segText.length,
-                })
-              }
+            // Filter out empty segments first
+            const nonEmptySegments = textSegments.filter((seg) => seg.text.trim())
 
-              chapterProgress.update((m) =>
-                new Map(m).set(ch.id, {
-                  current: i + 1,
-                  total: textSegments.length,
-                  message: `Generating segment ${i + 1}/${textSegments.length}`,
-                })
+            if (parallelChunks > 1) {
+              // Parallel batch processing
+              logger.info(
+                `[generateChapters] Processing ${nonEmptySegments.length} Piper segments with parallelism ${parallelChunks}`
               )
 
-              const blob = await worker.generateVoice({
-                text: segText,
-                modelType: 'piper',
-                voice: effectiveVoice,
-                device: currentDevice,
-                language: effectiveLanguage,
-                advancedSettings: currentAdvancedSettings,
-              })
+              const results = await processBatch(
+                nonEmptySegments,
+                parallelChunks,
+                async (segment) => {
+                  if (this.canceled) {
+                    throw new Error('Generation canceled')
+                  }
 
-              // Piper outputs WAV too, use same calculation
-              const duration = this.calculateWavDuration(blob)
+                  const blob = await worker.generateVoice({
+                    text: segment.text,
+                    modelType: 'piper',
+                    voice: effectiveVoice,
+                    device: currentDevice,
+                    language: effectiveLanguage,
+                    advancedSettings: currentAdvancedSettings,
+                  })
 
-              audioSegments.push({
-                id: textSegments[i].id,
-                chapterId: ch.id,
-                index: i,
-                text: segText,
-                audioBlob: blob as Blob,
-                duration,
-                startTime: cumulativeTime,
-              })
+                  return {
+                    segment,
+                    blob,
+                    duration: this.calculateWavDuration(blob),
+                  }
+                },
+                (completedCount, total) => {
+                  chapterProgress.update((m) =>
+                    new Map(m).set(ch.id, {
+                      current: completedCount,
+                      total,
+                      message: `Generating segment ${completedCount}/${total} (${parallelChunks}x parallel)`,
+                    })
+                  )
+                }
+              )
 
-              cumulativeTime += duration
+              // Calculate cumulative times and build audioSegments array
+              let cumulativeTime = 0
+              for (const result of results) {
+                audioSegments.push({
+                  id: result.segment.id,
+                  chapterId: ch.id,
+                  index: result.segment.index,
+                  text: result.segment.text,
+                  audioBlob: result.blob as Blob,
+                  duration: result.duration,
+                  startTime: cumulativeTime,
+                })
+                cumulativeTime += result.duration
+              }
+            } else {
+              // Sequential processing (original behavior)
+              let cumulativeTime = 0
+
+              for (let i = 0; i < textSegments.length; i++) {
+                if (this.canceled) break
+                const segText = textSegments[i].text
+
+                if (i === 0) {
+                  logger.warn('[generateChapters] About to generate first Piper segment', {
+                    segmentIndex: i,
+                    segmentId: textSegments[i].id,
+                    text: segText,
+                    textLength: segText.length,
+                  })
+                }
+
+                chapterProgress.update((m) =>
+                  new Map(m).set(ch.id, {
+                    current: i + 1,
+                    total: textSegments.length,
+                    message: `Generating segment ${i + 1}/${textSegments.length}`,
+                  })
+                )
+
+                const blob = await worker.generateVoice({
+                  text: segText,
+                  modelType: 'piper',
+                  voice: effectiveVoice,
+                  device: currentDevice,
+                  language: effectiveLanguage,
+                  advancedSettings: currentAdvancedSettings,
+                })
+
+                // Piper outputs WAV too, use same calculation
+                const duration = this.calculateWavDuration(blob)
+
+                audioSegments.push({
+                  id: textSegments[i].id,
+                  chapterId: ch.id,
+                  index: i,
+                  text: segText,
+                  audioBlob: blob as Blob,
+                  duration,
+                  startTime: cumulativeTime,
+                })
+
+                cumulativeTime += duration
+              }
             }
 
             if (this.canceled) break
