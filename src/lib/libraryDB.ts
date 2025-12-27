@@ -692,6 +692,7 @@ export async function saveSegmentIndividually(
     }
 
     transaction.onerror = () => {
+      db.close()
       reject(new Error('Failed to save segment'))
     }
   })

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { get } from 'svelte/store'
 import {
   segmentProgress,
@@ -8,6 +8,7 @@ import {
   clearChapterSegments,
   isSegmentGenerated,
   getGeneratedSegment,
+  getChapterSegmentProgress,
   segmentProgressPercentage,
 } from './segmentProgressStore'
 import type { AudioSegment } from '../lib/types/audio'
@@ -176,6 +177,101 @@ describe('segmentProgressStore', () => {
       clearChapterSegments('chapter-1')
 
       expect(get(segmentProgress).has('chapter-1')).toBe(false)
+    })
+  })
+
+  describe('getChapterSegmentProgress', () => {
+    it('should return progress for an initialized chapter', () => {
+      const segments = [
+        { index: 0, text: 'First sentence.', id: 'seg-0' },
+        { index: 1, text: 'Second sentence.', id: 'seg-1' },
+      ]
+      initChapterSegments('chapter-1', segments)
+
+      const progress = getChapterSegmentProgress('chapter-1')
+      expect(progress).toBeDefined()
+      expect(progress?.totalSegments).toBe(2)
+      expect(progress?.isGenerating).toBe(true)
+    })
+
+    it('should return undefined for non-existent chapter', () => {
+      const progress = getChapterSegmentProgress('non-existent')
+      expect(progress).toBeUndefined()
+    })
+
+    it('should return updated progress after marking segments', () => {
+      const segments = [{ index: 0, text: 'First sentence.', id: 'seg-0' }]
+      initChapterSegments('chapter-1', segments)
+
+      const audioSegment: AudioSegment = {
+        id: 'seg-0',
+        chapterId: 'chapter-1',
+        index: 0,
+        text: 'First sentence.',
+        audioBlob: new Blob(['audio data']),
+        duration: 2.5,
+        startTime: 0,
+      }
+      markSegmentGenerated('chapter-1', audioSegment)
+
+      const progress = getChapterSegmentProgress('chapter-1')
+      expect(progress?.generatedIndices.has(0)).toBe(true)
+    })
+  })
+
+  describe('loadChapterSegmentProgress', () => {
+    it('should load segment progress from DB and update store', async () => {
+      // Mock the libraryDB module
+      const mockSegments: AudioSegment[] = [
+        {
+          id: 'seg-0',
+          chapterId: 'chapter-1',
+          index: 0,
+          text: 'First sentence.',
+          audioBlob: new Blob(['audio data']),
+          duration: 2.5,
+          startTime: 0,
+        },
+        {
+          id: 'seg-1',
+          chapterId: 'chapter-1',
+          index: 1,
+          text: 'Second sentence.',
+          audioBlob: new Blob(['audio data']),
+          duration: 3.0,
+          startTime: 2.5,
+        },
+      ]
+
+      vi.doMock('../lib/libraryDB', () => ({
+        getChapterSegments: vi.fn().mockResolvedValue(mockSegments),
+      }))
+
+      // Import the function fresh to get the mocked version
+      const { loadChapterSegmentProgress } = await import('./segmentProgressStore')
+
+      await loadChapterSegmentProgress(1, 'chapter-1')
+
+      const progress = get(segmentProgress).get('chapter-1')
+      expect(progress).toBeDefined()
+      expect(progress?.totalSegments).toBe(2)
+      expect(progress?.generatedIndices.size).toBe(2)
+      expect(progress?.generatedIndices.has(0)).toBe(true)
+      expect(progress?.generatedIndices.has(1)).toBe(true)
+      expect(progress?.isGenerating).toBe(false) // Loaded from DB means generation is complete
+    })
+
+    it('should not update store for empty results', async () => {
+      vi.doMock('../lib/libraryDB', () => ({
+        getChapterSegments: vi.fn().mockResolvedValue([]),
+      }))
+
+      const { loadChapterSegmentProgress } = await import('./segmentProgressStore')
+
+      await loadChapterSegmentProgress(1, 'chapter-empty')
+
+      const progress = get(segmentProgress).get('chapter-empty')
+      expect(progress).toBeUndefined()
     })
   })
 })

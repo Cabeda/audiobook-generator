@@ -39,6 +39,41 @@ import {
 type LibraryBookWithId = LibraryBook & { id: number }
 
 /**
+ * Helper function to save a segment and mark it as generated in the UI.
+ * If saving fails, we log the error but do NOT mark the segment as generated,
+ * to avoid an inconsistent state where the UI shows a playable segment that isn't saved.
+ *
+ * @param bookId - The book ID (if undefined, we still mark as generated since no persistence is needed)
+ * @param chapterId - The chapter ID
+ * @param segment - The audio segment to save and mark
+ */
+async function handleGeneratedSegment(
+  bookId: number | undefined,
+  chapterId: string,
+  segment: AudioSegment
+): Promise<void> {
+  if (bookId) {
+    try {
+      await saveSegmentIndividually(bookId, chapterId, segment)
+      // Only mark as generated after successful save
+      markSegmentGenerated(chapterId, segment)
+    } catch (error) {
+      logger.error('Failed to save segment individually', {
+        error,
+        bookId,
+        chapterId,
+        segmentId: segment.id,
+        segmentIndex: segment.index,
+      })
+      // Do not mark the segment as generated in the UI if saving failed
+    }
+  } else {
+    // No persistent storage; mark as generated based on in-memory generation
+    markSegmentGenerated(chapterId, segment)
+  }
+}
+
+/**
  * Type guard to check if a book has an ID property (i.e., is a LibraryBook with ID)
  */
 function hasBookId(book: any): book is LibraryBookWithId {
@@ -635,13 +670,8 @@ class GenerationService {
                 }
                 audioSegments.push(segment)
 
-                // Mark segment as generated for UI updates
-                markSegmentGenerated(ch.id, segment)
-
-                // Save segment individually for progressive playback
-                if (bookId) {
-                  await saveSegmentIndividually(bookId, ch.id, segment)
-                }
+                // Save and mark segment as generated (with error handling)
+                await handleGeneratedSegment(bookId, ch.id, segment)
 
                 cumulativeTime += result.duration
               }
@@ -689,13 +719,8 @@ class GenerationService {
 
                 audioSegments.push(segment)
 
-                // Mark segment as generated for UI updates (real-time)
-                markSegmentGenerated(ch.id, segment)
-
-                // Save segment individually for progressive playback
-                if (bookId) {
-                  await saveSegmentIndividually(bookId, ch.id, segment)
-                }
+                // Save and mark segment as generated (with error handling)
+                await handleGeneratedSegment(bookId, ch.id, segment)
 
                 cumulativeTime += duration
               }
@@ -706,7 +731,9 @@ class GenerationService {
             // Mark chapter generation as complete
             markChapterGenerationComplete(ch.id)
 
-            // Save segments to DB (backup save - individual segments already saved progressively)
+            // Save all chapter segments to DB as a complete batch snapshot.
+            // This is the primary save that ensures all segments are persisted together
+            // and complements the optional progressive per-segment saves above.
             if (bookId) {
               await saveChapterSegments(bookId, ch.id, audioSegments)
             }
@@ -838,13 +865,8 @@ class GenerationService {
                 }
                 audioSegments.push(segment)
 
-                // Mark segment as generated for UI updates
-                markSegmentGenerated(ch.id, segment)
-
-                // Save segment individually for progressive playback
-                if (bookId) {
-                  await saveSegmentIndividually(bookId, ch.id, segment)
-                }
+                // Save and mark segment as generated (with error handling)
+                await handleGeneratedSegment(bookId, ch.id, segment)
 
                 cumulativeTime += result.duration
               }
@@ -897,13 +919,8 @@ class GenerationService {
 
                 audioSegments.push(segment)
 
-                // Mark segment as generated for UI updates (real-time)
-                markSegmentGenerated(ch.id, segment)
-
-                // Save segment individually for progressive playback
-                if (bookId) {
-                  await saveSegmentIndividually(bookId, ch.id, segment)
-                }
+                // Save and mark segment as generated (with error handling)
+                await handleGeneratedSegment(bookId, ch.id, segment)
 
                 cumulativeTime += duration
               }
@@ -914,6 +931,9 @@ class GenerationService {
             // Mark chapter generation as complete
             markChapterGenerationComplete(ch.id)
 
+            // Save all chapter segments to DB as a complete batch snapshot.
+            // This is the primary save that ensures all segments are persisted together
+            // and complements the optional progressive per-segment saves above.
             if (bookId) await saveChapterSegments(bookId, ch.id, audioSegments)
 
             // Concat

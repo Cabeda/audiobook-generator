@@ -41,7 +41,8 @@
         el.classList.add('segment-generated')
       } else if (isGenerating) {
         // Check if this is the next segment to be generated (for a pulsing effect)
-        const lastGenerated = Math.max(...Array.from(progress.generatedIndices), -1)
+        // Note: Math.max(-1, ...) handles empty arrays correctly, returning -1
+        const lastGenerated = Math.max(-1, ...Array.from(progress.generatedIndices))
         if (index === lastGenerated + 1) {
           el.classList.add('segment-generating')
         } else {
@@ -109,6 +110,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="segmented-text-display"
   bind:this={contentEl}
@@ -117,6 +119,12 @@
   onkeydown={handleKeyDown}
   onfocusin={handleFocusIn}
 >
+  <!--
+    NOTE: The 'content' prop uses {@html} which can be a security risk.
+    Callers MUST ensure that 'content' has been properly sanitized before passing it here.
+    EPUB content should go through a whitelist-based HTML sanitizer that removes all
+    executable attributes (onclick, onerror, etc.) and dangerous URI schemes (javascript:).
+  -->
   {@html content}
 </div>
 

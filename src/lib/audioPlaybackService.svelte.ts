@@ -895,6 +895,13 @@ class AudioPlaybackService {
     // Clear any pending generations to avoid stale state during single segment playback
     this.pendingGenerations.clear()
 
+    // Revoke any existing URL for this segment to prevent memory leaks
+    const existingUrl = this.audioSegments.get(segment.index)
+    if (existingUrl) {
+      URL.revokeObjectURL(existingUrl)
+      this.audioSegments.delete(segment.index)
+    }
+
     // Create audio from the segment blob
     const url = URL.createObjectURL(segment.audioBlob)
 
