@@ -145,9 +145,22 @@
               './lib/services/languageDetectionService'
             )
             // Fire and forget - don't block UI
-            detectAndPersistLanguagesForBook(id, b).catch((err) => {
-              console.warn('Language detection failed but continuing:', err)
-            })
+            detectAndPersistLanguagesForBook(id, b)
+              .then(async () => {
+                // After detection, reload the book to update in-memory object with detected language
+                try {
+                  const { getBook } = await import('./lib/libraryDB')
+                  const updatedBook = await getBook(id)
+                  if (updatedBook) {
+                    book.set(updatedBook)
+                  }
+                } catch (reloadError) {
+                  console.warn('Failed to reload book after language detection:', reloadError)
+                }
+              })
+              .catch((err) => {
+                console.warn('Language detection failed but continuing:', err)
+              })
           } catch (detectionError) {
             console.warn('Could not start language detection:', detectionError)
           }
