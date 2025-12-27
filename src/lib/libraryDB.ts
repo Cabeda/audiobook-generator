@@ -612,6 +612,7 @@ export async function clearLibrary(): Promise<void> {
       resolve()
     }
     transaction.onerror = () => {
+      db.close()
       reject(new Error('Failed to clear library'))
     }
   })
@@ -770,6 +771,7 @@ export async function saveChapterSegments(
     }
 
     transaction.onerror = () => {
+      db.close()
       reject(new Error('Failed to save chapter segments'))
     }
   })
@@ -843,6 +845,9 @@ export async function deleteBookAudio(bookId: number): Promise<void> {
       resolve()
     }
 
-    transaction.onerror = () => reject(new Error('Failed to delete book audio'))
+    transaction.onerror = () => {
+      db.close()
+      reject(new Error('Failed to delete book audio'))
+    }
   })
 }
