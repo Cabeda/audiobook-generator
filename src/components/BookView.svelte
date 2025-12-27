@@ -34,6 +34,29 @@
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
 
+  // Helper to group settings
+  function getSettingsGroups(model: string) {
+    const schema = ADVANCED_SETTINGS_SCHEMA[model] || []
+    const groups: Record<string, typeof schema> = {}
+
+    schema.forEach((setting) => {
+      const groupName = setting.group || 'General'
+      if (!groups[groupName]) groups[groupName] = []
+      groups[groupName].push(setting)
+    })
+
+    // Sort groups to ensure consistent order
+    const priority = ['Text Processing', 'Audio Characteristics', 'Performance', 'General']
+    return Object.entries(groups).sort((a, b) => {
+      const idxA = priority.indexOf(a[0])
+      const idxB = priority.indexOf(b[0])
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB
+      if (idxA !== -1) return -1
+      if (idxB !== -1) return 1
+      return a[0].localeCompare(b[0])
+    })
+  }
+
   /**
    * Type guard to check if a book is a LibraryBook with an ID
    */
@@ -342,50 +365,110 @@
     {#if showAdvanced}
       <div class="advanced-panel glass-panel">
         <div class="setting-group">
-          <label>
-            <span>Quality (Bitrate)</span>
-            <select bind:value={selectedBitrate} class="premium-select">
+          <div class="setting-row">
+            <label for="adv-bitrate">
+              <span class="setting-label">Quality (Bitrate)</span>
+              <small class="setting-desc"
+                >Higher bitrate means better audio quality but larger file size.</small
+              >
+            </label>
+            <select id="adv-bitrate" bind:value={selectedBitrate} class="premium-select">
               <option value={128}>128 kbps</option>
               <option value={192}>192 kbps</option>
               <option value={256}>256 kbps</option>
               <option value={320}>320 kbps</option>
             </select>
-          </label>
+          </div>
           {#if $selectedModelStore === 'kokoro'}
-            <label>
-              <span>Quantization</span>
-              <select bind:value={$selectedQuantization} class="premium-select">
+            <div class="setting-row">
+              <label for="adv-quant">
+                <span class="setting-label">Quantization</span>
+                <small class="setting-desc">Model precision. FP32 is best, Q4 is fastest.</small>
+              </label>
+              <select id="adv-quant" bind:value={$selectedQuantization} class="premium-select">
                 <option value="fp32">FP32 (Best Quality)</option>
                 <option value="fp16">FP16 (Balanced)</option>
                 <option value="q8">Q8 (Faster)</option>
                 <option value="q4">Q4 (Fastest)</option>
               </select>
-            </label>
+            </div>
           {/if}
         </div>
 
         {#if ADVANCED_SETTINGS_SCHEMA[$selectedModelStore]}
-          <div class="setting-group">
-            <span class="setting-group-title">Text Handling</span>
-            {#each ADVANCED_SETTINGS_SCHEMA[$selectedModelStore] as setting, idx}
-              {#if setting.type === 'boolean'}
-                <label class="checkbox-row" for={`adv-${$selectedModelStore}-${idx}`}>
-                  <input
-                    id={`adv-${$selectedModelStore}-${idx}`}
-                    type="checkbox"
-                    bind:checked={$advancedSettings[$selectedModelStore][setting.key]}
-                    disabled={isGenerating}
-                  />
-                  <span>
-                    <span>{setting.label}</span>
-                    {#if setting.description}
-                      <small>{setting.description}</small>
-                    {/if}
-                  </span>
-                </label>
-              {/if}
-            {/each}
-          </div>
+          {#each getSettingsGroups($selectedModelStore) as [groupName, settings]}
+            <div class="setting-group">
+              <h4 class="setting-group-title">{groupName}</h4>
+              {#each settings as setting, idx}
+                {#if !setting.conditional || $advancedSettings[$selectedModelStore]?.[setting.conditional.key] === setting.conditional.value}
+                  {#if setting.type === 'boolean'}
+                    <label class="checkbox-row" for={`adv-${$selectedModelStore}-${setting.key}`}>
+                      <input
+                        id={`adv-${$selectedModelStore}-${setting.key}`}
+                        type="checkbox"
+                        bind:checked={$advancedSettings[$selectedModelStore][setting.key]}
+                        disabled={isGenerating}
+                      />
+                      <div class="checkbox-text">
+                        <span>{setting.label}</span>
+                        {#if setting.description}
+                          <small>{setting.description}</small>
+                        {/if}
+                      </div>
+                    </label>
+                  {:else}
+                    <div class="setting-row">
+                      <label for={`adv-${$selectedModelStore}-${setting.key}`}>
+                        <span class="setting-label">{setting.label}</span>
+                        {#if setting.description}
+                          <small class="setting-desc">{setting.description}</small>
+                        {/if}
+                      </label>
+
+                      {#if setting.type === 'select'}
+                        <select
+                          id={`adv-${$selectedModelStore}-${setting.key}`}
+                          bind:value={$advancedSettings[$selectedModelStore][setting.key]}
+                          disabled={isGenerating}
+                          class="premium-select"
+                        >
+                          {#each setting.options || [] as opt}
+                            <option value={opt.value}>{opt.label}</option>
+                          {/each}
+                        </select>
+                      {:else if setting.type === 'slider'}
+                        <div class="slider-container">
+                          <input
+                            id={`adv-${$selectedModelStore}-${setting.key}`}
+                            type="range"
+                            min={setting.min}
+                            max={setting.max}
+                            step={setting.step}
+                            bind:value={$advancedSettings[$selectedModelStore][setting.key]}
+                            disabled={isGenerating}
+                          />
+                          <span class="value-display"
+                            >{$advancedSettings[$selectedModelStore][setting.key]}</span
+                          >
+                        </div>
+                      {:else if setting.type === 'number'}
+                        <input
+                          id={`adv-${$selectedModelStore}-${setting.key}`}
+                          type="number"
+                          min={setting.min}
+                          max={setting.max}
+                          step={setting.step}
+                          bind:value={$advancedSettings[$selectedModelStore][setting.key]}
+                          disabled={isGenerating}
+                          class="premium-input"
+                        />
+                      {/if}
+                    </div>
+                  {/if}
+                {/if}
+              {/each}
+            </div>
+          {/each}
         {/if}
       </div>
     {/if}
@@ -592,6 +675,75 @@
     gap: 16px;
   }
 
+  .setting-row {
+    margin-bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .setting-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-weight: 600;
+    color: var(--text-color);
+    font-size: 0.95rem;
+  }
+
+  .setting-desc {
+    display: block;
+    color: var(--secondary-text);
+    font-size: 0.8rem;
+    font-weight: normal;
+    line-height: 1.4;
+  }
+
+  .slider-container {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .slider-container input[type='range'] {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    accent-color: var(--primary-color);
+  }
+
+  .value-display {
+    min-width: 32px;
+    text-align: center;
+    font-weight: 700;
+    color: var(--primary-color);
+    background: rgba(100, 108, 255, 0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: monospace;
+  }
+
+  .premium-input {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-color);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    width: 100%;
+    transition: border-color 0.2s;
+  }
+
+  .premium-input:focus {
+    border-color: var(--primary-color);
+    outline: none;
+  }
+
   @media (max-width: 768px) {
     .hero-header {
       flex-direction: column;
@@ -620,6 +772,9 @@
     padding: 8px 16px;
     text-align: left;
     margin: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .advanced-toggle:hover {
@@ -628,44 +783,74 @@
 
   .advanced-panel {
     margin: 0 8px 16px 8px;
-    padding: 16px;
+    padding: 20px;
     border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
   .setting-group-title {
-    font-weight: 600;
-    margin-bottom: 4px;
-    display: inline-block;
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 24px 0 12px 0;
+    color: var(--text-color);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
+    width: 100%;
+  }
+
+  .setting-group-title:first-child {
+    margin-top: 0;
   }
 
   .checkbox-row {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 4px 0;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 8px;
   }
 
-  .checkbox-row small {
+  .checkbox-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .checkbox-row input[type='checkbox'] {
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    cursor: pointer;
+    accent-color: var(--primary-color);
+  }
+
+  .checkbox-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .checkbox-text span {
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  .checkbox-text small {
     display: block;
     opacity: 0.7;
+    font-size: 0.8rem;
+    line-height: 1.4;
   }
 
   .setting-group {
     display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-  }
-
-  .setting-group label {
-    display: flex;
     flex-direction: column;
     gap: 4px;
-    min-width: 150px;
-  }
-
-  .setting-group label span {
-    font-size: 0.85rem;
-    color: var(--secondary-text);
+    margin-bottom: 20px;
   }
 
   .cancel-btn {

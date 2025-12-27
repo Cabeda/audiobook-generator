@@ -13,6 +13,7 @@ export interface ModelSettingSchema {
   min?: number // For slider/number
   max?: number // For slider/number
   step?: number // For slider/number
+  group?: string // UI grouping
   conditional?: {
     // Simple dependency logic
     key: string
@@ -32,6 +33,7 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       label: 'Stitch Long Sentences',
       type: 'boolean',
       defaultValue: true,
+      group: 'Text Processing',
       description:
         'Automatically merge short audio segments to avoid choppiness in long paragraphs.',
     },
@@ -40,6 +42,7 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       label: 'Text Normalization',
       type: 'select',
       defaultValue: 'standard',
+      group: 'Text Processing',
       options: [
         { value: 'standard', label: 'Standard (Expand numbers/abbr)' },
         { value: 'none', label: 'None (Raw text)' },
@@ -51,6 +54,7 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       label: 'Ignore Code Blocks',
       type: 'boolean',
       defaultValue: false,
+      group: 'Text Processing',
       description: 'Skip reading text inside <code> or <pre> blocks.',
     },
     {
@@ -58,7 +62,20 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       label: 'Skip Link Text',
       type: 'boolean',
       defaultValue: false,
+      group: 'Text Processing',
       description: 'Do not read the text contained in anchor tags.',
+    },
+    {
+      key: 'parallelChunks',
+      label: 'Parallel Chunk Generation',
+      type: 'slider',
+      min: 1,
+      max: 8,
+      step: 1,
+      defaultValue: 1,
+      group: 'Performance',
+      description:
+        'Number of text segments to generate audio for simultaneously. Higher values speed up generation but use more memory.',
     },
   ],
   piper: [
@@ -70,6 +87,7 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       max: 1.0,
       step: 0.05,
       defaultValue: 0.667,
+      group: 'Audio Characteristics',
       description: 'Controls the variability of the speech (higher = more random).',
     },
     {
@@ -80,6 +98,7 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       max: 2.0,
       step: 0.1,
       defaultValue: 1.0,
+      group: 'Audio Characteristics',
       description: 'Controls the overall speed/length of the phonemes.',
     },
     {
@@ -87,6 +106,7 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       label: 'Ignore Code Blocks',
       type: 'boolean',
       defaultValue: false,
+      group: 'Text Processing',
       description: 'Skip reading text inside <code> or <pre> blocks.',
     },
     {
@@ -94,7 +114,34 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
       label: 'Skip Link Text',
       type: 'boolean',
       defaultValue: false,
+      group: 'Text Processing',
       description: 'Do not read the text contained in anchor tags.',
+    },
+    {
+      key: 'parallelChunks',
+      label: 'Parallel Chunk Generation',
+      type: 'slider',
+      min: 1,
+      max: 8,
+      step: 1,
+      defaultValue: 1,
+      group: 'Performance',
+      description:
+        'Number of text segments to generate audio for simultaneously. Higher values speed up generation but use more memory.',
+    },
+  ],
+  global: [
+    {
+      key: 'parallelChapters',
+      label: 'Parallel Chapter Generation',
+      type: 'slider',
+      min: 1,
+      max: 4,
+      step: 1,
+      defaultValue: 1,
+      group: 'Performance',
+      description:
+        'Number of chapters to generate simultaneously. Use with caution - higher values require more memory.',
     },
   ],
 }

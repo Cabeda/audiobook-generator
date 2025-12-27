@@ -629,7 +629,7 @@
     color: var(--text-color);
   }
 
-  .action-btn.disabled {
+  .action-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     background: var(--surface-color);

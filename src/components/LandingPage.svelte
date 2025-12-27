@@ -85,7 +85,7 @@
       <p class="subtitle">
         Turn any eBook or web article into a high-quality audiobook in seconds.
         <br />
-        Private, local, and free.
+        Private, local, and free. <span class="drm-note">📖 DRM-free files only</span>
       </p>
 
       <!-- Tab Navigation -->
@@ -137,6 +137,10 @@
           <div class="feature-item">
             <span class="icon">🎙️</span>
             <span>Support Kokoro and Piper AI models</span>
+          </div>
+          <div class="feature-item drm-free-feature">
+            <span class="icon">📖</span>
+            <span>DRM-Free Files Only</span>
           </div>
         </div>
       {:else}
@@ -350,8 +354,26 @@
     border: 1px solid var(--shadow-color);
   }
 
+  .feature-item.drm-free-feature {
+    background: rgba(244, 67, 54, 0.1);
+    color: #f44336;
+    border-color: rgba(244, 67, 54, 0.3);
+  }
+
   .icon {
     font-size: 1.2em;
+  }
+
+  .drm-note {
+    display: inline-block;
+    background: rgba(244, 67, 54, 0.1);
+    color: #f44336;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85em;
+    font-weight: 600;
+    border: 1px solid rgba(244, 67, 54, 0.3);
+    margin-left: 8px;
   }
 
   @media (max-width: 600px) {

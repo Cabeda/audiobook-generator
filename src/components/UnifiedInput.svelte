@@ -192,7 +192,7 @@
   <div class="content">
     <div class="icon">📚</div>
     <p class="primary">Drop eBook file here or click to select</p>
-    <p class="secondary">Supported: EPUB, PDF, TXT, HTML</p>
+    <p class="secondary">Supported: EPUB, PDF, TXT, HTML (DRM-free only)</p>
 
     <div class="divider">
       <span>OR</span>

@@ -286,7 +286,7 @@ export async function updateChapterLanguage(
           putRequest.onerror = (event) =>
             reject(
               new Error(
-                `Failed to save chapter language: ${event.target?.error?.message || 'Unknown error'}`
+                `Failed to save chapter language: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
               )
             )
         } else {
@@ -366,7 +366,7 @@ export async function updateBookLanguage(bookId: number, language: string): Prom
         putRequest.onerror = (event) =>
           reject(
             new Error(
-              `Failed to save book language: ${event.target?.error?.message || 'Unknown error'}`
+              `Failed to save book language: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
             )
           )
       } else {
@@ -405,7 +405,7 @@ export async function updateChapterModel(
           putRequest.onerror = (event) =>
             reject(
               new Error(
-                `Failed to save chapter model: ${event.target?.error?.message || 'Unknown error'}`
+                `Failed to save chapter model: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
               )
             )
         } else {
@@ -447,7 +447,7 @@ export async function updateChapterVoice(
           putRequest.onerror = (event) =>
             reject(
               new Error(
-                `Failed to save chapter voice: ${event.target?.error?.message || 'Unknown error'}`
+                `Failed to save chapter voice: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
               )
             )
         } else {
