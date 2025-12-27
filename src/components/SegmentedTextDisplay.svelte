@@ -120,10 +120,13 @@
   onfocusin={handleFocusIn}
 >
   <!--
-    NOTE: The 'content' prop uses {@html} which can be a security risk.
-    Callers MUST ensure that 'content' has been properly sanitized before passing it here.
-    EPUB content should go through a whitelist-based HTML sanitizer that removes all
-    executable attributes (onclick, onerror, etc.) and dangerous URI schemes (javascript:).
+    NOTE: The 'content' prop uses {@html} which requires sanitized input.
+    EPUB content is sanitized in epubParser.ts cleanHtml() function, which removes:
+    - All dangerous HTML elements (script, iframe, object, embed, etc.)
+    - All event handler attributes (onclick, onerror, onload, etc.)
+    - Dangerous URI schemes in href/src (javascript:, data:, vbscript:, etc.)
+    - Other potentially dangerous attributes (style, action, formaction, etc.)
+    This ensures that malicious EPUB files cannot execute JavaScript in the application.
   -->
   {@html content}
 </div>
