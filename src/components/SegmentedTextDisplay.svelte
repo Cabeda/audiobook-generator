@@ -97,14 +97,25 @@
       }
     }
   }
+
+  function handleFocusIn(event: FocusEvent) {
+    const target = event.target as HTMLElement
+    // When the container itself receives focus, move focus to the first interactive segment
+    if (target === contentEl) {
+      const firstSegment = contentEl?.querySelector<HTMLElement>("span[id^='seg-'][tabindex]")
+      firstSegment?.focus()
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="segmented-text-display"
   bind:this={contentEl}
+  tabindex="0"
   onclick={handleClick}
   onkeydown={handleKeyDown}
+  onfocusin={handleFocusIn}
 >
   {@html content}
 </div>
