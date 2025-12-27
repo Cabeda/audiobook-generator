@@ -61,7 +61,11 @@ class SegmentBatchHandler {
 
   /**
    * Add a segment to the batch and save if batch is full.
-   * Always marks the segment as generated in the UI after successful save.
+   * Marks the segment as generated in the UI immediately for real-time feedback.
+   *
+   * Note: Segments are marked as generated before batch flush for better UX.
+   * If a batch flush fails, the final saveChapterSegments call (after all segments
+   * are generated) will ensure all segments are eventually persisted.
    */
   async addSegment(segment: AudioSegment): Promise<void> {
     if (this.bookId) {
@@ -72,8 +76,8 @@ class SegmentBatchHandler {
         await this.flush()
       }
 
-      // Mark segment as generated in UI after adding to batch
-      // This provides immediate feedback while batching saves
+      // Mark segment as generated in UI immediately
+      // This provides real-time feedback while batching saves for performance
       markSegmentGenerated(this.chapterId, segment)
     } else {
       // No persistent storage; just mark as generated
