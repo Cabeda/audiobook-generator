@@ -114,6 +114,8 @@
   class="segmented-text-display"
   bind:this={contentEl}
   tabindex="0"
+  role="group"
+  aria-label="Text segments"
   onclick={handleClick}
   onkeydown={handleKeyDown}
   onfocusin={handleFocusIn}
