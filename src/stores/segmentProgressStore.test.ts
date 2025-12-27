@@ -10,13 +10,21 @@ import {
   getGeneratedSegment,
   getChapterSegmentProgress,
   segmentProgressPercentage,
+  loadChapterSegmentProgress,
 } from './segmentProgressStore'
 import type { AudioSegment } from '../lib/types/audio'
+
+// Mock the libraryDB module at the top level
+vi.mock('../lib/libraryDB', () => ({
+  getChapterSegments: vi.fn(),
+}))
 
 describe('segmentProgressStore', () => {
   beforeEach(() => {
     // Clear the store before each test
     segmentProgress.set(new Map())
+    // Reset all mocks
+    vi.clearAllMocks()
   })
 
   describe('initChapterSegments', () => {
@@ -221,7 +229,10 @@ describe('segmentProgressStore', () => {
 
   describe('loadChapterSegmentProgress', () => {
     it('should load segment progress from DB and update store', async () => {
-      // Mock the libraryDB module
+      // Import the mocked module
+      const { getChapterSegments } = await import('../lib/libraryDB')
+
+      // Setup mock data
       const mockSegments: AudioSegment[] = [
         {
           id: 'seg-0',
@@ -243,12 +254,8 @@ describe('segmentProgressStore', () => {
         },
       ]
 
-      vi.doMock('../lib/libraryDB', () => ({
-        getChapterSegments: vi.fn().mockResolvedValue(mockSegments),
-      }))
-
-      // Import the function fresh to get the mocked version
-      const { loadChapterSegmentProgress } = await import('./segmentProgressStore')
+      // Configure mock for this test
+      vi.mocked(getChapterSegments).mockResolvedValue(mockSegments)
 
       await loadChapterSegmentProgress(1, 'chapter-1')
 
@@ -262,11 +269,11 @@ describe('segmentProgressStore', () => {
     })
 
     it('should not update store for empty results', async () => {
-      vi.doMock('../lib/libraryDB', () => ({
-        getChapterSegments: vi.fn().mockResolvedValue([]),
-      }))
+      // Import the mocked module
+      const { getChapterSegments } = await import('../lib/libraryDB')
 
-      const { loadChapterSegmentProgress } = await import('./segmentProgressStore')
+      // Configure mock for this test
+      vi.mocked(getChapterSegments).mockResolvedValue([])
 
       await loadChapterSegmentProgress(1, 'chapter-empty')
 

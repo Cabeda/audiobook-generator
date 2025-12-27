@@ -929,6 +929,7 @@ class AudioPlaybackService {
       this.isPlaying = false
       audioPlayerStore.pause()
       URL.revokeObjectURL(url)
+      this.audioSegments.delete(segment.index)
       this.audio = null
     }
 
@@ -949,6 +950,7 @@ class AudioPlaybackService {
       this.isPlaying = false
       audioPlayerStore.pause()
       URL.revokeObjectURL(url)
+      this.audioSegments.delete(segment.index)
       this.audio = null
     }
 
@@ -968,6 +970,7 @@ class AudioPlaybackService {
       this.isPlaying = false
       audioPlayerStore.pause()
       URL.revokeObjectURL(url)
+      this.audioSegments.delete(segment.index)
       this.audio = null
     }
   }
