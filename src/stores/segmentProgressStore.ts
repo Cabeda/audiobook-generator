@@ -51,18 +51,24 @@ export function initChapterSegments(
  */
 export function markSegmentGenerated(chapterId: string, segment: AudioSegment) {
   segmentProgress.update((map) => {
-    const newMap = new Map(map)
-    const progress = newMap.get(chapterId)
-    if (progress) {
-      const newProgress = {
-        ...progress,
-        generatedIndices: new Set(progress.generatedIndices),
-        generatedSegments: new Map(progress.generatedSegments),
-      }
-      newProgress.generatedIndices.add(segment.index)
-      newProgress.generatedSegments.set(segment.index, segment)
-      newMap.set(chapterId, newProgress)
+    const progress = map.get(chapterId)
+    if (!progress) {
+      console.warn(
+        `markSegmentGenerated called for uninitialized chapterId "${chapterId}". ` +
+          'Did you forget to call initChapterSegments first?'
+      )
+      return map
     }
+
+    const newMap = new Map(map)
+    const newProgress = {
+      ...progress,
+      generatedIndices: new Set(progress.generatedIndices),
+      generatedSegments: new Map(progress.generatedSegments),
+    }
+    newProgress.generatedIndices.add(segment.index)
+    newProgress.generatedSegments.set(segment.index, segment)
+    newMap.set(chapterId, newProgress)
     return newMap
   })
 }
