@@ -87,6 +87,7 @@ class SegmentBatchHandler {
 
   /**
    * Flush any remaining segments in the batch to the database.
+   * Uses `put` operations which are idempotent (upsert), so duplicate saves are safe.
    */
   async flush(): Promise<void> {
     if (this.batch.length === 0 || !this.bookId) {
@@ -105,6 +106,7 @@ class SegmentBatchHandler {
         batchSize: this.batch.length,
       })
       // Clear batch even on error to avoid retry loops
+      // The final saveChapterSegments call will ensure these segments are saved
       this.batch = []
       throw error
     }
@@ -795,8 +797,9 @@ class GenerationService {
             markChapterGenerationComplete(ch.id)
 
             // Save all chapter segments to DB as a complete batch snapshot.
-            // This is the primary save that ensures all segments are persisted together
-            // and complements the optional progressive per-segment saves above.
+            // This serves as a safety net to ensure all segments are persisted,
+            // even if some progressive batches failed during generation.
+            // Uses `put` operations which are idempotent, so duplicate saves are safe.
             if (bookId) {
               await saveChapterSegments(bookId, ch.id, audioSegments)
             }
@@ -1005,8 +1008,9 @@ class GenerationService {
             markChapterGenerationComplete(ch.id)
 
             // Save all chapter segments to DB as a complete batch snapshot.
-            // This is the primary save that ensures all segments are persisted together
-            // and complements the optional progressive per-segment saves above.
+            // This serves as a safety net to ensure all segments are persisted,
+            // even if some progressive batches failed during generation.
+            // Uses `put` operations which are idempotent, so duplicate saves are safe.
             if (bookId) await saveChapterSegments(bookId, ch.id, audioSegments)
 
             // Concat
