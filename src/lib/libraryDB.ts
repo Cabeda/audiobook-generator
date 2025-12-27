@@ -330,7 +330,7 @@ export async function updateChapterDetectedLanguage(
           putRequest.onerror = (event) =>
             reject(
               new Error(
-                `Failed to save chapter detected language: ${event.target?.error?.message || 'Unknown error'}`
+                `Failed to save chapter detected language: ${(event.target as IDBRequest)?.error?.message || 'Unknown error'}`
               )
             )
         } else {
