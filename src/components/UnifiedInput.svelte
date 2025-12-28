@@ -144,7 +144,7 @@
           {
             id: 'article-content',
             title: article.title || 'Article Content',
-            content: article.textContent || '',
+            content: article.content || '',
           },
         ],
       }
