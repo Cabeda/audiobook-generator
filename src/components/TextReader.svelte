@@ -6,6 +6,9 @@
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
+  import { segmentProgress, getGeneratedSegment } from '../stores/segmentProgressStore'
+  import { segmentHtmlContent } from '../lib/services/generationService'
+  import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
 
   let {
@@ -56,6 +59,13 @@
   let isLoading = $state(true)
   let audioAvailable = $state(true)
 
+  // Progressive playback support
+  let chapterSegmentProgress = $derived($segmentProgress.get(chapter?.id ?? ''))
+  let isGenerating = $derived(chapterSegmentProgress?.isGenerating ?? false)
+  let hasPartialAudio = $derived(
+    chapterSegmentProgress && chapterSegmentProgress.generatedIndices.size > 0
+  )
+
   // Initialize by loading pre-generated data from DB
   $effect(() => {
     if (chapter && bookId) {
@@ -81,15 +91,31 @@
             selectedModel,
           })
           .then((result) => {
-            isLoading = false
             if (result.success) {
-              // Hide player if no audio available (hasAudio is check for merged or segments or web speech)
-              // We need a state variable for this. 'loadError' was used for "failed completely".
-              // Let's reuse loadError for "No Audio Logic"? No, user wants text reader available.
-              // So loadError should be false (success).
-              // But we need to hide the player.
-              // We'll add a new state: `audioAvailable`
-              audioAvailable = result.hasAudio
+              // Check if we have partial audio from progressive generation
+              const progressStore = untrack(() => get(segmentProgress).get(cId))
+              const progressiveAudio = progressStore && progressStore.generatedIndices.size > 0
+
+              // Audio is available if we have merged audio, segments, web speech, or progressive audio
+              audioAvailable = result.hasAudio || !!progressiveAudio
+
+              // Populate audioService.segments from progressive store if not already set
+              if (
+                progressiveAudio &&
+                progressStore &&
+                progressStore.segmentTexts.size > 0 &&
+                audioService.segments.length === 0
+              ) {
+                const segs: Array<{ index: number; text: string }> = []
+                progressStore.segmentTexts.forEach((text, index) => {
+                  segs.push({ index, text })
+                })
+                segs.sort((a, b) => a.index - b.index)
+                audioService.segments = segs
+              }
+
+              // Mark loading complete AFTER segments are populated
+              isLoading = false
 
               const store = get(audioPlayerStore)
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
@@ -100,8 +126,29 @@
                 })
               }
             } else {
-              loadError = true
-              console.warn('Chapter audio not available - generate audio first')
+              // Check if we have partial audio from progressive generation
+              const progressStore = untrack(() => get(segmentProgress).get(cId))
+              const progressiveAudio = progressStore && progressStore.generatedIndices.size > 0
+
+              if (progressiveAudio && progressStore) {
+                // Don't show error, we have partial audio available
+                audioAvailable = true
+                // Populate audioService.segments from progressive store so injection works
+                if (progressStore.segmentTexts.size > 0 && audioService.segments.length === 0) {
+                  const segs: Array<{ index: number; text: string }> = []
+                  progressStore.segmentTexts.forEach((text, index) => {
+                    segs.push({ index, text })
+                  })
+                  segs.sort((a, b) => a.index - b.index)
+                  audioService.segments = segs
+                }
+                // Mark loading complete AFTER segments are populated
+                isLoading = false
+              } else {
+                isLoading = false
+                loadError = true
+                console.warn('Chapter audio not available - generate audio first')
+              }
             }
           })
           .catch((err) => {
@@ -130,37 +177,6 @@
     }
   }
 
-  function rangeFromTextOffsets(root: HTMLElement, start: number, end: number): Range | null {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    let offset = 0
-    let startNode: Node | null = null
-    let startOffset = 0
-    let endNode: Node | null = null
-    let endOffset = 0
-
-    let current = walker.nextNode()
-    while (current) {
-      const len = current.textContent?.length ?? 0
-      if (!startNode && start >= offset && start <= offset + len) {
-        startNode = current
-        startOffset = start - offset
-      }
-      if (!endNode && end <= offset + len) {
-        endNode = current
-        endOffset = end - offset
-        break
-      }
-      offset += len
-      current = walker.nextNode()
-    }
-
-    if (!startNode || !endNode) return null
-    const range = document.createRange()
-    range.setStart(startNode, startOffset)
-    range.setEnd(endNode, endOffset)
-    return range
-  }
-
   function injectSegmentsIntoContent() {
     if (!textContentEl) return
     const root = textContentEl
@@ -175,67 +191,152 @@
     const segments = audioService.segments
     if (!segments?.length) return
 
-    const fullText = root.textContent || ''
-
-    const normalizeWithMap = (text: string) => {
-      const normalizedChars: string[] = []
-      const normToOriginal: number[] = []
-      let lastWasSpace = false
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i]
-        if (/\s/.test(ch)) {
-          if (lastWasSpace) continue
-          normalizedChars.push(' ')
-          normToOriginal.push(i)
-          lastWasSpace = true
-        } else {
-          normalizedChars.push(ch)
-          normToOriginal.push(i)
-          lastWasSpace = false
-        }
+    // Use TreeWalker to find all text nodes
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null)
+    const textNodes: Text[] = []
+    let node: Text | null
+    while ((node = walker.nextNode() as Text | null)) {
+      if (node.textContent && node.textContent.trim()) {
+        textNodes.push(node)
       }
-      return { normalized: normalizedChars.join(''), normToOriginal }
     }
 
-    const normalizedFull = normalizeWithMap(fullText)
-    let searchNormIndex = 0
+    // Build a map of cumulative text offsets
+    let cumulativeOffset = 0
+    const nodeOffsets: { node: Text; start: number; end: number }[] = []
+    for (const tn of textNodes) {
+      const len = tn.textContent?.length ?? 0
+      nodeOffsets.push({ node: tn, start: cumulativeOffset, end: cumulativeOffset + len })
+      cumulativeOffset += len
+    }
+
+    // Get the full text content for matching
+    const fullText = textNodes.map((n) => n.textContent).join('')
+
+    // Normalize text for matching (collapse whitespace)
+    const normalizeText = (text: string) => text.replace(/\s+/g, ' ').trim()
+
+    let searchIndex = 0
 
     for (const segment of segments) {
-      const normalizedSegment = normalizeWithMap(segment.text)
-      if (!normalizedSegment.normalized) continue
+      const segmentText = normalizeText(segment.text)
+      if (!segmentText) continue
 
-      const startNorm = normalizedFull.normalized.indexOf(
-        normalizedSegment.normalized,
-        searchNormIndex
-      )
-      if (startNorm === -1) continue
-      const endNorm = startNorm + normalizedSegment.normalized.length
+      // Find this segment in the full text (with normalized matching)
+      const normalizedFull = normalizeText(fullText.slice(searchIndex))
+      const matchIndex = normalizedFull.indexOf(segmentText)
 
-      const start = normalizedFull.normToOriginal[startNorm]
-      const endOriginalIdx = normalizedFull.normToOriginal[endNorm - 1]
-      const end = endOriginalIdx !== undefined ? endOriginalIdx + 1 : start + segment.text.length
-
-      const range = rangeFromTextOffsets(root, start, end)
-      if (!range || range.collapsed) continue
-
-      const span = document.createElement('span')
-      span.className = 'segment'
-      span.id = `seg-${segment.index}`
-      span.setAttribute('role', 'button')
-      span.setAttribute('tabindex', '0')
-      span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
-
-      try {
-        const contents = range.extractContents()
-        span.appendChild(contents)
-        range.insertNode(span)
-      } catch (err) {
-        console.warn('Failed to wrap segment for highlighting', err)
+      if (matchIndex === -1) {
+        console.warn(`Segment ${segment.index} not found: "${segmentText.slice(0, 50)}..."`)
+        continue
       }
 
-      searchNormIndex = endNorm
+      // Map back to original text position
+      // Count characters in original text until we've passed 'matchIndex' normalized chars
+      let origStart = searchIndex
+      let normalizedCount = 0
+      let inWhitespace = false
+
+      for (let i = searchIndex; i < fullText.length && normalizedCount < matchIndex; i++) {
+        const ch = fullText[i]
+        if (/\s/.test(ch)) {
+          if (!inWhitespace) {
+            normalizedCount++
+            inWhitespace = true
+          }
+        } else {
+          normalizedCount++
+          inWhitespace = false
+        }
+        origStart = i + 1
+      }
+
+      // Now find the end position
+      let origEnd = origStart
+      normalizedCount = 0
+      inWhitespace = false
+
+      for (let i = origStart; i < fullText.length && normalizedCount < segmentText.length; i++) {
+        const ch = fullText[i]
+        if (/\s/.test(ch)) {
+          if (!inWhitespace) {
+            normalizedCount++
+            inWhitespace = true
+          }
+        } else {
+          normalizedCount++
+          inWhitespace = false
+        }
+        origEnd = i + 1
+      }
+
+      // Find which text nodes this range spans
+      const startNodeInfo = nodeOffsets.find((n) => origStart >= n.start && origStart < n.end)
+      const endNodeInfo = nodeOffsets.find((n) => origEnd > n.start && origEnd <= n.end)
+
+      if (!startNodeInfo || !endNodeInfo) {
+        console.warn(`Could not find nodes for segment ${segment.index}`)
+        continue
+      }
+
+      try {
+        const range = document.createRange()
+        range.setStart(startNodeInfo.node, origStart - startNodeInfo.start)
+        range.setEnd(endNodeInfo.node, origEnd - endNodeInfo.start)
+
+        if (!range.collapsed) {
+          const span = document.createElement('span')
+          span.className = 'segment'
+          span.id = `seg-${segment.index}`
+          span.setAttribute('role', 'button')
+          span.setAttribute('tabindex', '0')
+          span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
+
+          range.surroundContents(span)
+        }
+      } catch (err) {
+        // surroundContents can fail if range crosses element boundaries
+        // Fall back to extractContents approach
+        try {
+          const range = document.createRange()
+          range.setStart(startNodeInfo.node, origStart - startNodeInfo.start)
+          range.setEnd(endNodeInfo.node, origEnd - endNodeInfo.start)
+
+          const span = document.createElement('span')
+          span.className = 'segment'
+          span.id = `seg-${segment.index}`
+          span.setAttribute('role', 'button')
+          span.setAttribute('tabindex', '0')
+          span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
+
+          const contents = range.extractContents()
+          span.appendChild(contents)
+          range.insertNode(span)
+        } catch (err2) {
+          console.warn(`Failed to wrap segment ${segment.index}:`, err2)
+        }
+      }
+
+      searchIndex = origEnd
     }
   }
+
+  // Keep audioService.segments in sync with segmentProgressStore during generation
+  // This ensures segments are available for injection even when navigating during generation
+  $effect(() => {
+    const progress = $segmentProgress.get(chapter?.id ?? '')
+    if (!progress || !chapter?.id) return
+
+    // Only update if we have segment texts and audioService needs them
+    if (progress.segmentTexts.size > 0 && audioService.segments.length === 0) {
+      const segs: Array<{ index: number; text: string }> = []
+      progress.segmentTexts.forEach((text, index) => {
+        segs.push({ index, text })
+      })
+      segs.sort((a, b) => a.index - b.index)
+      audioService.segments = segs
+    }
+  })
 
   // Scroll to current segment
   $effect(() => {
@@ -247,18 +348,116 @@
   })
 
   // Inject segment wrappers so the active sentence can be highlighted
+  // This now works even without audio - segments are computed on-the-fly for preview
   $effect(() => {
     const ready = !isLoading && !loadError
-    const segmentCount = audioService.segments.length
     const chapterId = chapter?.id
-    if (!ready || !segmentCount || !chapterId) return
+    if (!ready || !chapterId) return
 
-    injectSegmentsIntoContent()
-
-    if (audioService.currentSegmentIndex >= 0) {
-      updateActiveSegment(audioService.currentSegmentIndex)
-      scrollToSegment(audioService.currentSegmentIndex)
+    // If we don't have segments yet, compute them from the content for preview highlighting
+    if (audioService.segments.length === 0 && chapter?.content) {
+      const { segments: computedSegments } = segmentHtmlContent(chapterId, chapter.content)
+      if (computedSegments.length > 0) {
+        audioService.segments = computedSegments.map((s) => ({ index: s.index, text: s.text }))
+      }
     }
+
+    // Now inject the segments into the DOM
+    if (audioService.segments.length > 0) {
+      injectSegmentsIntoContent()
+
+      if (audioService.currentSegmentIndex >= 0) {
+        updateActiveSegment(audioService.currentSegmentIndex)
+        scrollToSegment(audioService.currentSegmentIndex)
+      }
+    }
+  })
+
+  // Track previous progress state to detect changes
+  let prevGeneratedIndices: Set<number> | null = null
+  let prevIsGenerating = false
+
+  // Helper function to get max index from a set
+  function getMaxIndex(indices: Set<number>): number {
+    let max = -1
+    for (const idx of indices) {
+      if (idx > max) {
+        max = idx
+      }
+    }
+    return max
+  }
+
+  // Update segment visual states based on generation progress
+  $effect(() => {
+    if (!textContentEl || !chapter?.id) return
+    const progress = $segmentProgress.get(chapter.id)
+    if (!progress) return
+
+    // Determine which segments need updating
+    const changedIndices = new Set<number>()
+
+    // Check if isGenerating state changed (affects all segments)
+    const generatingChanged = progress.isGenerating !== prevIsGenerating
+
+    if (!prevGeneratedIndices || generatingChanged) {
+      // First run or generating state changed - update all segments
+      const segmentEls = textContentEl.querySelectorAll('span[id^="seg-"]')
+      segmentEls.forEach((el) => {
+        const indexMatch = el.id.match(/seg-(\d+)/)
+        if (indexMatch) {
+          changedIndices.add(parseInt(indexMatch[1], 10))
+        }
+      })
+    } else {
+      // Find newly generated segments
+      for (const idx of progress.generatedIndices) {
+        if (!prevGeneratedIndices.has(idx)) {
+          changedIndices.add(idx)
+        }
+      }
+
+      // If generating, also update the "next" segment (for pulsing effect)
+      if (progress.isGenerating) {
+        const lastGenerated = getMaxIndex(progress.generatedIndices)
+        const prevLastGenerated = getMaxIndex(prevGeneratedIndices)
+        changedIndices.add(lastGenerated + 1)
+        // Also update the previous "next" segment if different
+        if (prevLastGenerated + 1 !== lastGenerated + 1) {
+          changedIndices.add(prevLastGenerated + 1)
+        }
+      }
+    }
+
+    // Compute lastGenerated once for reuse
+    const lastGenerated = progress.isGenerating ? getMaxIndex(progress.generatedIndices) : -1
+
+    // Update only changed segments
+    for (const index of changedIndices) {
+      const el = textContentEl.querySelector(`#seg-${index}`)
+      if (!el) continue
+
+      const isGenerated = progress.generatedIndices.has(index)
+
+      // Update classes for visual state
+      el.classList.remove('segment-pending', 'segment-generated', 'segment-generating')
+
+      if (isGenerated) {
+        el.classList.add('segment-generated')
+      } else if (progress.isGenerating) {
+        if (index === lastGenerated + 1) {
+          el.classList.add('segment-generating')
+        } else {
+          el.classList.add('segment-pending')
+        }
+      } else {
+        el.classList.add('segment-pending')
+      }
+    }
+
+    // Store current state for next comparison
+    prevGeneratedIndices = new Set(progress.generatedIndices)
+    prevIsGenerating = progress.isGenerating
   })
 
   // Ensure initial highlight if already playing
@@ -316,7 +515,15 @@
     const segmentEl = target.closest('.segment') as HTMLElement | null
     const index = getSegmentIndex(segmentEl)
     if (index !== null) {
-      audioService.playFromSegment(index)
+      // Check if we have this segment in progressive generation
+      const progressSegment = chapter?.id ? getGeneratedSegment(chapter.id, index) : undefined
+      if (progressSegment) {
+        // Play from progressive generation store
+        audioService.playSingleSegment(progressSegment)
+      } else {
+        // Try normal playback
+        audioService.playFromSegment(index)
+      }
     }
   }
 
@@ -329,7 +536,13 @@
         event.preventDefault()
         const index = getSegmentIndex(target)
         if (index !== null) {
-          audioService.playFromSegment(index)
+          // Check if we have this segment in progressive generation
+          const progressSegment = chapter?.id ? getGeneratedSegment(chapter.id, index) : undefined
+          if (progressSegment) {
+            audioService.playSingleSegment(progressSegment)
+          } else {
+            audioService.playFromSegment(index)
+          }
         }
       }
     }
@@ -795,14 +1008,18 @@
   /* Style for injected segments */
   :global(.segment) {
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: 3px;
+    padding: 2px 4px;
+    margin: -2px -4px;
     transition:
-      background-color 0.2s,
-      color 0.2s;
+      background-color 0.15s ease,
+      box-shadow 0.15s ease,
+      color 0.15s ease;
   }
 
   :global(.segment:hover) {
-    background-color: var(--hover-bg);
+    background-color: var(--segment-hover-bg, rgba(59, 130, 246, 0.2));
+    box-shadow: 0 0 0 2px var(--segment-hover-border, rgba(59, 130, 246, 0.4));
   }
 
   :global(.segment:focus) {
@@ -815,6 +1032,66 @@
     background-color: var(--active-bg);
     color: var(--active-text);
     box-shadow: 0 0 0 2px var(--highlight-border, #ffb74d);
+  }
+
+  /* Progressive Generation Segment States */
+  :global(.segment-pending) {
+    opacity: 0.5;
+    color: var(--secondary-text);
+    cursor: default;
+  }
+
+  :global(.segment-pending:hover) {
+    background-color: rgba(156, 163, 175, 0.15);
+    box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.3);
+  }
+
+  :global(.segment-generating) {
+    opacity: 0.7;
+    animation: pulseSegment 1.5s ease-in-out infinite;
+    background-color: rgba(59, 130, 246, 0.1);
+  }
+
+  :global(.segment-generating:hover) {
+    background-color: rgba(59, 130, 246, 0.2);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+  }
+
+  @keyframes pulseSegment {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 0.9;
+    }
+  }
+
+  :global(.segment-generated) {
+    opacity: 1;
+    cursor: pointer;
+    position: relative;
+  }
+
+  :global(.segment-generated:hover) {
+    background-color: rgba(34, 197, 94, 0.2);
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.5);
+  }
+
+  :global(.segment-generated::after) {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    width: 100%;
+    height: 2px;
+    background-color: #22c55e;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  :global(.segment-generated:hover::after) {
+    opacity: 0.7;
   }
 
   /* Settings Menu */

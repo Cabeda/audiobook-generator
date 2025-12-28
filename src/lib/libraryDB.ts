@@ -612,6 +612,7 @@ export async function clearLibrary(): Promise<void> {
       resolve()
     }
     transaction.onerror = () => {
+      db.close()
       reject(new Error('Failed to clear library'))
     }
   })
@@ -710,6 +711,39 @@ export async function getChapterAudioWithSettings(
 }
 
 /**
+ * Save a single audio segment for a chapter (for progressive generation)
+ * This allows saving segments as they are generated, enabling playback before the full chapter is done.
+ */
+export async function saveSegmentIndividually(
+  bookId: number,
+  chapterId: string,
+  segment: AudioSegment
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+
+    store.put({
+      ...segment,
+      bookId,
+      chapterId,
+    })
+
+    transaction.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+
+    transaction.onerror = () => {
+      db.close()
+      reject(new Error('Failed to save segment'))
+    }
+  })
+}
+
+/**
  * Save audio segments for a chapter
  */
 export async function saveChapterSegments(
@@ -737,6 +771,7 @@ export async function saveChapterSegments(
     }
 
     transaction.onerror = () => {
+      db.close()
       reject(new Error('Failed to save chapter segments'))
     }
   })
@@ -810,6 +845,9 @@ export async function deleteBookAudio(bookId: number): Promise<void> {
       resolve()
     }
 
-    transaction.onerror = () => reject(new Error('Failed to delete book audio'))
+    transaction.onerror = () => {
+      db.close()
+      reject(new Error('Failed to delete book audio'))
+    }
   })
 }

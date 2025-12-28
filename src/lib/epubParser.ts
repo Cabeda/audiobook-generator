@@ -28,46 +28,141 @@ export class EpubParser implements BookParser {
 }
 
 function cleanHtml(html: string): string {
-  // Remove potentially dangerous elements (scripts, styles, forms, etc.) and strip inline styles/classes to ensure clean rendering.
-  // Simple sanitation: remove script, style, object, embed, iframe, form, input, button, etc.
-  // This approach removes known dangerous tags and strips most attributes, but does not strictly whitelist only certain tags.
+  // Strict HTML sanitization to prevent XSS attacks from malicious EPUB content.
+  // This removes all executable JavaScript including event handlers and javascript: URLs.
 
   // First, parse it to DOM to process safely
   const parser = new DOMParser()
   const doc = parser.parseFromString(html, 'text/html')
 
-  // Remove unwanted elements
+  // Remove dangerous elements that can execute scripts or load external content
   const toRemove = doc.querySelectorAll(
-    'script, style, link, meta, title, head, iframe, object, embed, form, button, input, textarea, select, svg'
+    'script, style, link, meta, title, head, iframe, object, embed, form, button, input, textarea, select, svg, base, applet'
   )
   toRemove.forEach((el) => el.remove())
 
-  // Unwrap unwanted containers but keep text? Or just remove?
-  // Let's keep it simple: The body innerHTML is mostly what we want, but cleaned.
-
-  // Remove attributes that might interfere (onclick, style usually not needed but maybe keep style?)
-  // For safety and clean look: strip all attributes except maybe src for images?
-  // Let's strip attributes for now to ensure clean styling via our CSS.
-  // Exception: keep 'src', 'href' if we want links (links might navigate away, so maybe strip href too or target blank?)
-  // For 'TextReader', simple structure is best.
-
-  const allElements = doc.body.querySelectorAll('*')
+  // Sanitize all elements in the entire document (not just body)
+  const allElements = doc.querySelectorAll('*')
   allElements.forEach((el) => {
-    // Keep only specific attributes if needed
-    // Remove inline styles to respect our theme
+    // Remove all event handler attributes dynamically (any attribute starting with 'on')
+    // This is more future-proof than maintaining a hardcoded list
+    Array.from(el.attributes).forEach((attr) => {
+      if (attr.name.toLowerCase().startsWith('on')) {
+        el.removeAttribute(attr.name)
+      }
+    })
+
+    // Remove style attribute to prevent CSS-based attacks
     el.removeAttribute('style')
-    el.removeAttribute('class') // Strip classes to use our own or default
-    // Only remove 'id' if it does not match the segment pattern (e.g., 'seg-*')
+
+    // Remove class attribute to use our own styling
+    el.removeAttribute('class')
+
+    // Only keep id attributes that match the segment pattern (seg-*)
     if (el.hasAttribute('id')) {
       const id = el.getAttribute('id') || ''
       if (!/^seg-\w+/.test(id)) {
         el.removeAttribute('id')
       }
     }
-    el.removeAttribute('onclick')
+
+    // Sanitize href attributes to prevent dangerous URL schemes
+    if (el.hasAttribute('href')) {
+      const href = el.getAttribute('href') || ''
+      if (!isSafeUrl(href)) {
+        el.removeAttribute('href')
+      }
+    }
+
+    // Sanitize src attributes to prevent dangerous URL schemes
+    if (el.hasAttribute('src')) {
+      const src = el.getAttribute('src') || ''
+      if (!isSafeUrl(src)) {
+        el.removeAttribute('src')
+      }
+    }
+
+    // Remove other potentially dangerous attributes
+    el.removeAttribute('action')
+    el.removeAttribute('formaction')
+    el.removeAttribute('poster')
+    el.removeAttribute('background')
+    el.removeAttribute('srcdoc')
+    el.removeAttribute('codebase')
   })
 
   return doc.body.innerHTML
+}
+
+/**
+ * Check if a URL is safe to use in href or src attributes.
+ * This function handles URL encoding to prevent bypass attacks.
+ * @param url - The URL to check
+ * @returns true if the URL is safe, false otherwise
+ */
+function isSafeUrl(url: string): boolean {
+  if (!url) return true // Empty URLs are safe (will be removed by browser anyway)
+
+  const trimmedUrl = url.trim()
+  if (!trimmedUrl) return true
+
+  // Decode URL to catch encoded attacks like %6A%61%76%61%73%63%72%69%70%74:
+  let decodedUrl = trimmedUrl
+  // Decode multiple times (up to a small limit) to catch nested encoding,
+  // but stop if decoding fails or no further changes occur.
+  const maxDecodes = 3
+  for (let i = 0; i < maxDecodes; i++) {
+    try {
+      const onceDecoded = decodeURIComponent(decodedUrl)
+      if (onceDecoded === decodedUrl) {
+        break
+      }
+      decodedUrl = onceDecoded
+    } catch {
+      // If decoding fails at this level, stop decoding but keep the last
+      // successfully decoded value for safety checks.
+      break
+    }
+  }
+
+  const lowerUrl = decodedUrl.toLowerCase().replace(/\s/g, '')
+
+  // Block dangerous protocols
+  const dangerousProtocols = [
+    'javascript:',
+    'data:',
+    'vbscript:',
+    'file:',
+    'about:',
+    'javascript&colon;',
+    'vbscript&colon;',
+  ]
+
+  for (const protocol of dangerousProtocols) {
+    if (lowerUrl.startsWith(protocol)) {
+      return false
+    }
+  }
+
+  // Additional check: try parsing as URL if it looks like an absolute URL
+  if (lowerUrl.includes(':')) {
+    try {
+      const urlObj = new URL(decodedUrl)
+      const protocol = urlObj.protocol.toLowerCase()
+      // Only allow http, https, and relative URLs
+      if (protocol !== 'http:' && protocol !== 'https:' && protocol !== '') {
+        return false
+      }
+    } catch {
+      // If URL parsing fails but it contains ':', it might be malformed - be safe and reject
+      if (lowerUrl.indexOf(':') < 20) {
+        // Protocol should be within first 20 chars
+        return false
+      }
+    }
+  }
+
+  return true
 }
 
 function extractChapterTitle(

@@ -424,12 +424,9 @@ class AudioPlaybackService {
     if (this.audio) {
       this.audio.pause()
     }
-    try {
-      const worker = getTTSWorker()
-      worker.cancelAll()
-    } catch {
-      // ignore
-    }
+    // Note: We intentionally do NOT call worker.cancelAll() here anymore
+    // because that would cancel ongoing chapter generation from generationService.
+    // The audioPlaybackService only handles playback, not generation.
     // Clear pending generation queue to avoid stale buffering state
     this.pendingGenerations.clear()
     audioPlayerStore.setBuffering(false)
@@ -483,9 +480,8 @@ class AudioPlaybackService {
 
     this.cancelWebSpeech()
 
-    // Cancel pending
-    const worker = getTTSWorker()
-    worker.cancelAll()
+    // Clear only this service's pending generations, not the global worker
+    // This prevents canceling ongoing chapter generation from generationService
     this.pendingGenerations.clear()
 
     this.currentSegmentIndex = index
@@ -830,6 +826,152 @@ class AudioPlaybackService {
         URL.revokeObjectURL(url)
         this.audioSegments.delete(index)
       }
+    }
+  }
+
+  /**
+   * Play a single segment directly from an AudioSegment object.
+   * This is used for progressive playback during generation, allowing
+   * users to listen to segments as they are generated without waiting
+   * for the entire chapter to complete.
+   */
+  async playSingleSegment(segment: AudioSegment): Promise<void> {
+    // Stop any current playback
+    if (this.audio) {
+      this.audio.pause()
+      this.audio.onended = null
+      this.audio.ontimeupdate = null
+      this.audio.onerror = null
+      this.audio.onloadedmetadata = null
+      this.audio.src = ''
+      this.audio = null
+    }
+    this.cancelWebSpeech()
+    // Clear any pending generations to avoid stale state during single segment playback
+    this.pendingGenerations.clear()
+
+    // Validate the audioBlob exists and is a proper Blob
+    if (!segment.audioBlob) {
+      logger.error('Cannot play segment: audioBlob is missing', { segmentIndex: segment.index })
+      return
+    }
+
+    // Check if audioBlob is actually a Blob instance (might not be after IndexedDB serialization in some cases)
+    let blob: Blob
+    if (segment.audioBlob instanceof Blob) {
+      blob = segment.audioBlob
+    } else {
+      // If IndexedDB returned something that's not a Blob, try to reconstruct it
+      // This can happen in some browser edge cases where the blob is serialized differently
+      logger.warn('audioBlob is not a Blob instance, attempting to reconstruct', {
+        type: typeof segment.audioBlob,
+        constructor: (segment.audioBlob as object)?.constructor?.name,
+      })
+      try {
+        // If it has arrayBuffer-like properties, try to create a new Blob
+        const data = segment.audioBlob as unknown
+        if (data && typeof data === 'object' && 'size' in data && 'type' in data) {
+          // It might be a Blob-like object, create audio element directly
+          blob = new Blob([data as BlobPart], {
+            type: (data as { type: string }).type || 'audio/wav',
+          })
+        } else {
+          logger.error('Cannot reconstruct blob from stored data', { data })
+          return
+        }
+      } catch (reconstructError) {
+        logger.error('Failed to reconstruct blob:', reconstructError)
+        return
+      }
+    }
+
+    // Validate blob has content
+    if (blob.size === 0) {
+      logger.error('Cannot play segment: audioBlob is empty', { segmentIndex: segment.index })
+      return
+    }
+
+    // Revoke any existing URL for this segment to prevent memory leaks
+    const existingUrl = this.audioSegments.get(segment.index)
+    if (existingUrl) {
+      URL.revokeObjectURL(existingUrl)
+      this.audioSegments.delete(segment.index)
+    }
+
+    // Create audio from the segment blob
+    let url: string
+    try {
+      url = URL.createObjectURL(blob)
+    } catch (urlError) {
+      logger.error('Failed to create blob URL:', urlError)
+      return
+    }
+
+    // Store this segment for playback
+    this.audioSegments.set(segment.index, url)
+    this.currentSegmentIndex = segment.index
+    this.isPlaying = true
+    audioPlayerStore.play()
+
+    // Create audio element
+    this.audio = new Audio(url)
+    this.audio.playbackRate = this.playbackSpeed
+
+    this.audio.onloadedmetadata = () => {
+      if (this.audio) this.duration = this.audio.duration
+    }
+
+    this.audio.ontimeupdate = () => {
+      if (this.audio) this.currentTime = this.audio.currentTime
+    }
+
+    this.audio.onended = () => {
+      this.isPlaying = false
+      audioPlayerStore.pause()
+      URL.revokeObjectURL(url)
+      this.audioSegments.delete(segment.index)
+      this.audio = null
+    }
+
+    this.audio.onerror = (event) => {
+      // Extract more meaningful error information from MediaError
+      const mediaError = this.audio?.error
+      const errorDetails = {
+        code: mediaError?.code,
+        message: mediaError?.message,
+        MEDIA_ERR_ABORTED: mediaError?.code === MediaError.MEDIA_ERR_ABORTED,
+        MEDIA_ERR_NETWORK: mediaError?.code === MediaError.MEDIA_ERR_NETWORK,
+        MEDIA_ERR_DECODE: mediaError?.code === MediaError.MEDIA_ERR_DECODE,
+        MEDIA_ERR_SRC_NOT_SUPPORTED: mediaError?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED,
+        blobSize: blob.size,
+        blobType: blob.type,
+      }
+      logger.error('Single segment playback error:', errorDetails, event)
+      this.isPlaying = false
+      audioPlayerStore.pause()
+      URL.revokeObjectURL(url)
+      this.audioSegments.delete(segment.index)
+      this.audio = null
+    }
+
+    try {
+      await this.audio.play()
+    } catch (err) {
+      // Extract error details for better debugging
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      const errorName = err instanceof Error ? err.name : 'Unknown'
+      logger.error('Failed to play single segment:', {
+        name: errorName,
+        message: errorMessage,
+        blobSize: blob.size,
+        blobType: blob.type,
+        url: url.substring(0, 50) + '...',
+      })
+      this.isPlaying = false
+      audioPlayerStore.pause()
+      URL.revokeObjectURL(url)
+      this.audioSegments.delete(segment.index)
+      this.audio = null
     }
   }
 }
