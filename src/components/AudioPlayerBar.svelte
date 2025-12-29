@@ -211,15 +211,6 @@
       </button>
     </div>
 
-    <!-- Progress Bar -->
-    <div class="progress-section">
-      <div class="time">{formatTime(playerState.currentTime)}</div>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width: {playbackInfo.progress * 100}%"></div>
-      </div>
-      <div class="time">{formatTime(playerState.chapterDuration || playerState.duration)}</div>
-    </div>
-
     <!-- Extra Actions -->
     <div class="actions">
       {#if mode === 'reader'}
