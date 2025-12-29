@@ -203,16 +203,84 @@ class AudioPlaybackService {
     try {
       const parser = new DOMParser()
       const doc = parser.parseFromString(html, 'text/html')
-      const fullText = (doc.body.textContent || '').replace(/\r\n/g, '\n')
-      // Split by sentence endings (.!?) or newlines to ensure parsing respects block elements
-      const sentences = fullText.match(/[^.!?\n]+[.!?]+(\s+|$)|[^.!?\n]+(\n+|$)/g) || [fullText]
 
-      return sentences
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-        .map((text, index) => ({ index, text }))
+      // Process block elements to respect paragraph boundaries (same as generationService)
+      const blockElements = doc.body.querySelectorAll(
+        'p, h1, h2, h3, h4, h5, h6, li, div, blockquote, article, section, pre, code'
+      )
+      const sentences: string[] = []
+
+      // Helper function to split text into sentences (same as generationService)
+      const splitIntoSentences = (text: string): string[] => {
+        const parts: string[] = []
+        // Pattern: sentence ending punctuation followed by space(s) and capital letter (or end)
+        const sentenceEndRegex = /([.!?]+)(\s+)(?=[A-Z]|$)/g
+
+        let lastIndex = 0
+        let match
+
+        sentenceEndRegex.lastIndex = 0
+
+        while ((match = sentenceEndRegex.exec(text)) !== null) {
+          const sentence = text.slice(lastIndex, match.index + match[1].length).trim()
+          if (sentence) {
+            parts.push(sentence)
+          }
+          lastIndex = match.index + match[1].length + match[2].length
+        }
+
+        // Add any remaining text
+        if (lastIndex < text.length) {
+          const sentence = text.slice(lastIndex).trim()
+          if (sentence) {
+            parts.push(sentence)
+          }
+        }
+
+        // If no splits were made, return the whole text as one sentence
+        if (parts.length === 0 && text.trim()) {
+          return [text.trim()]
+        }
+
+        return parts
+      }
+
+      if (blockElements.length > 0) {
+        // Process each block element separately to maintain structure
+        const processedElements = new Set<Element>()
+
+        blockElements.forEach((block) => {
+          // Skip if this element is nested inside another block we've already processed
+          let parent = block.parentElement
+          let skip = false
+          while (parent && parent !== doc.body) {
+            if (processedElements.has(parent)) {
+              skip = true
+              break
+            }
+            parent = parent.parentElement
+          }
+
+          if (!skip) {
+            const blockText = (block.textContent || '').trim()
+            if (blockText) {
+              const blockSentences = splitIntoSentences(blockText)
+              sentences.push(...blockSentences)
+              processedElements.add(block)
+            }
+          }
+        })
+      } else {
+        // Fallback: split the entire text
+        const fullText = (doc.body.textContent || '').trim()
+        const allSentences = splitIntoSentences(fullText)
+        sentences.push(...allSentences)
+      }
+
+      return sentences.filter((s) => s.length > 0).map((text, index) => ({ index, text }))
     } catch (err) {
       logger.warn('Failed to segment HTML for fallback playback', err)
+      // Minimal fallback - just split by sentence-ending punctuation
       const sentences = html.split(/(?<=[.!?])\s+/)
       return sentences
         .map((s) => s.trim())

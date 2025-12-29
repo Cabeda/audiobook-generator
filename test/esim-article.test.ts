@@ -50,8 +50,8 @@ describe('eSIM Article EPUB', () => {
     const { segments } = segmentHtmlContent(chapter.id, chapter.content)
 
     console.log('\nTotal segments:', segments.length)
-    console.log('First 10 segments:')
-    segments.slice(0, 10).forEach((seg, idx) => {
+    console.log('First 15 segments:')
+    segments.slice(0, 15).forEach((seg, idx) => {
       console.log(`  [${idx}] ${seg.text}`)
     })
 

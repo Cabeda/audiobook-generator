@@ -58,6 +58,7 @@
   let loadError = $state(false)
   let isLoading = $state(true)
   let audioAvailable = $state(true)
+  let segmentsLoaded = $state(false) // Track if segments have been initialized to avoid re-computation
 
   // Progressive playback support
   let chapterSegmentProgress = $derived($segmentProgress.get(chapter?.id ?? ''))
@@ -116,6 +117,7 @@
 
               // Mark loading complete AFTER segments are populated
               isLoading = false
+              segmentsLoaded = true
 
               const store = get(audioPlayerStore)
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
@@ -144,6 +146,7 @@
                 }
                 // Mark loading complete AFTER segments are populated
                 isLoading = false
+                segmentsLoaded = true
               } else {
                 isLoading = false
                 loadError = true
@@ -216,6 +219,10 @@
     // Normalize text for matching (collapse whitespace)
     const normalizeText = (text: string) => text.replace(/\s+/g, ' ').trim()
 
+    // IMPORTANT: Collect all ranges first before modifying DOM
+    // This ensures accurate position calculations
+    const rangesToWrap: Array<{ range: Range; segment: (typeof segments)[0] }> = []
+
     let searchIndex = 0
 
     for (const segment of segments) {
@@ -285,39 +292,40 @@
         range.setEnd(endNodeInfo.node, origEnd - endNodeInfo.start)
 
         if (!range.collapsed) {
-          const span = document.createElement('span')
-          span.className = 'segment'
-          span.id = `seg-${segment.index}`
-          span.setAttribute('role', 'button')
-          span.setAttribute('tabindex', '0')
-          span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
-
-          range.surroundContents(span)
+          rangesToWrap.push({ range, segment })
         }
       } catch (err) {
-        // surroundContents can fail if range crosses element boundaries
-        // Fall back to extractContents approach
-        try {
-          const range = document.createRange()
-          range.setStart(startNodeInfo.node, origStart - startNodeInfo.start)
-          range.setEnd(endNodeInfo.node, origEnd - endNodeInfo.start)
-
-          const span = document.createElement('span')
-          span.className = 'segment'
-          span.id = `seg-${segment.index}`
-          span.setAttribute('role', 'button')
-          span.setAttribute('tabindex', '0')
-          span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
-
-          const contents = range.extractContents()
-          span.appendChild(contents)
-          range.insertNode(span)
-        } catch (err2) {
-          console.warn(`Failed to wrap segment ${segment.index}:`, err2)
-        }
+        console.warn(`Failed to create range for segment ${segment.index}:`, err)
       }
 
       searchIndex = origEnd
+    }
+
+    // Now wrap all ranges in reverse order (from end to start)
+    // This prevents earlier wraps from affecting later position calculations
+    for (let i = rangesToWrap.length - 1; i >= 0; i--) {
+      const { range, segment } = rangesToWrap[i]
+
+      try {
+        const span = document.createElement('span')
+        span.className = 'segment'
+        span.id = `seg-${segment.index}`
+        span.setAttribute('role', 'button')
+        span.setAttribute('tabindex', '0')
+        span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
+
+        // Try surroundContents first (simplest approach)
+        try {
+          range.surroundContents(span)
+        } catch {
+          // If surroundContents fails (crosses element boundaries), use extractContents
+          const contents = range.extractContents()
+          span.appendChild(contents)
+          range.insertNode(span)
+        }
+      } catch (err) {
+        console.warn(`Failed to wrap segment ${segment.index}:`, err)
+      }
     }
   }
 
@@ -347,6 +355,13 @@
     }
   })
 
+  // Reset segments loaded flag when chapter changes
+  $effect(() => {
+    if (chapter?.id) {
+      segmentsLoaded = false // Reset when chapter changes so we re-initialize segments
+    }
+  })
+
   // Inject segment wrappers so the active sentence can be highlighted
   // This now works even without audio - segments are computed on-the-fly for preview
   $effect(() => {
@@ -354,11 +369,12 @@
     const chapterId = chapter?.id
     if (!ready || !chapterId) return
 
-    // If we don't have segments yet, compute them from the content for preview highlighting
-    if (audioService.segments.length === 0 && chapter?.content) {
+    // Only compute segments once per chapter to avoid inconsistent highlighting
+    if (!segmentsLoaded && audioService.segments.length === 0 && chapter?.content) {
       const { segments: computedSegments } = segmentHtmlContent(chapterId, chapter.content)
       if (computedSegments.length > 0) {
         audioService.segments = computedSegments.map((s) => ({ index: s.index, text: s.text }))
+        segmentsLoaded = true
       }
     }
 
