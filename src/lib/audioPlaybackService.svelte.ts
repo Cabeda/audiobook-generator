@@ -945,6 +945,13 @@ class AudioPlaybackService {
       // Extract error details for better debugging
       const errorMessage = err instanceof Error ? err.message : String(err)
       const errorName = err instanceof Error ? err.name : 'Unknown'
+
+      // AbortError is expected when rapid skipping/clicking causes the previous play() promise to reject
+      if (errorName === 'AbortError') {
+        logger.debug('Playback aborted by user action (harmless)')
+        return
+      }
+
       logger.error('Failed to play single segment:', {
         name: errorName,
         message: errorMessage,

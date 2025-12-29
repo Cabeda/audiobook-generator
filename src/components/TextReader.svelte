@@ -57,7 +57,6 @@
   // State for initialization
   let loadError = $state(false)
   let isLoading = $state(true)
-  let audioAvailable = $state(true)
   let segmentsLoaded = $state(false) // Track if segments have been initialized to avoid re-computation
   let wrappedContent = $state<string | null>(null) // Pre-wrapped HTML with segment spans
 
@@ -67,6 +66,9 @@
   let hasPartialAudio = $derived(
     chapterSegmentProgress && chapterSegmentProgress.generatedIndices.size > 0
   )
+
+  let hasStaticAudio = $state(false)
+  let audioAvailable = $derived(hasStaticAudio || hasPartialAudio)
 
   // Initialize by loading pre-generated data from DB
   $effect(() => {
@@ -103,7 +105,8 @@
               const progressiveAudio = progressStore && progressStore.generatedIndices.size > 0
 
               // Audio is available if we have merged audio, segments, web speech, or progressive audio
-              audioAvailable = result.hasAudio || !!progressiveAudio
+              hasStaticAudio = result.hasAudio
+              // Audio availability is now derived: audioAvailable = hasStaticAudio || hasPartialAudio
 
               // Always compute wrapped content so highlights match audio on first load
               if (chapter?.content) {
@@ -157,7 +160,8 @@
 
               if (progressiveAudio && progressStore) {
                 // Don't show error, we have partial audio available
-                audioAvailable = true
+                hasStaticAudio = false
+                // audioAvailable will be true because of hasPartialAudio
                 // Populate audioService.segments from progressive store so injection works
                 if (progressStore.segmentTexts.size > 0 && audioService.segments.length === 0) {
                   const segs: Array<{ index: number; text: string }> = []
@@ -419,7 +423,8 @@
   // Inject segment wrappers so the active sentence can be highlighted
   // This now works even without audio - segments are computed on-the-fly for preview
   $effect(() => {
-    const ready = !isLoading && !loadError
+    // Proceed if loaded without error, OR if we have audio available (partial), OR if generating
+    const ready = !isLoading && (!loadError || audioAvailable || isGenerating)
     const chapterId = chapter?.id
     if (!ready || !chapterId) return
 
@@ -724,7 +729,7 @@
           <div class="spinner"></div>
           <p>Loading chapter audio...</p>
         </div>
-      {:else if loadError}
+      {:else if loadError && !audioAvailable && !isGenerating}
         <div class="error-message">
           <p>⚠️ Audio not available</p>
           <p>Generate audio for this chapter first.</p>
@@ -737,7 +742,7 @@
     </div>
 
     <!-- Audio Player Bar -->
-    {#if !loadError && audioAvailable}
+    {#if audioAvailable}
       <AudioPlayerBar
         mode="reader"
         {showSettings}
