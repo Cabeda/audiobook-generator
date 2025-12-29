@@ -85,12 +85,16 @@ describe('Article Parsing Integration', () => {
 
     // Verify HTML version has better structure preservation
     // Each paragraph should be a separate segment (or close to it)
-    const htmlFirstSegment = htmlSegments[0]?.text || ''
-    const textFirstSegment = textSegments[0]?.text || ''
+    expect(textSegments.length).toBeGreaterThan(0)
 
-    // HTML version should have cleaner, more focused segments
-    // The plain text version might combine everything into one or few large chunks
-    expect(htmlFirstSegment.length).toBeLessThan(textFirstSegment.length * 2)
+    // HTML version should have cleaner, more focused segments overall.
+    // Compare average segment length: plain text tends to have fewer, larger chunks,
+    // while HTML preserves paragraph and heading boundaries into smaller segments.
+    const htmlTotalLength = htmlSegments.reduce((sum, segment) => sum + segment.text.length, 0)
+    const textTotalLength = textSegments.reduce((sum, segment) => sum + segment.text.length, 0)
+    const htmlAverageLength = htmlTotalLength / htmlSegments.length
+    const textAverageLength = textTotalLength / textSegments.length
+    expect(htmlAverageLength).toBeLessThan(textAverageLength)
   })
 
   it('handles articles without headings correctly', () => {
