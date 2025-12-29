@@ -36,8 +36,11 @@ describe('segmentHtmlContent', () => {
     const { segments } = segmentHtmlContent('ch-1', sampleHtml, { ignoreLinks: true })
     const combined = normalize(segments.map((s) => s.text).join(' '))
 
+    // When ignoreLinks is true, the link elements and their text are removed
     expect(combined).not.toContain('useful link')
     expect(combined).not.toContain('reference')
+    // Surrounding text is preserved (note: articles like "a" remain)
+    expect(combined).toContain('Intro paragraph with a inside')
     expect(combined).toContain('important code sample')
   })
 

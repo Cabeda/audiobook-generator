@@ -23,7 +23,6 @@ import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
-import { convert } from 'html-to-text'
 import { resolveChapterLanguageWithDetection, DEFAULT_LANGUAGE } from '../utils/languageResolver'
 
 import {
@@ -191,69 +190,110 @@ export function segmentHtmlContent(
 ): { html: string; segments: { index: number; text: string; id: string }[] } {
   const segments: { index: number; text: string; id: string }[] = []
 
-  logger.info('[segmentHtml] Starting HTML segmentation with html-to-text', {
+  logger.info('[segmentHtml] Starting HTML segmentation using DOM textContent', {
     chapterId,
     htmlLength: htmlContent.length,
     ignoreCodeBlocks: !!options.ignoreCodeBlocks,
     ignoreLinks: !!options.ignoreLinks,
   })
 
-  // Configure selectors for html-to-text
-  const selectors: any[] = [
-    { selector: 'img', format: 'skip' },
-    { selector: 'script', format: 'skip' },
-    { selector: 'style', format: 'skip' },
-  ]
+  // Use DOMParser to get text that matches exactly what the browser will render
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(htmlContent, 'text/html')
 
+  // Remove elements we want to skip
   if (options.ignoreCodeBlocks) {
-    selectors.push({ selector: 'pre', format: 'skip' })
-    selectors.push({ selector: 'code', format: 'skip' })
+    doc.querySelectorAll('pre, code').forEach((el) => el.remove())
   }
-
   if (options.ignoreLinks) {
-    selectors.push({ selector: 'a', format: 'skip' })
-  } else {
-    // If not ignored, print text but ignore href
-    selectors.push({ selector: 'a', options: { ignoreHref: true } })
+    doc.querySelectorAll('a').forEach((el) => el.remove())
   }
 
-  // Convert HTML to text
-  // wordwrap: false ensures we don't insert artificial line breaks within paragraphs
-  const fullText = convert(htmlContent, {
-    wordwrap: false,
-    selectors: selectors,
-    preserveNewlines: true, // Preserve intentional newlines
-  })
+  // Get the raw text content exactly as the browser sees it
+  // This ensures perfect matching with the DOM in TextReader
+  const fullText = doc.body.textContent || ''
 
-  // Split into sentences
-  // Robust splitting handles newlines (which html-to-text preserves for blocks)
-  // We split by newline first to ensure block boundaries are respected.
-  const lines = fullText.split('\n')
+  // Split into sentences using block-aware logic
+  // First, process block elements to respect paragraph boundaries
+  const blockElements = doc.body.querySelectorAll(
+    'p, h1, h2, h3, h4, h5, h6, li, div, blockquote, article, section, pre, code'
+  )
   const sentences: string[] = []
 
-  lines.forEach((line) => {
-    const trimmedLine = line.trim()
-    if (!trimmedLine) return
+  // Helper function to split text into sentences
+  const splitIntoSentences = (text: string): string[] => {
+    const parts: string[] = []
+    // Pattern: sentence ending punctuation followed by space(s) and capital letter (or end)
+    const sentenceEndRegex = /([.!?]+)(\s+)(?=[A-Z]|$)/g
 
-    // Split line into sentences
-    // This regex matches:
-    // 1. A sequence of non-terminators followed by terminators and space/end
-    // 2. OR the remaining text if no terminators found
-    const lineSentences = trimmedLine.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g)
-    if (lineSentences) {
-      sentences.push(...lineSentences.map((s) => s.trim()))
-    } else {
-      sentences.push(trimmedLine)
+    let lastIndex = 0
+    let match
+
+    sentenceEndRegex.lastIndex = 0
+
+    while ((match = sentenceEndRegex.exec(text)) !== null) {
+      const sentence = text.slice(lastIndex, match.index + match[1].length).trim()
+      if (sentence) {
+        parts.push(sentence)
+      }
+      lastIndex = match.index + match[1].length + match[2].length
     }
-  })
 
+    // Add any remaining text
+    if (lastIndex < text.length) {
+      const sentence = text.slice(lastIndex).trim()
+      if (sentence) {
+        parts.push(sentence)
+      }
+    }
+
+    // If no splits were made, return the whole text as one sentence
+    if (parts.length === 0 && text.trim()) {
+      return [text.trim()]
+    }
+
+    return parts
+  }
+
+  if (blockElements.length > 0) {
+    // Process each block element separately to maintain structure
+    // Track which elements we've already processed to avoid duplicates
+    const processedElements = new Set<Element>()
+
+    blockElements.forEach((block) => {
+      // Skip if this element is nested inside another block we've already processed
+      let parent = block.parentElement
+      let skip = false
+      while (parent && parent !== doc.body) {
+        if (processedElements.has(parent)) {
+          skip = true
+          break
+        }
+        parent = parent.parentElement
+      }
+
+      if (!skip) {
+        const blockText = (block.textContent || '').trim()
+        if (blockText) {
+          const blockSentences = splitIntoSentences(blockText)
+          sentences.push(...blockSentences)
+          processedElements.add(block)
+        }
+      }
+    })
+  } else {
+    // Fallback: split the entire text
+    const allSentences = splitIntoSentences(fullText.trim())
+    sentences.push(...allSentences)
+  }
+
+  // Create segments from sentences
   let segmentIndex = 0
   sentences.forEach((sentence) => {
-    const trimmed = sentence
-    if (trimmed && trimmed.length > 0) {
+    if (sentence && sentence.length > 0) {
       segments.push({
         index: segmentIndex,
-        text: trimmed,
+        text: sentence,
         id: `seg-${segmentIndex}`,
       })
       segmentIndex++
@@ -266,7 +306,8 @@ export function segmentHtmlContent(
     totalTextLength: fullText.length,
   })
 
-  // Return original HTML without segment wrapping
+  // Return original HTML without wrapping
+  // The TextReader component will inject segment spans dynamically
   return { html: htmlContent, segments }
 }
 
