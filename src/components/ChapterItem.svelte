@@ -33,8 +33,7 @@
     audioData = undefined,
     onToggle,
     onRead,
-    onDownloadWav,
-    onDownloadMp3,
+    onDownload,
     status,
     error,
     onRetry,
@@ -51,8 +50,7 @@
     error?: string | null
     onToggle: (id: string) => void
     onRead: (chapter: Chapter) => void
-    onDownloadWav: (id: string) => void
-    onDownloadMp3: (id: string) => void
+    onDownload: (id: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') => void
     onRetry?: (id: string) => void
     progress?: { current: number; total: number; message?: string }
     onModelChange?: (chapterId: string, model: string | undefined) => void
@@ -423,16 +421,22 @@
         aria-label={`Audio for ${chapter.title}`}
       ></audio>
       <div class="download-actions">
-        <button
-          class="action-btn small"
-          onclick={() => onDownloadWav(chapter.id)}
-          aria-label={`Download WAV for ${chapter.title}`}>WAV</button
+        <select
+          class="download-select"
+          onchange={(e) => {
+            const format = (e.target as HTMLSelectElement).value as 'wav' | 'mp3' | 'm4b' | 'mp4'
+            if (format) {
+              onDownload(chapter.id, format)
+            }
+          }}
+          aria-label={`Download format for ${chapter.title}`}
         >
-        <button
-          class="action-btn small"
-          onclick={() => onDownloadMp3(chapter.id)}
-          aria-label={`Download MP3 for ${chapter.title}`}>MP3</button
-        >
+          <option value="">📥 Download...</option>
+          <option value="wav">WAV (Uncompressed)</option>
+          <option value="mp3">MP3 (Standard)</option>
+          <option value="m4b">M4B (Audiobook)</option>
+          <option value="mp4">MP4 (Audio)</option>
+        </select>
       </div>
     </div>
   {/if}
@@ -721,6 +725,29 @@
   .download-actions {
     display: flex;
     gap: 8px;
+  }
+
+  .download-select {
+    padding: 6px 12px;
+    border: 1px solid var(--input-border);
+    background: var(--surface-color);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 160px;
+  }
+
+  .download-select:hover {
+    background: var(--bg-color);
+    border-color: var(--text-color);
+  }
+
+  .download-select:focus {
+    outline: none;
+    border-color: var(--primary-color, #3b82f6);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
   }
 
   audio {
