@@ -3,6 +3,7 @@
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { appTheme } from '../stores/themeStore'
   import { onMount } from 'svelte'
+  import type { Chapter } from '../lib/types/book'
 
   let {
     mode = 'persistent',
@@ -10,12 +11,26 @@
     onClose,
     onSettings,
     showSettings = false,
+    chapter = undefined,
+    bookTitle = undefined,
+    bookId = undefined,
+    voice = undefined,
+    quantization = undefined,
+    device = 'auto',
+    selectedModel = 'kokoro',
   } = $props<{
     mode?: 'persistent' | 'reader'
     onMaximize?: () => void
     onClose?: () => void
     onSettings?: () => void
     showSettings?: boolean
+    chapter?: Chapter
+    bookTitle?: string
+    bookId?: number | null
+    voice?: string
+    quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+    device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+    selectedModel?: 'kokoro' | 'piper'
   }>()
 
   let playerState = $derived($audioPlayerStore)
@@ -29,9 +44,20 @@
   }
 
   // Handlers
-  function handlePlayPause(e: MouseEvent) {
+  async function handlePlayPause(e: MouseEvent) {
     e.stopPropagation()
-    audioService.togglePlayPause()
+
+    // If we're in reader mode and have chapter info but no segments, trigger generation
+    if (mode === 'reader' && chapter && audioService.segments.length === 0) {
+      try {
+        const { generationService } = await import('../lib/services/generationService')
+        await generationService.generateChapters([chapter])
+      } catch (err) {
+        console.error('Failed to generate chapter:', err)
+      }
+    } else {
+      audioService.togglePlayPause()
+    }
   }
 
   function handleSkipForward(e: MouseEvent) {
