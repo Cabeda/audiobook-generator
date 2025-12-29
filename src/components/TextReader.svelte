@@ -6,7 +6,12 @@
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
-  import { segmentProgress, getGeneratedSegment } from '../stores/segmentProgressStore'
+  import {
+    segmentProgress,
+    getGeneratedSegment,
+    initChapterSegments,
+    hydrateChapterSegments,
+  } from '../stores/segmentProgressStore'
   import { segmentHtmlContent } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
@@ -98,7 +103,7 @@
             selectedModel,
             playbackSpeed: initialSpeed,
           })
-          .then((result) => {
+          .then(async (result) => {
             if (result.success) {
               // Check if we have partial audio from progressive generation
               const progressStore = untrack(() => get(segmentProgress).get(cId))
@@ -124,6 +129,21 @@
                 }
 
                 wrappedContent = segmentedHtml
+
+                // Initialize segment progress from DB if appropriate (and not currently generating)
+                // This ensures that on page refresh, we see the partial progress
+                if (!untrack(() => isGenerating)) {
+                  initChapterSegments(
+                    cId,
+                    computedSegments.map((s) => ({ ...s, id: s.id || `seg-${s.index}` })),
+                    false
+                  )
+                  const { getChapterSegments } = await import('../lib/libraryDB')
+                  const existingSegments = await getChapterSegments(bId, cId)
+                  if (existingSegments.length > 0) {
+                    hydrateChapterSegments(cId, existingSegments)
+                  }
+                }
               }
 
               // Populate audioService.segments from progressive store if not already set

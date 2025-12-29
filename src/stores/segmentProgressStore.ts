@@ -28,7 +28,8 @@ export const segmentProgress = writable(new Map<string, ChapterSegmentProgress>(
  */
 export function initChapterSegments(
   chapterId: string,
-  segments: Array<{ index: number; text: string; id: string }>
+  segments: Array<{ index: number; text: string; id: string }>,
+  initialIsGenerating = true
 ) {
   segmentProgress.update((map) => {
     const newMap = new Map(map)
@@ -40,8 +41,37 @@ export function initChapterSegments(
       generatedIndices: new Set(),
       segmentTexts,
       generatedSegments: new Map(),
-      isGenerating: true,
+      isGenerating: initialIsGenerating,
     })
+    return newMap
+  })
+}
+
+/**
+ * Bulk add generated segments to an initialized chapter
+ */
+export function hydrateChapterSegments(chapterId: string, segments: AudioSegment[]) {
+  segmentProgress.update((map) => {
+    const progress = map.get(chapterId)
+    if (!progress) {
+      // If not initialized, we can't properly hydrate because we don't know totalSegments/text
+      // Skipping warning to avoid noise during async loads, but logic requires init first
+      return map
+    }
+
+    const newMap = new Map(map)
+    const newProgress = {
+      ...progress,
+      generatedIndices: new Set(progress.generatedIndices),
+      generatedSegments: new Map(progress.generatedSegments),
+    }
+
+    segments.forEach((segment) => {
+      newProgress.generatedIndices.add(segment.index)
+      newProgress.generatedSegments.set(segment.index, segment)
+    })
+
+    newMap.set(chapterId, newProgress)
     return newMap
   })
 }

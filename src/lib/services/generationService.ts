@@ -823,14 +823,44 @@ class GenerationService {
             // Initialize segment progress tracking for live UI updates
             initChapterSegments(ch.id, textSegments)
 
+            // 2b. Check for existing segments in DB (Partial Resume Logic)
+            // 'bookId' is already declared above at line 815
+            const existingSegmentsMap = new Map<number, AudioSegment>()
+
+            if (bookId) {
+              try {
+                const { getChapterSegments } = await import('../libraryDB')
+                const existing = await getChapterSegments(bookId, ch.id)
+                existing.forEach((s) => {
+                  existingSegmentsMap.set(s.index, s)
+                  // Mark as generated in UI so they turn green immediately
+                  markSegmentGenerated(ch.id, s)
+                })
+                if (existing.length > 0) {
+                  logger.info(
+                    `Resuming generation: found ${existing.length} existing segments for chapter ${ch.id}`
+                  )
+                }
+              } catch (e) {
+                logger.warn('Failed to check for existing segments, starting fresh', e)
+              }
+            }
+
             // 3. Generate Audio for each segment
-            const audioSegments: AudioSegment[] = []
+            const audioSegmentsMap = new Map<number, AudioSegment>()
+            // Pre-fill with existing segments
+            for (const [idx, seg] of existingSegmentsMap.entries()) {
+              audioSegmentsMap.set(idx, seg)
+            }
 
             chapterProgress.update((m) =>
               new Map(m).set(ch.id, {
-                current: 0,
+                current: existingSegmentsMap.size,
                 total: textSegments.length,
-                message: 'Initializing generation...',
+                message:
+                  existingSegmentsMap.size > 0
+                    ? 'Resuming generation...'
+                    : 'Initializing generation...',
               })
             )
 
@@ -839,8 +869,12 @@ class GenerationService {
 
             const worker = getTTSWorker()
 
-            // Filter out empty segments first
-            const nonEmptySegments = textSegments.filter((seg) => seg.text.trim())
+            // Filter out empty segments first, AND segments already generated
+            const nonEmptySegments = textSegments.filter((seg) => {
+              const hasText = !!seg.text.trim()
+              const alreadyExists = existingSegmentsMap.has(seg.index)
+              return hasText && !alreadyExists
+            })
 
             if (parallelChunks > 1) {
               // Parallel batch processing
@@ -898,7 +932,7 @@ class GenerationService {
                   duration: result.duration,
                   startTime: cumulativeTime,
                 }
-                audioSegments.push(segment)
+                audioSegmentsMap.set(segment.index, segment)
 
                 // Add segment to batch (will auto-flush when batch is full)
                 await batchHandler.addSegment(segment)
@@ -919,6 +953,11 @@ class GenerationService {
 
                 // Skip empty segments
                 if (!segText.trim()) continue
+
+                // Skip if already exists
+                if (existingSegmentsMap.has(i)) {
+                  continue
+                }
 
                 chapterProgress.update((m) =>
                   new Map(m).set(ch.id, {
@@ -951,7 +990,7 @@ class GenerationService {
                   startTime: cumulativeTime,
                 }
 
-                audioSegments.push(segment)
+                audioSegmentsMap.set(i, segment)
 
                 // Add segment to batch (will auto-flush when batch is full)
                 await batchHandler.addSegment(segment)
@@ -973,11 +1012,26 @@ class GenerationService {
             // even if some progressive batches failed during generation.
             // Uses `put` operations which are idempotent, so duplicate saves are safe.
             if (bookId) {
-              await saveChapterSegments(bookId, ch.id, audioSegments)
+              // Get values from map to array, sorted by index
+              const allSegments = Array.from(audioSegmentsMap.values()).sort(
+                (a, b) => a.index - b.index
+              )
+
+              // Recalculate start times to be correct
+              let runningTime = 0
+              allSegments.forEach((s) => {
+                s.startTime = runningTime
+                runningTime += s.duration || 0
+              })
+
+              await saveChapterSegments(bookId, ch.id, allSegments)
             }
 
             // Concatenate for chapter audio
-            const audioChapters: AudioChapter[] = audioSegments.map((s) => ({
+            const allSegmentsList = Array.from(audioSegmentsMap.values()).sort(
+              (a, b) => a.index - b.index
+            )
+            const audioChapters: AudioChapter[] = allSegmentsList.map((s) => ({
               id: s.id,
               title: `Segment ${s.index}`,
               blob: s.audioBlob,
@@ -1039,15 +1093,46 @@ class GenerationService {
             // Initialize segment progress tracking for live UI updates
             initChapterSegments(ch.id, textSegments)
 
+            // 2b. Check for existing segments in DB (Partial Resume Logic)
+            // 'bookId' is already declared above at line 1078
+            const existingSegmentsMap = new Map<number, AudioSegment>()
+
+            if (bookId) {
+              try {
+                const { getChapterSegments } = await import('../libraryDB')
+                const existing = await getChapterSegments(bookId, ch.id)
+                existing.forEach((s) => {
+                  existingSegmentsMap.set(s.index, s)
+                  // Mark as generated in UI so they turn green immediately
+                  markSegmentGenerated(ch.id, s)
+                })
+                if (existing.length > 0) {
+                  logger.info(
+                    `Resuming Piper generation: found ${existing.length} existing segments for chapter ${ch.id}`
+                  )
+                }
+              } catch (e) {
+                logger.warn('Failed to check for existing segments, starting fresh', e)
+              }
+            }
+
             // 3. Generate
-            const audioSegments: AudioSegment[] = []
+            const audioSegmentsMap = new Map<number, AudioSegment>()
+            // Pre-fill with existing segments
+            for (const [idx, seg] of existingSegmentsMap.entries()) {
+              audioSegmentsMap.set(idx, seg)
+            }
             const worker = getTTSWorker()
 
             // Get parallelization setting (default to 1 for sequential processing)
             const parallelChunks = Math.max(1, Number(currentAdvancedSettings.parallelChunks) || 1)
 
-            // Filter out empty segments first
-            const nonEmptySegments = textSegments.filter((seg) => seg.text.trim())
+            // Filter out empty segments first, AND segments already generated
+            const nonEmptySegments = textSegments.filter((seg) => {
+              const hasText = !!seg.text.trim()
+              const alreadyExists = existingSegmentsMap.has(seg.index)
+              return hasText && !alreadyExists
+            })
 
             if (parallelChunks > 1) {
               // Parallel batch processing
@@ -1104,7 +1189,7 @@ class GenerationService {
                   duration: result.duration,
                   startTime: cumulativeTime,
                 }
-                audioSegments.push(segment)
+                audioSegmentsMap.set(segment.index, segment)
 
                 // Add segment to batch (will auto-flush when batch is full)
                 await batchHandler.addSegment(segment)
@@ -1122,6 +1207,9 @@ class GenerationService {
               for (let i = 0; i < textSegments.length; i++) {
                 if (this.canceled) break
                 const segText = textSegments[i].text
+
+                // Skip empty segments
+                if (!segText.trim()) continue
 
                 if (i === 0) {
                   logger.warn('[generateChapters] About to generate first Piper segment', {
@@ -1162,7 +1250,7 @@ class GenerationService {
                   startTime: cumulativeTime,
                 }
 
-                audioSegments.push(segment)
+                audioSegmentsMap.set(i, segment)
 
                 // Add segment to batch (will auto-flush when batch is full)
                 await batchHandler.addSegment(segment)
@@ -1179,14 +1267,21 @@ class GenerationService {
             // Mark chapter generation as complete
             markChapterGenerationComplete(ch.id)
 
-            // Save all chapter segments to DB as a complete batch snapshot.
-            // This serves as a safety net to ensure all segments are persisted,
             // even if some progressive batches failed during generation.
             // Uses `put` operations which are idempotent, so duplicate saves are safe.
-            if (bookId) await saveChapterSegments(bookId, ch.id, audioSegments)
+            if (bookId) {
+              const allSegments = Array.from(audioSegmentsMap.values()).sort(
+                (a, b) => a.index - b.index
+              )
+              // Recalc timings logic here if needed, but for now just save
+              await saveChapterSegments(bookId, ch.id, allSegments)
+            }
 
             // Concat
-            const audioChapters = audioSegments.map((s) => ({
+            const allSegmentsList = Array.from(audioSegmentsMap.values()).sort(
+              (a, b) => a.index - b.index
+            )
+            const audioChapters: AudioChapter[] = allSegmentsList.map((s) => ({
               id: s.id,
               title: '',
               blob: s.audioBlob,
