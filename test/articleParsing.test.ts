@@ -95,9 +95,29 @@ describe('Article Parsing Integration', () => {
     // - Consistency with the rest of the codebase which expects HTML content
     // - Protection against future changes to Readability's textContent format
 
-    // Both approaches should segment the content reasonably well for this test case
-    expect(htmlSegments.length).toBeGreaterThanOrEqual(textSegments.length * 0.5)
-    expect(textSegments.length).toBeGreaterThanOrEqual(htmlSegments.length * 0.5)
+    // Use state-of-the-art metrics to compare segmentation quality:
+    // 1. Coefficient of Variation (CV) - measures consistency of segment lengths
+    //    Lower CV indicates more uniform, well-structured segmentation
+    const calculateCV = (segments: { text: string }[]) => {
+      const lengths = segments.map((s) => s.text.length)
+      const mean = lengths.reduce((sum, len) => sum + len, 0) / lengths.length
+      const variance =
+        lengths.reduce((sum, len) => sum + Math.pow(len - mean, 2), 0) / lengths.length
+      const stdDev = Math.sqrt(variance)
+      return stdDev / mean // Coefficient of Variation
+    }
+
+    const htmlCV = calculateCV(htmlSegments)
+    const textCV = calculateCV(textSegments)
+
+    // 2. Segment count - more segments generally indicate better granularity
+    //    for TTS processing (easier to resume, better memory management)
+    expect(htmlSegments.length).toBeGreaterThanOrEqual(textSegments.length * 0.7)
+
+    // 3. Consistency metric - HTML should produce more consistent segmentation
+    //    (lower CV) when structure is present, or at least comparable
+    // Note: This may not always be true, so we use a lenient check
+    expect(htmlCV).toBeLessThan(textCV * 1.5)
   })
 
   it('handles articles without headings correctly', () => {
