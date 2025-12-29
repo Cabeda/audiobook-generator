@@ -244,41 +244,102 @@ export function segmentHtmlContent(
     return parts
   }
 
-  // Helper to wrap text in a single text node
-  const wrapTextInNode = (
-    textNode: Text,
-    searchText: string,
+  // Helper to wrap a sentence even if it spans multiple text nodes (with inline elements)
+  const wrapSentenceInBlock = (
+    block: Element,
+    sentence: string,
     segmentId: string,
     segmentIndex: number
   ): boolean => {
-    const nodeText = textNode.textContent || ''
-    const idx = nodeText.indexOf(searchText)
+    // Collect all text nodes in document order within the block
+    const walker = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT, null)
+    const textNodes: Text[] = []
+    let node: Text | null
+    while ((node = walker.nextNode() as Text | null)) {
+      if (node.textContent && node.textContent.trim()) {
+        textNodes.push(node)
+      }
+    }
+
+    // Build a string of the block's text content, mapping each character to its text node and offset
+    let fullText = ''
+    const charMap: { node: Text; offset: number }[] = []
+    for (const tn of textNodes) {
+      for (let i = 0; i < tn.textContent!.length; i++) {
+        fullText += tn.textContent![i]
+        charMap.push({ node: tn, offset: i })
+      }
+    }
+
+    // Try to find the sentence in the fullText (normalize whitespace for both)
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+    const normFull = norm(fullText)
+    const normSentence = norm(sentence)
+    const idx = normFull.indexOf(normSentence)
     if (idx === -1) return false
 
-    // Split the text node and wrap the matching part
-    const before = nodeText.slice(0, idx)
-    const match = nodeText.slice(idx, idx + searchText.length)
-    const after = nodeText.slice(idx + searchText.length)
+    // Map normalized index back to original char indices
+    let normIdx = 0,
+      origIdx = 0
+    const normToOrig: number[] = []
+    while (origIdx < fullText.length) {
+      if (/\s/.test(fullText[origIdx])) {
+        if (normFull[normIdx] === ' ') {
+          normToOrig.push(origIdx)
+          while (origIdx < fullText.length && /\s/.test(fullText[origIdx])) origIdx++
+          normIdx++
+        } else {
+          origIdx++
+        }
+      } else {
+        normToOrig.push(origIdx)
+        origIdx++
+        normIdx++
+      }
+    }
 
-    const parent = textNode.parentNode
-    if (!parent) return false
+    const startOrig = normToOrig[idx]
+    const endOrig = normToOrig[idx + normSentence.length - 1] + 1
 
-    // Create the wrapped span
+    // Find the start and end text node/offset for the sentence
+    let startNode: Text | null = null,
+      startOffset = 0
+    let endNode: Text | null = null,
+      endOffset = 0
+    let charCount = 0
+    for (const tn of textNodes) {
+      const len = tn.textContent!.length
+      if (!startNode && startOrig < charCount + len) {
+        startNode = tn
+        startOffset = startOrig - charCount
+      }
+      if (!endNode && endOrig <= charCount + len) {
+        endNode = tn
+        endOffset = endOrig - charCount
+        break
+      }
+      charCount += len
+    }
+    if (!startNode || !endNode) return false
+
+    // Use a Range to extract the DOM fragment for the sentence
+    const range = doc.createRange()
+    range.setStart(startNode, startOffset)
+    range.setEnd(endNode, endOffset)
+
+    // Clone the contents (preserving inline elements)
+    const frag = range.cloneContents()
+
+    // Create the wrapper span
     const span = doc.createElement('span')
     span.id = segmentId
     span.className = 'segment'
     span.setAttribute('data-segment-index', String(segmentIndex))
-    span.textContent = match
+    span.appendChild(frag)
 
-    // Replace the text node with the new structure
-    if (before) {
-      parent.insertBefore(doc.createTextNode(before), textNode)
-    }
-    parent.insertBefore(span, textNode)
-    if (after) {
-      parent.insertBefore(doc.createTextNode(after), textNode)
-    }
-    parent.removeChild(textNode)
+    // Replace the range in the DOM with the span
+    range.deleteContents()
+    range.insertNode(span)
 
     return true
   }
@@ -331,45 +392,10 @@ export function segmentHtmlContent(
       const segmentId = `seg-${segmentIndex}`
 
       // Try to find and wrap this sentence in the block's text nodes
-      const walker = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT, null)
-      let textNode: Text | null
       let wrapped = false
 
-      // First, try exact match in a single text node
-      while ((textNode = walker.nextNode() as Text | null)) {
-        if (wrapTextInNode(textNode, sentence, segmentId, segmentIndex)) {
-          wrapped = true
-          break
-        }
-      }
-
-      // If exact match failed, try normalized matching
-      if (!wrapped) {
-        const normalizedSentence = sentence.replace(/\s+/g, ' ').trim()
-        const walker2 = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT, null)
-        while ((textNode = walker2.nextNode() as Text | null)) {
-          const normalizedNodeText = (textNode.textContent || '').replace(/\s+/g, ' ')
-          const idx = normalizedNodeText.indexOf(normalizedSentence)
-          if (idx !== -1) {
-            // Find the actual text to wrap (may have different whitespace)
-            const nodeText = textNode.textContent || ''
-            // Try to find a match that, when normalized, matches the sentence
-            for (let start = 0; start <= nodeText.length - sentence.length; start++) {
-              for (let end = start + 1; end <= nodeText.length; end++) {
-                const substr = nodeText.slice(start, end)
-                if (substr.replace(/\s+/g, ' ').trim() === normalizedSentence) {
-                  if (wrapTextInNode(textNode, substr, segmentId, segmentIndex)) {
-                    wrapped = true
-                    break
-                  }
-                }
-              }
-              if (wrapped) break
-            }
-            if (wrapped) break
-          }
-        }
-      }
+      // Try to wrap the sentence, even if it spans multiple text nodes (with inline elements)
+      wrapped = wrapSentenceInBlock(block, sentence, segmentId, segmentIndex)
 
       // Only create a segment if we successfully wrapped it
       if (wrapped) {
