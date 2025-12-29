@@ -190,14 +190,14 @@ export function segmentHtmlContent(
 ): { html: string; segments: { index: number; text: string; id: string }[] } {
   const segments: { index: number; text: string; id: string }[] = []
 
-  logger.info('[segmentHtml] Starting HTML segmentation using DOM textContent', {
+  logger.info('[segmentHtml] Starting HTML segmentation with pre-wrapping', {
     chapterId,
     htmlLength: htmlContent.length,
     ignoreCodeBlocks: !!options.ignoreCodeBlocks,
     ignoreLinks: !!options.ignoreLinks,
   })
 
-  // Use DOMParser to get text that matches exactly what the browser will render
+  // Use DOMParser to parse and modify the HTML
   const parser = new DOMParser()
   const doc = parser.parseFromString(htmlContent, 'text/html')
 
@@ -208,17 +208,6 @@ export function segmentHtmlContent(
   if (options.ignoreLinks) {
     doc.querySelectorAll('a').forEach((el) => el.remove())
   }
-
-  // Get the raw text content exactly as the browser sees it
-  // This ensures perfect matching with the DOM in TextReader
-  const fullText = doc.body.textContent || ''
-
-  // Split into sentences using block-aware logic
-  // First, process block elements to respect paragraph boundaries
-  const blockElements = doc.body.querySelectorAll(
-    'p, h1, h2, h3, h4, h5, h6, li, div, blockquote, article, section, pre, code'
-  )
-  const sentences: string[] = []
 
   // Helper function to split text into sentences
   const splitIntoSentences = (text: string): string[] => {
@@ -255,60 +244,167 @@ export function segmentHtmlContent(
     return parts
   }
 
-  if (blockElements.length > 0) {
-    // Process each block element separately to maintain structure
-    // Track which elements we've already processed to avoid duplicates
-    const processedElements = new Set<Element>()
+  // Helper to wrap text in a single text node
+  const wrapTextInNode = (
+    textNode: Text,
+    searchText: string,
+    segmentId: string,
+    segmentIndex: number
+  ): boolean => {
+    const nodeText = textNode.textContent || ''
+    const idx = nodeText.indexOf(searchText)
+    if (idx === -1) return false
 
-    blockElements.forEach((block) => {
-      // Skip if this element is nested inside another block we've already processed
-      let parent = block.parentElement
-      let skip = false
-      while (parent && parent !== doc.body) {
-        if (processedElements.has(parent)) {
-          skip = true
-          break
-        }
-        parent = parent.parentElement
-      }
+    // Split the text node and wrap the matching part
+    const before = nodeText.slice(0, idx)
+    const match = nodeText.slice(idx, idx + searchText.length)
+    const after = nodeText.slice(idx + searchText.length)
 
-      if (!skip) {
-        const blockText = (block.textContent || '').trim()
-        if (blockText) {
-          const blockSentences = splitIntoSentences(blockText)
-          sentences.push(...blockSentences)
-          processedElements.add(block)
-        }
-      }
-    })
-  } else {
-    // Fallback: split the entire text
-    const allSentences = splitIntoSentences(fullText.trim())
-    sentences.push(...allSentences)
+    const parent = textNode.parentNode
+    if (!parent) return false
+
+    // Create the wrapped span
+    const span = doc.createElement('span')
+    span.id = segmentId
+    span.className = 'segment'
+    span.setAttribute('data-segment-index', String(segmentIndex))
+    span.textContent = match
+
+    // Replace the text node with the new structure
+    if (before) {
+      parent.insertBefore(doc.createTextNode(before), textNode)
+    }
+    parent.insertBefore(span, textNode)
+    if (after) {
+      parent.insertBefore(doc.createTextNode(after), textNode)
+    }
+    parent.removeChild(textNode)
+
+    return true
   }
 
-  // Create segments from sentences
-  let segmentIndex = 0
-  sentences.forEach((sentence) => {
-    if (sentence && sentence.length > 0) {
-      segments.push({
-        index: segmentIndex,
-        text: sentence,
-        id: `seg-${segmentIndex}`,
-      })
-      segmentIndex++
+  // Process block elements and wrap sentences directly in the DOM
+  // Only select leaf block elements (not containers like section/article/div)
+  let blockElements = Array.from(
+    doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, code')
+  )
+
+  // Fallback: if no block elements found, treat body's direct children or body itself as blocks
+  // This handles plain text or content wrapped in non-semantic divs
+  if (blockElements.length === 0) {
+    // Check for divs or spans that contain text
+    const divElements = doc.body.querySelectorAll('div, span')
+    if (divElements.length > 0) {
+      blockElements = Array.from(divElements)
+    } else {
+      // Last resort: treat body itself as the block
+      blockElements = [doc.body]
     }
+  }
+
+  let segmentIndex = 0
+  const processedElements = new Set<Element>()
+
+  // Process each block element
+  blockElements.forEach((block) => {
+    // Skip if this element is nested inside another block we've already processed
+    let parent = block.parentElement
+    let skip = false
+    while (parent && parent !== doc.body) {
+      if (processedElements.has(parent)) {
+        skip = true
+        break
+      }
+      parent = parent.parentElement
+    }
+
+    if (skip) return
+
+    const blockText = (block.textContent || '').trim()
+    if (!blockText) return
+
+    // Get sentences for this block
+    const blockSentences = splitIntoSentences(blockText)
+
+    // For each sentence, find and wrap it in the DOM
+    for (const sentence of blockSentences) {
+      const segmentId = `seg-${segmentIndex}`
+
+      // Try to find and wrap this sentence in the block's text nodes
+      const walker = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT, null)
+      let textNode: Text | null
+      let wrapped = false
+
+      // First, try exact match in a single text node
+      while ((textNode = walker.nextNode() as Text | null)) {
+        if (wrapTextInNode(textNode, sentence, segmentId, segmentIndex)) {
+          wrapped = true
+          break
+        }
+      }
+
+      // If exact match failed, try normalized matching
+      if (!wrapped) {
+        const normalizedSentence = sentence.replace(/\s+/g, ' ').trim()
+        const walker2 = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT, null)
+        while ((textNode = walker2.nextNode() as Text | null)) {
+          const normalizedNodeText = (textNode.textContent || '').replace(/\s+/g, ' ')
+          const idx = normalizedNodeText.indexOf(normalizedSentence)
+          if (idx !== -1) {
+            // Find the actual text to wrap (may have different whitespace)
+            const nodeText = textNode.textContent || ''
+            // Try to find a match that, when normalized, matches the sentence
+            for (let start = 0; start <= nodeText.length - sentence.length; start++) {
+              for (let end = start + 1; end <= nodeText.length; end++) {
+                const substr = nodeText.slice(start, end)
+                if (substr.replace(/\s+/g, ' ').trim() === normalizedSentence) {
+                  if (wrapTextInNode(textNode, substr, segmentId, segmentIndex)) {
+                    wrapped = true
+                    break
+                  }
+                }
+              }
+              if (wrapped) break
+            }
+            if (wrapped) break
+          }
+        }
+      }
+
+      // Only create a segment if we successfully wrapped it
+      if (wrapped) {
+        segments.push({
+          index: segmentIndex,
+          text: sentence,
+          id: segmentId,
+        })
+        segmentIndex++
+      } else {
+        // Log warning but still create segment for audio generation
+        // The text will be spoken but not highlighted
+        logger.warn(`[segmentHtml] Could not wrap segment in DOM: "${sentence.slice(0, 50)}..."`)
+        segments.push({
+          index: segmentIndex,
+          text: sentence,
+          id: segmentId,
+        })
+        segmentIndex++
+      }
+    }
+
+    processedElements.add(block)
   })
 
-  logger.info('[segmentHtml] Segmentation complete', {
+  // Get the modified HTML with wrapped segments
+  const wrappedHtml = doc.body.innerHTML
+
+  logger.info('[segmentHtml] Segmentation complete with pre-wrapped segments', {
     totalSegments: segments.length,
     firstSegmentText: segments[0]?.text.substring(0, 100),
-    totalTextLength: fullText.length,
+    wrappedHtmlLength: wrappedHtml.length,
   })
 
-  // Return original HTML without wrapping
-  // The TextReader component will inject segment spans dynamically
-  return { html: htmlContent, segments }
+  return { html: wrappedHtml, segments }
 }
 
 class GenerationService {

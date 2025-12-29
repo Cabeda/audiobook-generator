@@ -43,7 +43,9 @@ describe('Segmentation Consistency', () => {
 
     // Verify we got segments
     expect(genServiceSegments.length).toBeGreaterThan(0)
-    expect(genServiceSegments.length).toBe(65) // eSIM article has 65 segments
+    // eSIM article has 68 segments after fixing container element handling
+    // to ensure headings and paragraphs are always separate segments
+    expect(genServiceSegments.length).toBe(68)
 
     // Verify key segments are present and correct
     const segmentTexts = genServiceSegments.map((s) => s.text)

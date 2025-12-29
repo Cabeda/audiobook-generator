@@ -205,8 +205,10 @@ class AudioPlaybackService {
       const doc = parser.parseFromString(html, 'text/html')
 
       // Process block elements to respect paragraph boundaries (same as generationService)
+      // IMPORTANT: Only select leaf block elements (not containers like section/article/div)
+      // This ensures headings and paragraphs are always separate segments
       const blockElements = doc.body.querySelectorAll(
-        'p, h1, h2, h3, h4, h5, h6, li, div, blockquote, article, section, pre, code'
+        'p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, code'
       )
       const sentences: string[] = []
 

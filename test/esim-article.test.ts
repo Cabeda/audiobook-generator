@@ -72,7 +72,9 @@ describe('eSIM Article EPUB', () => {
 
     // HTML should NOT contain wrapped segments (wrapping happens in TextReader component)
     // The segmentation just creates the segment list
-    expect(segments.length).toBe(65)
+    // Note: segment count increased from 65 to 68 after fixing container element handling
+    // to ensure headings and paragraphs are always separate segments
+    expect(segments.length).toBe(68)
 
     console.log('\nSegmentation complete - wrapping will happen in TextReader component')
   })
