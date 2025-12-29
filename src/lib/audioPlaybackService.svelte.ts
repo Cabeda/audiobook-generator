@@ -3,6 +3,7 @@ import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import type { Chapter } from './types/book'
 import { getChapterSegments, getChapterAudio } from './libraryDB'
+import { segmentHtmlContent } from './services/generationService'
 import type { AudioSegment } from './types/audio'
 
 interface TextSegment {
@@ -200,95 +201,9 @@ class AudioPlaybackService {
   }
 
   private splitIntoSegments(html: string): TextSegment[] {
-    try {
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(html, 'text/html')
-
-      // Process block elements to respect paragraph boundaries (same as generationService)
-      // IMPORTANT: Only select leaf block elements (not containers like section/article/div)
-      // This ensures headings and paragraphs are always separate segments
-      const blockElements = doc.body.querySelectorAll(
-        'p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, code'
-      )
-      const sentences: string[] = []
-
-      // Helper function to split text into sentences (same as generationService)
-      const splitIntoSentences = (text: string): string[] => {
-        const parts: string[] = []
-        // Pattern: sentence ending punctuation followed by space(s) and capital letter (or end)
-        const sentenceEndRegex = /([.!?]+)(\s+)(?=[A-Z]|$)/g
-
-        let lastIndex = 0
-        let match
-
-        sentenceEndRegex.lastIndex = 0
-
-        while ((match = sentenceEndRegex.exec(text)) !== null) {
-          const sentence = text.slice(lastIndex, match.index + match[1].length).trim()
-          if (sentence) {
-            parts.push(sentence)
-          }
-          lastIndex = match.index + match[1].length + match[2].length
-        }
-
-        // Add any remaining text
-        if (lastIndex < text.length) {
-          const sentence = text.slice(lastIndex).trim()
-          if (sentence) {
-            parts.push(sentence)
-          }
-        }
-
-        // If no splits were made, return the whole text as one sentence
-        if (parts.length === 0 && text.trim()) {
-          return [text.trim()]
-        }
-
-        return parts
-      }
-
-      if (blockElements.length > 0) {
-        // Process each block element separately to maintain structure
-        const processedElements = new Set<Element>()
-
-        blockElements.forEach((block) => {
-          // Skip if this element is nested inside another block we've already processed
-          let parent = block.parentElement
-          let skip = false
-          while (parent && parent !== doc.body) {
-            if (processedElements.has(parent)) {
-              skip = true
-              break
-            }
-            parent = parent.parentElement
-          }
-
-          if (!skip) {
-            const blockText = (block.textContent || '').trim()
-            if (blockText) {
-              const blockSentences = splitIntoSentences(blockText)
-              sentences.push(...blockSentences)
-              processedElements.add(block)
-            }
-          }
-        })
-      } else {
-        // Fallback: split the entire text
-        const fullText = (doc.body.textContent || '').trim()
-        const allSentences = splitIntoSentences(fullText)
-        sentences.push(...allSentences)
-      }
-
-      return sentences.filter((s) => s.length > 0).map((text, index) => ({ index, text }))
-    } catch (err) {
-      logger.warn('Failed to segment HTML for fallback playback', err)
-      // Minimal fallback - just split by sentence-ending punctuation
-      const sentences = html.split(/(?<=[.!?])\s+/)
-      return sentences
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-        .map((text, index) => ({ index, text }))
-    }
+    // Use the same segmentation as highlighting for perfect sync
+    const { segments } = segmentHtmlContent('audio-playback', html)
+    return segments.map((s: { index: number; text: string }) => ({ index: s.index, text: s.text }))
   }
 
   private async getDurationFromUrl(url: string): Promise<number> {
