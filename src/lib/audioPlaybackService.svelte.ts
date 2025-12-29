@@ -3,6 +3,7 @@ import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import type { Chapter } from './types/book'
 import { getChapterSegments, getChapterAudio } from './libraryDB'
+import { segmentHtmlContent } from './services/generationService'
 import type { AudioSegment } from './types/audio'
 
 interface TextSegment {
@@ -200,25 +201,9 @@ class AudioPlaybackService {
   }
 
   private splitIntoSegments(html: string): TextSegment[] {
-    try {
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(html, 'text/html')
-      const fullText = (doc.body.textContent || '').replace(/\r\n/g, '\n')
-      // Split by sentence endings (.!?) or newlines to ensure parsing respects block elements
-      const sentences = fullText.match(/[^.!?\n]+[.!?]+(\s+|$)|[^.!?\n]+(\n+|$)/g) || [fullText]
-
-      return sentences
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-        .map((text, index) => ({ index, text }))
-    } catch (err) {
-      logger.warn('Failed to segment HTML for fallback playback', err)
-      const sentences = html.split(/(?<=[.!?])\s+/)
-      return sentences
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-        .map((text, index) => ({ index, text }))
-    }
+    // Use the same segmentation as highlighting for perfect sync
+    const { segments } = segmentHtmlContent('audio-playback', html)
+    return segments.map((s: { index: number; text: string }) => ({ index: s.index, text: s.text }))
   }
 
   private async getDurationFromUrl(url: string): Promise<number> {
@@ -960,6 +945,13 @@ class AudioPlaybackService {
       // Extract error details for better debugging
       const errorMessage = err instanceof Error ? err.message : String(err)
       const errorName = err instanceof Error ? err.name : 'Unknown'
+
+      // AbortError is expected when rapid skipping/clicking causes the previous play() promise to reject
+      if (errorName === 'AbortError') {
+        logger.debug('Playback aborted by user action (harmless)')
+        return
+      }
+
       logger.error('Failed to play single segment:', {
         name: errorName,
         message: errorMessage,

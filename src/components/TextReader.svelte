@@ -57,7 +57,8 @@
   // State for initialization
   let loadError = $state(false)
   let isLoading = $state(true)
-  let audioAvailable = $state(true)
+  let segmentsLoaded = $state(false) // Track if segments have been initialized to avoid re-computation
+  let wrappedContent = $state<string | null>(null) // Pre-wrapped HTML with segment spans
 
   // Progressive playback support
   let chapterSegmentProgress = $derived($segmentProgress.get(chapter?.id ?? ''))
@@ -65,6 +66,9 @@
   let hasPartialAudio = $derived(
     chapterSegmentProgress && chapterSegmentProgress.generatedIndices.size > 0
   )
+
+  let hasStaticAudio = $state(false)
+  let audioAvailable = $derived(hasStaticAudio || hasPartialAudio)
 
   // Initialize by loading pre-generated data from DB
   $effect(() => {
@@ -78,7 +82,10 @@
         return !(store.bookId === bId && store.chapterId === cId)
       })
 
-      if (needsLoad) {
+      // On hard refresh the store may think the chapter is loaded while the service is empty.
+      const shouldInitialize = needsLoad || audioService.segments.length === 0
+
+      if (shouldInitialize) {
         isLoading = true
         loadError = false
 
@@ -89,6 +96,7 @@
             quantization,
             device,
             selectedModel,
+            playbackSpeed: initialSpeed,
           })
           .then((result) => {
             if (result.success) {
@@ -97,7 +105,26 @@
               const progressiveAudio = progressStore && progressStore.generatedIndices.size > 0
 
               // Audio is available if we have merged audio, segments, web speech, or progressive audio
-              audioAvailable = result.hasAudio || !!progressiveAudio
+              hasStaticAudio = result.hasAudio
+              // Audio availability is now derived: audioAvailable = hasStaticAudio || hasPartialAudio
+
+              // Always compute wrapped content so highlights match audio on first load
+              if (chapter?.content) {
+                const { html: segmentedHtml, segments: computedSegments } = segmentHtmlContent(
+                  cId,
+                  chapter.content
+                )
+
+                // If we have no segments yet, initialize from computed segments
+                if (audioService.segments.length === 0 && computedSegments.length > 0) {
+                  audioService.segments = computedSegments.map((s) => ({
+                    index: s.index,
+                    text: s.text,
+                  }))
+                }
+
+                wrappedContent = segmentedHtml
+              }
 
               // Populate audioService.segments from progressive store if not already set
               if (
@@ -116,6 +143,7 @@
 
               // Mark loading complete AFTER segments are populated
               isLoading = false
+              segmentsLoaded = true
 
               const store = get(audioPlayerStore)
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
@@ -132,7 +160,8 @@
 
               if (progressiveAudio && progressStore) {
                 // Don't show error, we have partial audio available
-                audioAvailable = true
+                hasStaticAudio = false
+                // audioAvailable will be true because of hasPartialAudio
                 // Populate audioService.segments from progressive store so injection works
                 if (progressStore.segmentTexts.size > 0 && audioService.segments.length === 0) {
                   const segs: Array<{ index: number; text: string }> = []
@@ -142,8 +171,26 @@
                   segs.sort((a, b) => a.index - b.index)
                   audioService.segments = segs
                 }
+
+                // Compute wrapped content even when audio is missing so highlights render on first load
+                if (chapter?.content) {
+                  const { html: segmentedHtml, segments: computedSegments } = segmentHtmlContent(
+                    cId,
+                    chapter.content
+                  )
+
+                  if (audioService.segments.length === 0 && computedSegments.length > 0) {
+                    audioService.segments = computedSegments.map((s) => ({
+                      index: s.index,
+                      text: s.text,
+                    }))
+                  }
+
+                  wrappedContent = segmentedHtml
+                }
                 // Mark loading complete AFTER segments are populated
                 isLoading = false
+                segmentsLoaded = true
               } else {
                 isLoading = false
                 loadError = true
@@ -157,6 +204,24 @@
             console.error('Failed to load chapter:', err)
           })
       } else {
+        // Ensure highlights are available on first paint even if we skipped loading
+        if (!segmentsLoaded && chapter?.content) {
+          const { html: segmentedHtml, segments: computedSegments } = segmentHtmlContent(
+            cId,
+            chapter.content
+          )
+
+          if (audioService.segments.length === 0 && computedSegments.length > 0) {
+            audioService.segments = computedSegments.map((s) => ({
+              index: s.index,
+              text: s.text,
+            }))
+          }
+
+          wrappedContent = segmentedHtml
+          segmentsLoaded = true
+        }
+
         isLoading = false
         const store = get(audioPlayerStore)
         const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
@@ -347,24 +412,40 @@
     }
   })
 
+  // Reset segments loaded flag when chapter changes
+  $effect(() => {
+    if (chapter?.id) {
+      segmentsLoaded = false // Reset when chapter changes so we re-initialize segments
+      wrappedContent = null // Reset wrapped content
+    }
+  })
+
   // Inject segment wrappers so the active sentence can be highlighted
   // This now works even without audio - segments are computed on-the-fly for preview
   $effect(() => {
-    const ready = !isLoading && !loadError
+    // Proceed if loaded without error, OR if we have audio available (partial), OR if generating
+    const ready = !isLoading && (!loadError || audioAvailable || isGenerating)
     const chapterId = chapter?.id
     if (!ready || !chapterId) return
 
-    // If we don't have segments yet, compute them from the content for preview highlighting
-    if (audioService.segments.length === 0 && chapter?.content) {
-      const { segments: computedSegments } = segmentHtmlContent(chapterId, chapter.content)
+    // Only compute segments once per chapter to avoid inconsistent highlighting
+    if (!segmentsLoaded && audioService.segments.length === 0 && chapter?.content) {
+      // segmentHtmlContent now returns pre-wrapped HTML with segment spans
+      const { html: segmentedHtml, segments: computedSegments } = segmentHtmlContent(
+        chapterId,
+        chapter.content
+      )
       if (computedSegments.length > 0) {
         audioService.segments = computedSegments.map((s) => ({ index: s.index, text: s.text }))
+        wrappedContent = segmentedHtml // Store the pre-wrapped HTML
+        segmentsLoaded = true
       }
     }
 
-    // Now inject the segments into the DOM
-    if (audioService.segments.length > 0) {
-      injectSegmentsIntoContent()
+    // Segments are now pre-wrapped in the HTML, just ensure they have the segment class
+    if (audioService.segments.length > 0 && textContentEl) {
+      const existingSegments = textContentEl.querySelectorAll('span[id^="seg-"]')
+      existingSegments.forEach((el) => el.classList.add('segment'))
 
       if (audioService.currentSegmentIndex >= 0) {
         updateActiveSegment(audioService.currentSegmentIndex)
@@ -648,20 +729,20 @@
           <div class="spinner"></div>
           <p>Loading chapter audio...</p>
         </div>
-      {:else if loadError}
+      {:else if loadError && !audioAvailable && !isGenerating}
         <div class="error-message">
           <p>⚠️ Audio not available</p>
           <p>Generate audio for this chapter first.</p>
           <button class="back-link" onclick={handleClose}>← Back to book</button>
         </div>
       {:else}
-        <!-- We render the full HTML content with segments. Active segment highlighting is managed by the updateActiveSegment function. -->
-        {@html chapter.content}
+        <!-- We render the pre-wrapped HTML content with segment spans. Active segment highlighting is managed by the updateActiveSegment function. -->
+        {@html wrappedContent || chapter.content}
       {/if}
     </div>
 
     <!-- Audio Player Bar -->
-    {#if !loadError && audioAvailable}
+    {#if audioAvailable}
       <AudioPlayerBar
         mode="reader"
         {showSettings}
