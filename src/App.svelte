@@ -8,7 +8,6 @@
   import TextReader from './components/TextReader.svelte'
   import Toast from './components/Toast.svelte'
   import ReloadPrompt from './components/ReloadPrompt.svelte'
-  import PersistentPlayer from './components/PersistentPlayer.svelte'
 
   // APIs & Logic
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroClient'
@@ -274,13 +273,6 @@
       />
     </div>
   {/if}
-
-  <!-- Persistent Player (always present if audio is playing) -->
-  <PersistentPlayer
-    onMaximize={() => {
-      currentView = 'reader'
-    }}
-  />
 </main>
 
 <style>

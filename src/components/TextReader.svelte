@@ -741,14 +741,12 @@
       {/if}
     </div>
 
-    <!-- Audio Player Bar -->
-    {#if audioAvailable}
-      <AudioPlayerBar
-        mode="reader"
-        {showSettings}
-        onSettings={() => (showSettings = !showSettings)}
-      />
-    {/if}
+    <!-- Audio Player Bar (always visible) -->
+    <AudioPlayerBar
+      mode="reader"
+      {showSettings}
+      onSettings={() => (showSettings = !showSettings)}
+    />
 
     <!-- Settings Menu -->
     {#if showSettings}

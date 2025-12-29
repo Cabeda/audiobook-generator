@@ -391,18 +391,6 @@ test.describe('Audiobook Generation E2E', () => {
     // Click back to book
     const backButton = page.locator('.reader-header .back-button')
     await backButton.click()
-
-    // The persistent player should still be visible and playing
-    const persistentPlayer = page.locator('.persistent-player')
-    await expect(persistentPlayer).toBeVisible({ timeout: 10000 })
-    const persistControl = persistentPlayer.locator('.control-btn.play-pause')
-    await expect(persistControl).toHaveAttribute('aria-label', 'Pause')
-
-    // Pause then resume via persistent player to confirm it toggles (not restart)
-    await persistControl.click()
-    await expect(persistControl).toHaveAttribute('aria-label', 'Play')
-    await persistControl.click()
-    await expect(persistControl).toHaveAttribute('aria-label', 'Pause')
   })
 
   test('should show chapter duration (>= segment duration) in persistent player', async ({
