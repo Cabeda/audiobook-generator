@@ -262,6 +262,49 @@
   function handleRead(chapter: Chapter) {
     dispatch('read', { chapter })
   }
+
+  async function handleDownload(chapterId: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') {
+    const audioData = audioMap.get(chapterId)
+    const chapter = $book?.chapters.find((c) => c.id === chapterId)
+
+    if (!audioData || !chapter) {
+      toastStore.error('No audio data available for this chapter')
+      return
+    }
+
+    try {
+      toastStore.info(`Preparing ${format.toUpperCase()} download...`)
+
+      let downloadBlob = audioData.blob
+
+      // Convert if needed
+      if (format !== 'wav') {
+        const { concatenateAudioChapters } = await import('../lib/audioConcat')
+        const converted = await concatenateAudioChapters(
+          [{ id: chapter.id, title: chapter.title, blob: audioData.blob }],
+          { format, bitrate: selectedBitrate },
+          (progress) => {
+            if (progress.message) {
+              toastStore.info(progress.message)
+            }
+          }
+        )
+        downloadBlob = converted
+      }
+
+      const { downloadAudioFile } = await import('../lib/audioConcat')
+      const ext =
+        format === 'm4b' ? 'm4b' : format === 'mp4' ? 'mp4' : format === 'mp3' ? 'mp3' : 'wav'
+      const safeTitle = chapter.title.replace(/[^a-z0-9]/gi, '_')
+      downloadAudioFile(downloadBlob, `${safeTitle}.${ext}`)
+
+      toastStore.success(`Downloaded ${chapter.title} as ${format.toUpperCase()}`)
+    } catch (error) {
+      toastStore.error(
+        `Download failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
+    }
+  }
 </script>
 
 <div class="book-view" in:fade>
@@ -488,8 +531,7 @@
             onToggle={toggleChapter}
             onRead={handleRead}
             onRetry={handleRetry}
-            onDownloadWav={() => {}}
-            onDownloadMp3={() => {}}
+            onDownload={handleDownload}
             onModelChange={handleModelChange}
             onVoiceChange={handleVoiceChange}
             onLanguageChange={handleLanguageChange}

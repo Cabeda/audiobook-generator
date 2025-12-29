@@ -84,6 +84,10 @@
   function openReader(ch: Chapter) {
     dispatch('readchapter', { chapter: ch })
   }
+
+  function handleDownload(id: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') {
+    dispatch('download', { id, format })
+  }
 </script>
 
 <div>
@@ -124,8 +128,7 @@
         error={chapterErrors?.get(ch.id)}
         onToggle={toggleChapter}
         onRead={openReader}
-        onDownloadWav={(id) => dispatch('downloadwav', { id })}
-        onDownloadMp3={(id) => dispatch('downloadmp3', { id })}
+        onDownload={handleDownload}
         onRetry={(id) => dispatch('retry', { id })}
       />
     {/each}
