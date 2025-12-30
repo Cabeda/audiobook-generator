@@ -34,8 +34,23 @@ describe('voiceSelector', () => {
       expect(voice).toBe('bf_emma') // Should default to British voice
     })
 
-    it('should fallback to default for unsupported language', () => {
+    it('should select Spanish voice for "es" language', () => {
       const voice = selectKokoroVoiceForLanguage('es')
+      expect(voice).toBe('ef_dora')
+    })
+
+    it('should select Portuguese voice for "pt" language', () => {
+      const voice = selectKokoroVoiceForLanguage('pt')
+      expect(voice).toBe('pf_dora')
+    })
+
+    it('should select Portuguese voice for "pt-BR" language', () => {
+      const voice = selectKokoroVoiceForLanguage('pt-BR')
+      expect(voice).toBe('pf_dora')
+    })
+
+    it('should fallback to English for unsupported language', () => {
+      const voice = selectKokoroVoiceForLanguage('ko')
       expect(voice).toBe('af_heart')
     })
 
@@ -129,8 +144,34 @@ describe('voiceSelector', () => {
       expect(voices).not.toContain('af_heart')
     })
 
-    it('should fallback to all English voices for unsupported language', () => {
+    it('should return Spanish voices for "es" language', () => {
       const voices = getKokoroVoicesForLanguage('es')
+      expect(voices.length).toBe(3)
+      expect(voices).toContain('ef_dora')
+    })
+
+    it('should return Portuguese voices for "pt" language', () => {
+      const voices = getKokoroVoicesForLanguage('pt')
+      expect(voices.length).toBe(3)
+      expect(voices).toContain('pf_dora')
+      expect(voices).toContain('pm_alex')
+      expect(voices).toContain('pm_santa')
+    })
+
+    it('should return French voices for "fr" language', () => {
+      const voices = getKokoroVoicesForLanguage('fr')
+      expect(voices.length).toBe(1)
+      expect(voices).toContain('ff_siwis')
+    })
+
+    it('should return Japanese voices for "ja" language', () => {
+      const voices = getKokoroVoicesForLanguage('ja')
+      expect(voices.length).toBe(6)
+      expect(voices).toContain('jf_alpha')
+    })
+
+    it('should fallback to English voices for unsupported language', () => {
+      const voices = getKokoroVoicesForLanguage('ko')
       expect(voices.length).toBeGreaterThan(0)
       expect(voices).toContain('af_heart')
     })

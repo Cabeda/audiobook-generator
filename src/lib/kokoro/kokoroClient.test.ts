@@ -45,6 +45,7 @@ describe('kokoroClient', () => {
 
       // Verify all returned voices are valid VoiceId types
       const validVoices: VoiceId[] = [
+        // American English
         'af_heart',
         'af_alloy',
         'af_aoede',
@@ -64,14 +65,49 @@ describe('kokoroClient', () => {
         'am_onyx',
         'am_puck',
         'am_santa',
+        // British English
         'bf_emma',
         'bf_isabella',
-        'bm_george',
-        'bm_lewis',
         'bf_alice',
         'bf_lily',
+        'bm_george',
+        'bm_lewis',
         'bm_daniel',
         'bm_fable',
+        // Japanese
+        'jf_alpha',
+        'jf_gongitsune',
+        'jf_nezumi',
+        'jf_tebukuro',
+        'jm_kumo',
+        'jm_beta',
+        // Chinese (Mandarin)
+        'zf_xiaobei',
+        'zf_xiaoni',
+        'zf_xiaoxiao',
+        'zf_xiaoyi',
+        'zm_yunjian',
+        'zm_yunxi',
+        'zm_yunxia',
+        'zm_yunyang',
+        // Spanish
+        'ef_dora',
+        'em_alex',
+        'em_santa',
+        // French
+        'ff_siwis',
+        // Hindi
+        'hf_alpha',
+        'hf_beta',
+        'hm_omega',
+        'hm_psi',
+        // Italian
+        'if_sara',
+        'im_nicola',
+        // Brazilian Portuguese
+        'pf_dora',
+        'pm_alex',
+        'pm_santa',
       ]
 
       voices.forEach((voice: VoiceId) => {

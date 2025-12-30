@@ -3,7 +3,9 @@ import type { PiperVoice } from '../piper/piperClient'
 
 /**
  * Language to Kokoro voice mapping
- * Kokoro voices use prefixes: af_ = American Female, am_ = American Male, bf_ = British Female, bm_ = British Male
+ * Kokoro voices use prefixes:
+ * a=American, b=British, j=Japanese, z=Chinese, e=Spanish, f=French, h=Hindi, i=Italian, p=Portuguese-BR
+ * f/m after lang code = female/male
  */
 const KOKORO_LANGUAGE_MAP: Record<string, VoiceId[]> = {
   en: [
@@ -68,6 +70,40 @@ const KOKORO_LANGUAGE_MAP: Record<string, VoiceId[]> = {
     'bm_daniel',
     'bm_fable',
   ],
+  // Japanese
+  ja: ['jf_alpha', 'jf_gongitsune', 'jf_nezumi', 'jf_tebukuro', 'jm_kumo', 'jm_beta'],
+  // Chinese (Mandarin)
+  zh: [
+    'zf_xiaobei',
+    'zf_xiaoni',
+    'zf_xiaoxiao',
+    'zf_xiaoyi',
+    'zm_yunjian',
+    'zm_yunxi',
+    'zm_yunxia',
+    'zm_yunyang',
+  ],
+  'zh-cn': [
+    'zf_xiaobei',
+    'zf_xiaoni',
+    'zf_xiaoxiao',
+    'zf_xiaoyi',
+    'zm_yunjian',
+    'zm_yunxi',
+    'zm_yunxia',
+    'zm_yunyang',
+  ],
+  // Spanish
+  es: ['ef_dora', 'em_alex', 'em_santa'],
+  // French
+  fr: ['ff_siwis'],
+  // Hindi
+  hi: ['hf_alpha', 'hf_beta', 'hm_omega', 'hm_psi'],
+  // Italian
+  it: ['if_sara', 'im_nicola'],
+  // Brazilian Portuguese
+  pt: ['pf_dora', 'pm_alex', 'pm_santa'],
+  'pt-br': ['pf_dora', 'pm_alex', 'pm_santa'],
 }
 
 /**
@@ -231,7 +267,7 @@ export function getKokoroVoicesForLanguage(language: string): VoiceId[] {
     return KOKORO_LANGUAGE_MAP[baseLang]
   }
 
-  // Kokoro only supports English variants (American and British), so return all English voices as fallback
+  // Fallback to English voices for unsupported languages
   return KOKORO_LANGUAGE_MAP['en']
 }
 

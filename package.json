@@ -61,6 +61,7 @@
     "@diffusionstudio/vits-web": "^1.0.3",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "@huggingface/transformers": "^3.8.1",
     "@mozilla/readability": "^0.6.0",
     "epubjs": "^0.3.93",
     "franc-min": "^6.2.0",

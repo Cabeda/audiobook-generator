@@ -1,4 +1,5 @@
 import { KokoroTTS } from 'kokoro-js'
+import { PatchedKokoroTTS, isEnglishVoice } from './kokoroPatch'
 import logger from '../utils/logger'
 import { retryWithBackoff, isRetryableError } from '../retryUtils'
 import { ModelLoadError, AudioGenerationError } from '../errors'
@@ -6,7 +7,10 @@ import { MIN_TEXT_LENGTH } from '../audioConstants'
 import { createSilentWav } from '../audioConcat'
 
 // Valid Kokoro voice IDs based on the official kokoro-js library
+// Voice naming: [lang][gender]_[name]
+// Languages: a=American, b=British, j=Japanese, z=Chinese, e=Spanish, f=French, h=Hindi, i=Italian, p=Portuguese-BR
 export type VoiceId =
+  // American English voices
   | 'af_heart'
   | 'af_alloy'
   | 'af_aoede'
@@ -26,14 +30,49 @@ export type VoiceId =
   | 'am_onyx'
   | 'am_puck'
   | 'am_santa'
+  // British English voices
   | 'bf_emma'
   | 'bf_isabella'
-  | 'bm_george'
-  | 'bm_lewis'
   | 'bf_alice'
   | 'bf_lily'
+  | 'bm_george'
+  | 'bm_lewis'
   | 'bm_daniel'
   | 'bm_fable'
+  // Japanese voices
+  | 'jf_alpha'
+  | 'jf_gongitsune'
+  | 'jf_nezumi'
+  | 'jf_tebukuro'
+  | 'jm_kumo'
+  | 'jm_beta'
+  // Chinese (Mandarin) voices
+  | 'zf_xiaobei'
+  | 'zf_xiaoni'
+  | 'zf_xiaoxiao'
+  | 'zf_xiaoyi'
+  | 'zm_yunjian'
+  | 'zm_yunxi'
+  | 'zm_yunxia'
+  | 'zm_yunyang'
+  // Spanish voices
+  | 'ef_dora'
+  | 'em_alex'
+  | 'em_santa'
+  // French voices
+  | 'ff_siwis'
+  // Hindi voices
+  | 'hf_alpha'
+  | 'hf_beta'
+  | 'hm_omega'
+  | 'hm_psi'
+  // Italian voices
+  | 'if_sara'
+  | 'im_nicola'
+  // Brazilian Portuguese voices
+  | 'pf_dora'
+  | 'pm_alex'
+  | 'pm_santa'
 
 export type DeviceType = 'wasm' | 'webgpu' | 'cpu' | 'auto'
 
@@ -95,8 +134,9 @@ function isThenable(obj: unknown): obj is PromiseLike<unknown> {
   }
 }
 
-// Singleton instance for model caching
+// Singleton instances for model caching
 let ttsInstance: KokoroTTS | null = null
+let patchedTtsInstance: PatchedKokoroTTS | null = null
 
 /**
  * Initialize or retrieve the cached Kokoro TTS instance
@@ -241,6 +281,36 @@ async function getKokoroInstance(
 }
 
 /**
+ * Get patched Kokoro instance for multilingual voice support
+ * This wrapper bypasses the voice validation in kokoro-js to allow non-English voices
+ */
+async function getPatchedKokoroInstance(
+  modelId: string = 'onnx-community/Kokoro-82M-v1.0-ONNX',
+  dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8',
+  device: 'wasm' | 'webgpu' | 'cpu' = 'wasm',
+  onProgress?: (status: string) => void
+): Promise<PatchedKokoroTTS> {
+  const isTestEnv =
+    (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
+    (globalThis as unknown as { __vitest__?: boolean }).__vitest__ === true
+
+  if (!patchedTtsInstance || isTestEnv) {
+    logger.info(
+      '[KokoroClient]',
+      `Initializing patched instance for multilingual support. Model: ${modelId}`
+    )
+    if (onProgress) onProgress('Loading model for multilingual...')
+
+    // Get or create the base TTS instance
+    const baseTts = await getKokoroInstance(modelId, dtype, device, onProgress)
+    patchedTtsInstance = new PatchedKokoroTTS(baseTts)
+
+    logger.info('[KokoroClient]', 'Patched Kokoro TTS instance created for multilingual support')
+  }
+  return patchedTtsInstance
+}
+
+/**
  * Split text into chunks at sentence boundaries
  * Kokoro TTS works best with smaller text chunks (recommended: ~500-1000 chars)
  */
@@ -366,6 +436,20 @@ export async function generateVoiceSegments(
     } else {
       actualDevice = device as 'wasm' | 'webgpu' | 'cpu'
       logger.info('[Kokoro]', `Using specified device: ${actualDevice}`)
+    }
+    // Use patched instance for non-English voices
+    const voiceStr = voice as string
+    const usePatched = !isEnglishVoice(voiceStr)
+
+    if (usePatched) {
+      logger.info('[Kokoro]', `Using patched client for multilingual voice: ${voice}`)
+      const patchedTts = await getPatchedKokoroInstance(model, dtype, actualDevice, onProgress)
+      if (onProgress) onProgress('Generating speech (multilingual)...')
+
+      // Use patched generate method for non-English
+      const audio = await patchedTts.generate(text, { voice: voiceStr, speed })
+      const blob = audio.toBlob()
+      return [{ text, blob }]
     }
 
     const tts = await getKokoroInstance(model, dtype, actualDevice, onProgress)
@@ -625,6 +709,7 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
 export function listVoices(): VoiceId[] {
   // Return the known voices from kokoro-js
   const voices: VoiceId[] = [
+    // American English
     'af_heart',
     'af_alloy',
     'af_aoede',
@@ -644,14 +729,49 @@ export function listVoices(): VoiceId[] {
     'am_onyx',
     'am_puck',
     'am_santa',
+    // British English
     'bf_emma',
     'bf_isabella',
-    'bm_george',
-    'bm_lewis',
     'bf_alice',
     'bf_lily',
+    'bm_george',
+    'bm_lewis',
     'bm_daniel',
     'bm_fable',
+    // Japanese
+    'jf_alpha',
+    'jf_gongitsune',
+    'jf_nezumi',
+    'jf_tebukuro',
+    'jm_kumo',
+    'jm_beta',
+    // Chinese (Mandarin)
+    'zf_xiaobei',
+    'zf_xiaoni',
+    'zf_xiaoxiao',
+    'zf_xiaoyi',
+    'zm_yunjian',
+    'zm_yunxi',
+    'zm_yunxia',
+    'zm_yunyang',
+    // Spanish
+    'ef_dora',
+    'em_alex',
+    'em_santa',
+    // French
+    'ff_siwis',
+    // Hindi
+    'hf_alpha',
+    'hf_beta',
+    'hm_omega',
+    'hm_psi',
+    // Italian
+    'if_sara',
+    'im_nicola',
+    // Brazilian Portuguese
+    'pf_dora',
+    'pm_alex',
+    'pm_santa',
   ]
   return voices
 }
