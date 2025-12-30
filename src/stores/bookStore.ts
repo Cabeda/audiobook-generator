@@ -12,6 +12,9 @@ export const selectedChapters = writable(new Map<string, boolean>())
 // Generated audio state (Map of chapter id -> {url, blob})
 export const generatedAudio = writable(new Map<string, { url: string; blob: Blob }>())
 
+// Global generation state
+export const isGenerating = writable(false)
+
 // Chapter status tracking
 export type ChapterStatus = 'pending' | 'processing' | 'done' | 'error'
 export const chapterStatus = writable(new Map<string, ChapterStatus>())

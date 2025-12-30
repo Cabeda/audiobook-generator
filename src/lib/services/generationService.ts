@@ -14,6 +14,7 @@ import {
   generatedAudio,
   chapterProgress,
   book,
+  isGenerating,
 } from '../../stores/bookStore'
 import { advancedSettings } from '../../stores/ttsStore'
 import { listVoices as listKokoroVoices } from '../kokoro/kokoroClient'
@@ -706,6 +707,7 @@ class GenerationService {
 
     this.running = true
     this.canceled = false // Reset canceled state
+    isGenerating.set(true)
 
     getTTSWorker()
     const totalChapters = chapters.length
@@ -1228,6 +1230,7 @@ class GenerationService {
       }
     } finally {
       this.running = false
+      isGenerating.set(false)
     }
   }
 

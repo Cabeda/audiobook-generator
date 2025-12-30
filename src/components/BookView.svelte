@@ -10,6 +10,7 @@
     chapterProgress,
     generatedAudio,
     selectedChapterIds,
+    isGenerating,
   } from '../stores/bookStore'
   import {
     selectedModel as selectedModelStore,
@@ -79,7 +80,6 @@
 
   // Local state for UI
   let showSettings = $state(false)
-  let isGenerating = $state(false)
   let showAdvanced = $state(false)
   let selectedFormat = $state<'mp3' | 'mp4' | 'm4b' | 'wav' | 'epub'>('mp3')
   let selectedBitrate = $state(192)
@@ -206,17 +206,11 @@
       return
     }
 
-    isGenerating = true
-    try {
-      await generationService.generateChapters(chaptersToGen)
-    } finally {
-      isGenerating = false
-    }
+    await generationService.generateChapters(chaptersToGen)
   }
 
   function handleCancel() {
     generationService.cancel()
-    isGenerating = false
   }
 
   function handleRetry(id: string) {
@@ -344,13 +338,13 @@
 
       <div class="toolbar-center">
         <div class="quick-settings">
-          <select bind:value={$selectedModelStore} disabled={isGenerating} class="premium-select">
+          <select bind:value={$selectedModelStore} disabled={$isGenerating} class="premium-select">
             {#each TTS_MODELS as model}
               <option value={model.id}>{model.name}</option>
             {/each}
           </select>
 
-          <select bind:value={$selectedVoice} disabled={isGenerating} class="premium-select">
+          <select bind:value={$selectedVoice} disabled={$isGenerating} class="premium-select">
             {#each $availableVoices as voice}
               <option value={voice.id}>{voice.label}</option>
             {/each}
@@ -359,7 +353,7 @@
           {#if $selectedModelStore === 'kokoro'}
             <select
               bind:value={$selectedDevice}
-              disabled={isGenerating}
+              disabled={$isGenerating}
               class="premium-select"
               title="Execution Device"
             >
@@ -372,26 +366,26 @@
       </div>
 
       <div class="toolbar-right">
-        <select bind:value={selectedFormat} disabled={isGenerating} class="premium-select">
+        <select bind:value={selectedFormat} disabled={$isGenerating} class="premium-select">
           <option value="mp3">MP3</option>
           <option value="mp4">MP4 (Chapters)</option>
           <option value="m4b">M4B (Audiobook)</option>
           <option value="wav">WAV</option>
           <option value="epub">EPUB (Media Overlays)</option>
         </select>
-        <button class="text-btn export-btn" onclick={handleExport} disabled={isGenerating}>
+        <button class="text-btn export-btn" onclick={handleExport} disabled={$isGenerating}>
           📥 Export
         </button>
-        {#if isGenerating}
+        {#if $isGenerating}
           <button class="cancel-btn" onclick={handleCancel}> ✕ Cancel </button>
         {/if}
         <button
           class="primary-btn generate-btn"
-          class:loading={isGenerating}
-          disabled={isGenerating}
+          class:loading={$isGenerating}
+          disabled={$isGenerating}
           onclick={handleGenerate}
         >
-          {#if isGenerating}
+          {#if $isGenerating}
             Generating...
           {:else}
             ✨ Generate Selected
@@ -450,7 +444,7 @@
                         id={`adv-${$selectedModelStore}-${setting.key}`}
                         type="checkbox"
                         bind:checked={$advancedSettings[$selectedModelStore][setting.key]}
-                        disabled={isGenerating}
+                        disabled={$isGenerating}
                       />
                       <div class="checkbox-text">
                         <span>{setting.label}</span>
@@ -472,7 +466,7 @@
                         <select
                           id={`adv-${$selectedModelStore}-${setting.key}`}
                           bind:value={$advancedSettings[$selectedModelStore][setting.key]}
-                          disabled={isGenerating}
+                          disabled={$isGenerating}
                           class="premium-select"
                         >
                           {#each setting.options || [] as opt}
@@ -488,7 +482,7 @@
                             max={setting.max}
                             step={setting.step}
                             bind:value={$advancedSettings[$selectedModelStore][setting.key]}
-                            disabled={isGenerating}
+                            disabled={$isGenerating}
                           />
                           <span class="value-display"
                             >{$advancedSettings[$selectedModelStore][setting.key]}</span
@@ -502,7 +496,7 @@
                           max={setting.max}
                           step={setting.step}
                           bind:value={$advancedSettings[$selectedModelStore][setting.key]}
-                          disabled={isGenerating}
+                          disabled={$isGenerating}
                           class="premium-input"
                         />
                       {/if}
