@@ -596,15 +596,8 @@
     const segmentEl = target.closest('.segment') as HTMLElement | null
     const index = getSegmentIndex(segmentEl)
     if (index !== null) {
-      // Check if we have this segment in progressive generation
-      const progressSegment = chapter?.id ? getGeneratedSegment(chapter.id, index) : undefined
-      if (progressSegment) {
-        // Play from progressive generation store
-        audioService.playSingleSegment(progressSegment)
-      } else {
-        // Try normal playback
-        audioService.playFromSegment(index)
-      }
+      // Just play normally - the service now handles checking for progressive segments
+      audioService.playFromSegment(index)
     }
   }
 
@@ -617,13 +610,7 @@
         event.preventDefault()
         const index = getSegmentIndex(target)
         if (index !== null) {
-          // Check if we have this segment in progressive generation
-          const progressSegment = chapter?.id ? getGeneratedSegment(chapter.id, index) : undefined
-          if (progressSegment) {
-            audioService.playSingleSegment(progressSegment)
-          } else {
-            audioService.playFromSegment(index)
-          }
+          audioService.playFromSegment(index)
         }
       }
     }
