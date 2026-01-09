@@ -678,9 +678,6 @@ class AudioPlaybackService {
 
     try {
       await this.audio.play()
-      this.isPlaying = true // explicit set
-      audioPlayerStore.play()
-      this.updateMediaSessionState()
     } catch (err) {
       logger.error('Failed to play audio:', err)
       if (this.currentSegmentIndex === index) {
