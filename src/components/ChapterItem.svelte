@@ -22,7 +22,11 @@
     resolveChapterLanguageWithDetection,
     DETECTION_CONFIDENCE_THRESHOLD,
   } from '../lib/utils/languageResolver'
-  import { getKokoroVoicesForLanguage, isKokoroLanguageSupported } from '../lib/utils/voiceSelector'
+  import {
+    getKokoroVoicesForLanguage,
+    getPiperVoicesForLanguage,
+    isKokoroLanguageSupported,
+  } from '../lib/utils/voiceSelector'
   import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroClient'
   import { onMount } from 'svelte'
 
@@ -142,13 +146,8 @@
     } else if (effectiveModel === 'piper') {
       // Filter piper voices by language using metadata
       if (piperVoicesWithMetadata.length > 0) {
-        return piperVoicesWithMetadata
-          .filter((v) => {
-            // Use the language property from voice metadata for accurate filtering
-            const voiceLang = v.language.split(/[-_]/)[0]?.toLowerCase()
-            return voiceLang === effectiveLanguage.toLowerCase()
-          })
-          .map((v) => ({ id: v.key, label: v.name }))
+        const matchingVoices = getPiperVoicesForLanguage(effectiveLanguage, piperVoicesWithMetadata)
+        return matchingVoices.map((v) => ({ id: v.key, label: v.name }))
       }
       return []
     }

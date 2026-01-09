@@ -42,7 +42,7 @@ export class PiperClient {
       return {
         key: voiceId,
         name: data.name,
-        language: data.language.name_native,
+        language: data.language.code || data.language.name_native,
         quality: data.quality,
       }
     })

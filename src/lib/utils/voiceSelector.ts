@@ -127,6 +127,7 @@ const LANGUAGE_CODE_MAP: Record<string, string> = {
   korean: 'ko',
   arabic: 'ar',
   hindi: 'hi',
+  português: 'pt',
 }
 
 /**
