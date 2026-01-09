@@ -438,6 +438,41 @@ class GenerationService {
   private running = false
   private canceled = false
 
+  private wakeLock: WakeLockSentinel | null = null
+
+  // Bind the handler so it can be added/removed as an event listener
+  private handleVisibilityChange = async () => {
+    if (document.visibilityState === 'visible' && this.running) {
+      logger.info('Page became visible, re-acquiring wake lock')
+      await this.requestWakeLock()
+    }
+  }
+
+  private async requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        this.wakeLock = await navigator.wakeLock.request('screen')
+        logger.info('Screen Wake Lock acquired')
+      } else {
+        logger.warn('Screen Wake Lock API not supported/available')
+      }
+    } catch (err) {
+      logger.warn('Failed to acquire Screen Wake Lock', err)
+    }
+  }
+
+  private async releaseWakeLock() {
+    try {
+      if (this.wakeLock) {
+        await this.wakeLock.release()
+        this.wakeLock = null
+        logger.info('Screen Wake Lock released')
+      }
+    } catch (err) {
+      logger.warn('Failed to release Screen Wake Lock', err)
+    }
+  }
+
   // Helper to calculate duration of a WAV blob
   // WAV header is 44 bytes, Kokoro outputs 24kHz float32 mono
   private calculateWavDuration(blob: Blob): number {
@@ -708,6 +743,10 @@ class GenerationService {
     this.running = true
     this.canceled = false // Reset canceled state
     isGenerating.set(true)
+
+    // Acquire wake lock to prevent device sleep
+    await this.requestWakeLock()
+    document.addEventListener('visibilitychange', this.handleVisibilityChange)
 
     getTTSWorker()
     const totalChapters = chapters.length
@@ -1232,6 +1271,10 @@ class GenerationService {
     } finally {
       this.running = false
       isGenerating.set(false)
+
+      // Clean up wake lock and listener
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange)
+      await this.releaseWakeLock()
     }
   }
 
