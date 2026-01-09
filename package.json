@@ -1,6 +1,6 @@
 {
   "name": "audiobook-generator-web",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "type": "module",
   "private": true,
   "scripts": {
