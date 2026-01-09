@@ -473,6 +473,53 @@ class GenerationService {
     }
   }
 
+  // Silent audio helpers to prevent background throttling
+  private audioContext: AudioContext | null = null
+  private silentOscillator: OscillatorNode | null = null
+
+  private async startSilentAudio() {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+      if (!AudioContextClass) return
+
+      this.audioContext = new AudioContextClass()
+
+      // Create a silent oscillator
+      // browsers might optimize away purely silent (gain 0) audio, so we use near-zero gain
+      const gainNode = this.audioContext.createGain()
+      gainNode.gain.value = 0.0001 // Inaudible but active
+      gainNode.connect(this.audioContext.destination)
+
+      this.silentOscillator = this.audioContext.createOscillator()
+      this.silentOscillator.type = 'sine'
+      this.silentOscillator.frequency.value = 440
+      this.silentOscillator.connect(gainNode)
+      this.silentOscillator.start()
+
+      logger.info('Silent audio started to prevent background throttling')
+    } catch (err) {
+      logger.warn('Failed to start silent audio', err)
+    }
+  }
+
+  private stopSilentAudio() {
+    try {
+      if (this.silentOscillator) {
+        this.silentOscillator.stop()
+        this.silentOscillator.disconnect()
+        this.silentOscillator = null
+      }
+
+      if (this.audioContext) {
+        this.audioContext.close().catch((e) => logger.warn('Failed to close AudioContext', e))
+        this.audioContext = null
+      }
+      logger.info('Silent audio stopped')
+    } catch (err) {
+      logger.warn('Failed to stop silent audio', err)
+    }
+  }
+
   // Helper to calculate duration of a WAV blob
   // WAV header is 44 bytes, Kokoro outputs 24kHz float32 mono
   private calculateWavDuration(blob: Blob): number {
@@ -747,6 +794,9 @@ class GenerationService {
     // Acquire wake lock to prevent device sleep
     await this.requestWakeLock()
     document.addEventListener('visibilitychange', this.handleVisibilityChange)
+
+    // Start silent audio to prevent CPU throttling in background
+    await this.startSilentAudio()
 
     getTTSWorker()
     const totalChapters = chapters.length
@@ -1271,6 +1321,9 @@ class GenerationService {
     } finally {
       this.running = false
       isGenerating.set(false)
+
+      // Clean up silent audio
+      this.stopSilentAudio()
 
       // Clean up wake lock and listener
       document.removeEventListener('visibilitychange', this.handleVisibilityChange)
