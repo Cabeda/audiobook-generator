@@ -757,9 +757,10 @@ class GenerationService {
 
         // We determine if we need to auto-select a voice.
         // Auto-select if:
-        // 1. No explicit voice set for this chapter (ch.voice is undefined)
+        // 1. Current voice is invalid/missing (!currentVoice)
         // 2. OR we fell back to a different model (meaning ch.voice or global voice might be invalid for new model)
-        const shouldAutoSelectVoice = !ch.voice || isFallbackModel
+        // Note: We do NOT auto-switch if a global voice is selected (!ch.voice is NOT enough reason to ignore global preference)
+        const shouldAutoSelectVoice = !currentVoice || isFallbackModel
 
         if (shouldAutoSelectVoice) {
           // Auto-select voice based on language
@@ -1238,10 +1239,25 @@ class GenerationService {
     this.canceled = true
     const worker = getTTSWorker()
     worker.cancelAll()
-    // Reset status of processing chapters?
-    // Maybe not necessary, the loop will break and they will stay as 'processing' or we can mark them as error/pending?
-    // Let's leave them for now or better, mark 'processing' as 'pending' to allow retry?
-    // For now, simple cancel.
+
+    // Reset status of processing chapters to pending so UI spinners stop
+    const statusMap = get(chapterStatus)
+    const newStatusMap = new Map(statusMap)
+    let changed = false
+
+    for (const [id, status] of statusMap.entries()) {
+      if (status === 'processing') {
+        newStatusMap.set(id, 'pending') // Reset to pending to allow retry
+        changed = true
+      }
+    }
+
+    if (changed) {
+      chapterStatus.set(newStatusMap)
+    }
+
+    this.running = false
+    isGenerating.set(false)
   }
 
   isRunning() {
