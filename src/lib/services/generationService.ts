@@ -509,7 +509,11 @@ class GenerationService {
   private async stopSilentAudio() {
     try {
       if (this.silentOscillator) {
-        this.silentOscillator.stop()
+        try {
+          this.silentOscillator.stop()
+        } catch {
+          // Ignore stop errors; oscillator may already be stopped
+        }
         this.silentOscillator.disconnect()
         this.silentOscillator = null
       }
