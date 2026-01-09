@@ -476,24 +476,35 @@ class GenerationService {
   // Silent audio helpers to prevent background throttling
   private audioContext: AudioContext | null = null
   private silentOscillator: OscillatorNode | null = null
+  private silentGainNode: GainNode | null = null
 
   private async startSilentAudio() {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
       if (!AudioContextClass) return
 
+      // Clean up any existing gain node before creating a new AudioContext
+      if (this.silentGainNode) {
+        try {
+          this.silentGainNode.disconnect()
+        } catch {
+          // Ignore disconnect errors; node may already be disconnected
+        }
+        this.silentGainNode = null
+      }
+
       this.audioContext = new AudioContextClass()
 
       // Create a silent oscillator
       // browsers might optimize away purely silent (gain 0) audio, so we use near-zero gain
-      const gainNode = this.audioContext.createGain()
-      gainNode.gain.value = 0.0001 // Inaudible but active
-      gainNode.connect(this.audioContext.destination)
+      this.silentGainNode = this.audioContext.createGain()
+      this.silentGainNode.gain.value = 0.0001 // Inaudible but active
+      this.silentGainNode.connect(this.audioContext.destination)
 
       this.silentOscillator = this.audioContext.createOscillator()
       this.silentOscillator.type = 'sine'
       this.silentOscillator.frequency.value = 440
-      this.silentOscillator.connect(gainNode)
+      this.silentOscillator.connect(this.silentGainNode)
       this.silentOscillator.start()
 
       logger.info('Silent audio started to prevent background throttling')
