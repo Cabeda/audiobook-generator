@@ -480,18 +480,11 @@ class GenerationService {
 
   private async startSilentAudio() {
     try {
+      // Stop any existing silent audio to ensure clean state
+      await this.stopSilentAudio()
+
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
       if (!AudioContextClass) return
-
-      // Clean up any existing gain node before creating a new AudioContext
-      if (this.silentGainNode) {
-        try {
-          this.silentGainNode.disconnect()
-        } catch {
-          // Ignore disconnect errors; node may already be disconnected
-        }
-        this.silentGainNode = null
-      }
 
       this.audioContext = new AudioContextClass()
 
@@ -513,7 +506,7 @@ class GenerationService {
     }
   }
 
-  private stopSilentAudio() {
+  private async stopSilentAudio() {
     try {
       if (this.silentOscillator) {
         this.silentOscillator.stop()
@@ -521,8 +514,17 @@ class GenerationService {
         this.silentOscillator = null
       }
 
+      if (this.silentGainNode) {
+        try {
+          this.silentGainNode.disconnect()
+        } catch {
+          // Ignore disconnect errors; node may already be disconnected
+        }
+        this.silentGainNode = null
+      }
+
       if (this.audioContext) {
-        this.audioContext.close().catch((e) => logger.warn('Failed to close AudioContext', e))
+        await this.audioContext.close().catch((e) => logger.warn('Failed to close AudioContext', e))
         this.audioContext = null
       }
       logger.info('Silent audio stopped')
@@ -1334,7 +1336,7 @@ class GenerationService {
       isGenerating.set(false)
 
       // Clean up silent audio
-      this.stopSilentAudio()
+      await this.stopSilentAudio()
 
       // Clean up wake lock and listener
       document.removeEventListener('visibilitychange', this.handleVisibilityChange)
