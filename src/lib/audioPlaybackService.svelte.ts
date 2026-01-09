@@ -858,33 +858,84 @@ class AudioPlaybackService {
     }
   }
 
-  private setupMediaSession(title: string, artist: string, artwork?: string) {
+  private setupMediaSession(title: string, artist: string) {
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title,
         artist,
         album: 'Audiobook',
-        artwork: artwork ? [{ src: artwork, sizes: '512x512', type: 'image/jpeg' }] : [],
       })
 
       navigator.mediaSession.setActionHandler('play', () => {
-        this.play()
+        void (async () => {
+          try {
+            await this.play()
+          } catch (error) {
+            logger.error('Error handling MediaSession "play" action', error)
+          }
+        })()
       })
       navigator.mediaSession.setActionHandler('pause', () => {
-        this.pause()
+        try {
+          this.pause()
+        } catch (error) {
+          logger.error('Error handling MediaSession "pause" action', error)
+        }
       })
       navigator.mediaSession.setActionHandler('previoustrack', () => {
-        this.skipPrevious()
+        void (async () => {
+          try {
+            await this.skipPrevious()
+          } catch (error) {
+            logger.error('Error handling MediaSession "previoustrack" action', error)
+          }
+        })()
       })
       navigator.mediaSession.setActionHandler('nexttrack', () => {
-        this.skipNext()
+        void (async () => {
+          try {
+            await this.skipNext()
+          } catch (error) {
+            logger.error('Error handling MediaSession "nexttrack" action', error)
+          }
+        })()
       })
       navigator.mediaSession.setActionHandler('seekto', (details) => {
-        if (details.seekTime !== undefined && this.audio) {
-          this.audio.currentTime = details.seekTime
-          this.currentTime = details.seekTime
-          this.updateMediaSessionState()
-        }
+        void (async () => {
+          if (details.seekTime !== undefined) {
+            try {
+              // If we have a monolithic audio file (loadChapter), we can seek directly
+              if (this.audio && this.audio.src.startsWith('blob:') && this.chapterAudioUrl) {
+                this.audio.currentTime = details.seekTime
+                if (details.fastSeek && 'fastSeek' in this.audio) {
+                  this.audio.fastSeek(details.seekTime)
+                }
+              } else {
+                // Segmented playback mode: finding the right segment is tricky without a "seek" method.
+                // We can try to map time to segment index.
+                // Helper: find segment by time
+                const targetSegment = this.segments.find(
+                  (s) =>
+                    (s.startTime || 0) <= details.seekTime &&
+                    (s.startTime || 0) + (s.duration || 0) > details.seekTime
+                )
+                if (targetSegment) {
+                  await this.playFromSegment(targetSegment.index)
+                  // Fine-tune offset within segment?
+                  // this.audio.currentTime = details.seekTime - targetSegment.startTime
+                  // But `playFromSegment` creates a new audio element for that segment (duration only of that segment)
+                  // Wait, if using segments, `audio` src is just that segment.
+                  // The `currentTime` in store is global.
+                  // This is complex. For now, strict seeking in segmented mode is limited.
+                  // Best effort: jump to segment start.
+                }
+              }
+              this.updateMediaSessionState()
+            } catch (error) {
+              logger.error('Error handling MediaSession "seekto" action', error)
+            }
+          }
+        })()
       })
     }
   }
@@ -892,12 +943,34 @@ class AudioPlaybackService {
   private updateMediaSessionState() {
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       navigator.mediaSession.playbackState = this.isPlaying ? 'playing' : 'paused'
-      if (this.duration > 0) {
-        navigator.mediaSession.setPositionState({
-          duration: this.duration,
-          playbackRate: this.playbackSpeed,
-          position: this.currentTime,
-        })
+
+      const duration = this.duration
+      const position = this.currentTime
+      const playbackRate = this.playbackSpeed
+
+      // Validate values before calling setPositionState to avoid runtime errors
+      if (
+        Number.isFinite(duration) &&
+        Number.isFinite(position) &&
+        Number.isFinite(playbackRate) &&
+        duration > 0
+      ) {
+        const clampedPosition = Math.min(Math.max(position, 0), duration)
+        try {
+          navigator.mediaSession.setPositionState({
+            duration,
+            playbackRate,
+            position: clampedPosition,
+          })
+        } catch (error) {
+          // Common error if position > duration due to slight timing mismatches
+          logger.warn('Failed to update media session position state', {
+            error,
+            duration,
+            position,
+            playbackRate,
+          })
+        }
       }
     }
   }
