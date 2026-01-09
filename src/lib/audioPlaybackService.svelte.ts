@@ -141,6 +141,9 @@ class AudioPlaybackService {
     this.duration = 0
     this.isPlaying = false
 
+    // Setup Media Session
+    this.setupMediaSession(chapter.title, bookTitle)
+
     // Initialize store
     audioPlayerStore.startPlayback(
       bookId,
@@ -362,6 +365,9 @@ class AudioPlaybackService {
     this.currentSegmentIndex = 0
     this.currentTime = 0
 
+    // Setup Media Session
+    this.setupMediaSession(chapter.title, bookTitle)
+
     // Initialize store
     audioPlayerStore.startPlayback(
       bookId,
@@ -393,6 +399,7 @@ class AudioPlaybackService {
         this.isPlaying = false
         audioPlayerStore.pause()
       }
+      this.updateMediaSessionState()
       return
     }
 
@@ -409,6 +416,7 @@ class AudioPlaybackService {
   pause() {
     this.isPlaying = false
     audioPlayerStore.pause()
+    this.updateMediaSessionState()
 
     if (this.audio) {
       this.audio.pause()
@@ -527,6 +535,7 @@ class AudioPlaybackService {
       this.audio.playbackRate = speed
     }
     audioPlayerStore.setPlaybackSpeed(speed)
+    this.updateMediaSessionState()
   }
 
   stop() {
@@ -647,6 +656,7 @@ class AudioPlaybackService {
 
     try {
       await this.audio.play()
+      this.updateMediaSessionState()
     } catch (err) {
       logger.error('Failed to play audio:', err)
       if (this.currentSegmentIndex === index) {
@@ -848,6 +858,50 @@ class AudioPlaybackService {
     }
   }
 
+  private setupMediaSession(title: string, artist: string, artwork?: string) {
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title,
+        artist,
+        album: 'Audiobook',
+        artwork: artwork ? [{ src: artwork, sizes: '512x512', type: 'image/jpeg' }] : [],
+      })
+
+      navigator.mediaSession.setActionHandler('play', () => {
+        this.play()
+      })
+      navigator.mediaSession.setActionHandler('pause', () => {
+        this.pause()
+      })
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        this.skipPrevious()
+      })
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        this.skipNext()
+      })
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime !== undefined && this.audio) {
+          this.audio.currentTime = details.seekTime
+          this.currentTime = details.seekTime
+          this.updateMediaSessionState()
+        }
+      })
+    }
+  }
+
+  private updateMediaSessionState() {
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = this.isPlaying ? 'playing' : 'paused'
+      if (this.duration > 0) {
+        navigator.mediaSession.setPositionState({
+          duration: this.duration,
+          playbackRate: this.playbackSpeed,
+          position: this.currentTime,
+        })
+      }
+    }
+  }
+
   /**
    * Play a single segment directly from an AudioSegment object.
    * This is used for progressive playback during generation, allowing
@@ -975,6 +1029,7 @@ class AudioPlaybackService {
 
     try {
       await this.audio.play()
+      this.updateMediaSessionState()
     } catch (err) {
       // Extract error details for better debugging
       const errorMessage = err instanceof Error ? err.message : String(err)
