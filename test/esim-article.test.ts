@@ -1,4 +1,16 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi } from 'vitest'
+
+// Mock the audioPlaybackService to avoid Svelte runes error
+vi.mock('../src/lib/audioPlaybackService.svelte', () => ({
+  audioService: {
+    stop: vi.fn(),
+    loadChapter: vi.fn(),
+    play: vi.fn(),
+    pause: vi.fn(),
+    playFromSegment: vi.fn(),
+  },
+}))
+
 import { parseEpubFile } from '../src/lib/epubParser'
 import { segmentHtmlContent } from '../src/lib/services/generationService'
 import { resolve } from 'path'
