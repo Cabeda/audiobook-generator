@@ -13,6 +13,8 @@
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroClient'
   import { piperClient } from './lib/piper/piperClient'
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
+  import { isKokoroLanguageSupported, selectPiperVoiceForLanguage } from './lib/utils/voiceSelector'
+  import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
   import type { Chapter } from './lib/types/book'
 
   // Stores
@@ -42,12 +44,65 @@
   let currentView = $state<ViewType>('landing')
   let currentChapter = $state<Chapter | null>(null) // For Reader
 
+  // Computed Reader Settings (Respect Chapter Overrides + Language Fallback)
+  // This logic mirrors ChapterItem.svelte's effectiveModel/effectiveVoice computation
+
+  // Compute effective language for the current chapter
+  let readerLanguage = $derived.by(() => {
+    if (!currentChapter || !$book) return 'en'
+    return resolveChapterLanguageWithDetection(currentChapter, $book)
+  })
+
+  // Compute effective model (with language-based fallback from Kokoro to Piper)
+  let readerModel = $derived.by(() => {
+    const baseModel = currentChapter?.model || $selectedModel
+    // If Kokoro is selected but doesn't support the language, fallback to Piper
+    if (baseModel === 'kokoro' && !isKokoroLanguageSupported(readerLanguage)) {
+      return 'piper' as const
+    }
+    return baseModel as 'kokoro' | 'piper'
+  })
+
+  // Compute effective voice considering model fallback
+  let readerVoice = $derived.by(() => {
+    // 1. Explicit chapter voice override
+    if (currentChapter?.voice) {
+      // Verify the voice is compatible with the effective model
+      // If model changed due to fallback, the explicit voice might be incompatible
+      return currentChapter.voice
+    }
+
+    // 2. No chapter override - check if using global settings
+    const baseModel = currentChapter?.model || $selectedModel
+    if (readerModel === baseModel && baseModel === $selectedModel) {
+      // Model didn't change due to fallback, use global voice
+      return $selectedVoice
+    }
+
+    // 3. Model changed due to language fallback - need to pick appropriate voice
+    if (readerModel === 'piper') {
+      // For Piper, select a voice appropriate for the chapter language
+      return selectPiperVoiceForLanguage(readerLanguage, piperVoicesRaw)
+    }
+    if (readerModel === 'kokoro') {
+      return 'af_heart' // Default Kokoro voice
+    }
+
+    return $selectedVoice
+  })
+
   // Voice Loading Logic (Centralized)
   let kokoroVoices = listKokoroVoices()
+  // Store raw Piper voice metadata for language-based selection
+  let piperVoicesRaw = $state<
+    Array<{ key: string; name: string; language: string; quality: string }>
+  >([])
 
   async function loadPiperVoices() {
     try {
       const voices = await piperClient.getVoices()
+      // Store raw voices for language-based selection
+      piperVoicesRaw = voices
       return voices.map((v) => ({
         id: v.key,
         label: `${v.name} (${v.language}) - ${v.quality}`,
@@ -57,6 +112,11 @@
       return []
     }
   }
+
+  // Preload Piper voices on mount for language-based selection
+  onMount(() => {
+    loadPiperVoices()
+  })
 
   // Reactive Voice Updater
   $effect(() => {
@@ -241,6 +301,11 @@
   // Theme application
   $effect(() => {
     document.documentElement.setAttribute('data-theme', $theme)
+    // Update mobile status bar color
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute('content', $theme === 'dark' ? '#0f172a' : '#ffffff')
+    }
   })
 </script>
 
@@ -265,10 +330,10 @@
         chapter={currentChapter}
         bookId={$currentLibraryBookId}
         bookTitle={$book?.title ?? ''}
-        voice={$selectedVoice}
+        voice={readerVoice}
         quantization={$selectedQuantization}
         device={$selectedDevice}
-        selectedModel={$selectedModel}
+        selectedModel={readerModel}
         onBack={handleBackFromReader}
       />
     </div>
@@ -283,6 +348,11 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    /* Safe Area Insets for Mobile */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 
   .view-wrapper {
@@ -304,7 +374,10 @@
     color: var(--secondary-text);
     cursor: pointer;
     font-size: 0.9rem;
-    padding: 8px 0;
+    padding: 12px 0; /* Increased touch target */
+    min-height: 44px; /* Minimum touch target size */
+    display: flex;
+    align-items: center;
   }
 
   .back-link:hover {

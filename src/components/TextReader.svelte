@@ -797,18 +797,10 @@
 
         <div class="setting-item">
           <label for="model-select">Model</label>
-          <select
-            id="model-select"
-            value={selectedModel}
-            onchange={(e) => {
-              // @ts-ignore
-              modelStore.set(e.currentTarget.value)
-            }}
-            class="model-select"
-          >
-            <option value="kokoro">Kokoro</option>
-            <option value="piper">Piper</option>
-          </select>
+          <div class="info-row">
+            <span class="value">{selectedModel === 'kokoro' ? 'Kokoro' : 'Piper'}</span>
+            <span class="hint">(set in Chapter Settings)</span>
+          </div>
         </div>
 
         <div class="setting-item info">
@@ -1277,6 +1269,13 @@
     margin-bottom: 4px;
     color: var(--text-color);
     opacity: 0.8;
+  }
+
+  .hint {
+    font-size: 11px;
+    color: var(--secondary-text);
+    font-style: italic;
+    margin-left: 8px;
   }
 
   .info-row .value {
