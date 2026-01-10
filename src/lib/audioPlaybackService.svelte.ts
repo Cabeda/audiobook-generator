@@ -640,9 +640,31 @@ class AudioPlaybackService {
           this.audio.ontimeupdate = null
           this.audio.onerror = null
           this.audio.onloadedmetadata = null
+          this.audio.onpause = null
+          this.audio.onplay = null
           this.audio.src = ''
         }
         this.audio = null
+      }
+    }
+
+    this.audio.onpause = () => {
+      // If paused by system (interruption) or UI, sync state
+      if (this.audio?.ended) return // Ignore if standard end
+      if (this.isPlaying) {
+        logger.info('Audio paused by system/external event')
+        this.isPlaying = false
+        audioPlayerStore.pause()
+        this.updateMediaSessionState()
+      }
+    }
+
+    this.audio.onplay = () => {
+      if (!this.isPlaying) {
+        logger.info('Audio resumed by system/external event')
+        this.isPlaying = true
+        audioPlayerStore.play()
+        this.updateMediaSessionState()
       }
     }
 
@@ -656,7 +678,6 @@ class AudioPlaybackService {
 
     try {
       await this.audio.play()
-      this.updateMediaSessionState()
     } catch (err) {
       logger.error('Failed to play audio:', err)
       if (this.currentSegmentIndex === index) {
@@ -667,6 +688,8 @@ class AudioPlaybackService {
           this.audio.ontimeupdate = null
           this.audio.onerror = null
           this.audio.onloadedmetadata = null
+          this.audio.onpause = null
+          this.audio.onplay = null
           this.audio.src = ''
         }
         this.audio = null

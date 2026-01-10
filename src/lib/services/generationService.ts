@@ -473,6 +473,70 @@ class GenerationService {
     }
   }
 
+  // Silent audio helpers to prevent background throttling
+  private audioContext: AudioContext | null = null
+  private silentOscillator: OscillatorNode | null = null
+  private silentGainNode: GainNode | null = null
+
+  private async startSilentAudio() {
+    try {
+      // Stop any existing silent audio to ensure clean state
+      await this.stopSilentAudio()
+
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+      if (!AudioContextClass) return
+
+      this.audioContext = new AudioContextClass()
+
+      // Create a silent oscillator
+      // browsers might optimize away purely silent (gain 0) audio, so we use near-zero gain
+      this.silentGainNode = this.audioContext.createGain()
+      this.silentGainNode.gain.value = 0.0001 // Inaudible but active
+      this.silentGainNode.connect(this.audioContext.destination)
+
+      this.silentOscillator = this.audioContext.createOscillator()
+      this.silentOscillator.type = 'sine'
+      this.silentOscillator.frequency.value = 440
+      this.silentOscillator.connect(this.silentGainNode)
+      this.silentOscillator.start()
+
+      logger.info('Silent audio started to prevent background throttling')
+    } catch (err) {
+      logger.warn('Failed to start silent audio', err)
+    }
+  }
+
+  private async stopSilentAudio() {
+    try {
+      if (this.silentOscillator) {
+        try {
+          this.silentOscillator.stop()
+        } catch {
+          // Ignore stop errors; oscillator may already be stopped
+        }
+        this.silentOscillator.disconnect()
+        this.silentOscillator = null
+      }
+
+      if (this.silentGainNode) {
+        try {
+          this.silentGainNode.disconnect()
+        } catch {
+          // Ignore disconnect errors; node may already be disconnected
+        }
+        this.silentGainNode = null
+      }
+
+      if (this.audioContext) {
+        await this.audioContext.close().catch((e) => logger.warn('Failed to close AudioContext', e))
+        this.audioContext = null
+      }
+      logger.info('Silent audio stopped')
+    } catch (err) {
+      logger.warn('Failed to stop silent audio', err)
+    }
+  }
+
   // Helper to calculate duration of a WAV blob
   // WAV header is 44 bytes, Kokoro outputs 24kHz float32 mono
   private calculateWavDuration(blob: Blob): number {
@@ -747,6 +811,9 @@ class GenerationService {
     // Acquire wake lock to prevent device sleep
     await this.requestWakeLock()
     document.addEventListener('visibilitychange', this.handleVisibilityChange)
+
+    // Start silent audio to prevent CPU throttling in background
+    await this.startSilentAudio()
 
     getTTSWorker()
     const totalChapters = chapters.length
@@ -1271,6 +1338,9 @@ class GenerationService {
     } finally {
       this.running = false
       isGenerating.set(false)
+
+      // Clean up silent audio
+      await this.stopSilentAudio()
 
       // Clean up wake lock and listener
       document.removeEventListener('visibilitychange', this.handleVisibilityChange)
