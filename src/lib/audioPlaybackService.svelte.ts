@@ -630,6 +630,26 @@ class AudioPlaybackService {
     audioPlayerStore.setChapterDuration(0)
   }
 
+  /**
+   * Inject a segment from progressive generation store into audioSegments map
+   * This allows playback of progressively generated audio without regeneration
+   */
+  injectProgressiveSegment(segment: AudioSegment): void {
+    if (this.audioSegments.has(segment.index)) {
+      // Already have this segment, no need to inject
+      return
+    }
+
+    try {
+      // Create blob URL for the segment
+      const url = URL.createObjectURL(segment.audioBlob)
+      this.audioSegments.set(segment.index, url)
+      logger.debug('Injected progressive segment', { index: segment.index })
+    } catch (err) {
+      logger.error('Failed to inject progressive segment', { index: segment.index, error: err })
+    }
+  }
+
   // Internal Logic
   private isPlayingSegment = false // Guard against concurrent playCurrentSegment calls
 

@@ -66,6 +66,19 @@ Playwright is used for e2e tests here (`pnpm test:e2e`). For debugging and deep 
      - This lets tests run against a DevTools-attached browser so you can open the DevTools and inspect pages, network, and console while tests run.
   3. Open Chrome DevTools and connect to the remote debugging endpoint (DevTools will auto-connect when you open `http://localhost:9222` in another browser), or use tools that can attach to the CDP endpoint.
 - If you need to record traces or videos for failing tests, use Playwright tracing and video options (see Playwright docs). The repo already includes Playwright in devDependencies.
+- **MCP Chrome DevTools for interactive testing**:
+  - When available, use the MCP Chrome DevTools tools to interactively test functionality:
+    - Start dev server: `pnpm dev`
+    - Use `mcp_chromedevtool_navigate_page` to navigate to `http://localhost:5173`
+    - Use `mcp_chromedevtool_take_snapshot` to capture page structure and identify elements
+    - Use `mcp_chromedevtool_click`, `mcp_chromedevtool_fill`, etc. to interact with the UI
+    - Use `mcp_chromedevtool_list_console_messages` to check for errors or debug logs
+    - Use `mcp_chromedevtool_evaluate_script` to inspect application state
+  - This approach is useful for:
+    - Reproducing user-reported issues interactively
+    - Testing complex interactions (e.g., clicking segments during generation)
+    - Verifying fixes before writing formal E2E tests
+    - Inspecting application state and console logs in real-time
 
 Recommendations when running e2e locally/CI
 

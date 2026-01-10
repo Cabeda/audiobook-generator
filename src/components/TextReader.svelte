@@ -612,7 +612,10 @@
           logger.error('Failed to start generation from segment', err)
         })
       } else {
-        // Has audio or already generating - just play normally
+        // Has audio or already generating - inject progressive segment if available, then play
+        if (segmentData) {
+          audioService.injectProgressiveSegment(segmentData)
+        }
         audioService.playFromSegment(index)
       }
     }
@@ -637,7 +640,10 @@
               logger.error('Failed to start generation from segment', err)
             })
           } else {
-            // Has audio or already generating - just play normally
+            // Has audio or already generating - inject progressive segment if available, then play
+            if (segmentData) {
+              audioService.injectProgressiveSegment(segmentData)
+            }
             audioService.playFromSegment(index)
           }
         }
