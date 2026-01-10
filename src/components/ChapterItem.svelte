@@ -45,6 +45,7 @@
     onModelChange,
     onVoiceChange,
     onLanguageChange,
+    onSelectOnly,
   } = $props<{
     chapter: Chapter
     book?: Book
@@ -60,6 +61,7 @@
     onModelChange?: (chapterId: string, model: string | undefined) => void
     onVoiceChange?: (chapterId: string, voice: string | undefined) => void
     onLanguageChange?: (chapterId: string, language: string | undefined) => void
+    onSelectOnly?: (chapterId: string) => void
   }>()
 
   const numberFormatter = new Intl.NumberFormat()
@@ -294,6 +296,16 @@
     </div>
 
     <div class="card-actions">
+      {#if onSelectOnly && status !== 'processing'}
+        <button
+          class="icon-btn generate-chapter-btn"
+          onclick={() => onSelectOnly(chapter.id)}
+          title="Generate audio for this chapter only"
+          aria-label="Generate this chapter"
+        >
+          ⚡
+        </button>
+      {/if}
       {#if status === 'processing'}
         <div class="spinner-container">
           <span class="spinner" aria-hidden="true"></span>
@@ -708,6 +720,40 @@
   .action-btn.small {
     font-size: 0.8rem;
     padding: 4px 8px;
+  }
+
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--input-border);
+    background: var(--surface-color);
+    border-radius: 6px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+
+  .icon-btn:hover {
+    background: var(--bg-color);
+    border-color: var(--text-color);
+    transform: scale(1.05);
+  }
+
+  .generate-chapter-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    color: white;
+  }
+
+  .generate-chapter-btn:hover {
+    background: linear-gradient(135deg, #5568d3 0%, #6a3f8f 100%);
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   }
 
   .audio-controls {

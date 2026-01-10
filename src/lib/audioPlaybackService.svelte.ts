@@ -35,6 +35,7 @@ class AudioPlaybackService {
   private pendingGenerations = new Map<number, Promise<void>>()
   private bufferTarget = 5
   private chapterAudioUrl: string | null = null // Track chapter audio URL for cleanup
+  private isLoadingChapter = false // Guard against concurrent loadChapter calls
 
   // Configuration
   private voice = ''
@@ -265,6 +266,32 @@ class AudioPlaybackService {
    * No on-demand generation is performed.
    */
   async loadChapter(
+    bookId: number,
+    bookTitle: string,
+    chapter: Chapter,
+    settings?: {
+      voice?: string
+      quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+      device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
+      selectedModel?: 'kokoro' | 'piper'
+      playbackSpeed?: number
+    }
+  ): Promise<{ success: boolean; hasAudio: boolean }> {
+    // Prevent concurrent loadChapter calls which can cause infinite loops
+    if (this.isLoadingChapter) {
+      logger.warn('loadChapter already in progress, ignoring concurrent call')
+      return { success: false, hasAudio: false }
+    }
+    this.isLoadingChapter = true
+
+    try {
+      return await this.doLoadChapter(bookId, bookTitle, chapter, settings)
+    } finally {
+      this.isLoadingChapter = false
+    }
+  }
+
+  private async doLoadChapter(
     bookId: number,
     bookTitle: string,
     chapter: Chapter,

@@ -10,6 +10,7 @@
   import { segmentHtmlContent, generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
+  import logger from '../lib/utils/logger'
 
   let {
     chapter,
@@ -192,9 +193,10 @@
                 isLoading = false
                 segmentsLoaded = true
               } else {
+                // Audio not available initially, but we still load the text for reading
+                // User can click segments to generate audio on-demand
                 isLoading = false
-                loadError = true
-                console.warn('Chapter audio not available - generate audio first')
+                segmentsLoaded = true
               }
             }
           })
@@ -599,8 +601,20 @@
       if (isGenerating) {
         generationService.setGenerationPriority(chapter.id, index)
       }
-      // Just play normally - the service now handles checking for progressive segments
-      audioService.playFromSegment(index)
+
+      // Check if segment has audio already generated
+      const segmentData = getGeneratedSegment(chapter.id, index)
+      const hasAudio = segmentData !== null
+
+      if (!hasAudio && !isGenerating) {
+        // No audio and not generating - start generation from this segment
+        generationService.generateSingleChapterFromSegment(chapter, index).catch((err) => {
+          logger.error('Failed to start generation from segment', err)
+        })
+      } else {
+        // Has audio or already generating - just play normally
+        audioService.playFromSegment(index)
+      }
     }
   }
 
@@ -613,7 +627,19 @@
         event.preventDefault()
         const index = getSegmentIndex(target)
         if (index !== null) {
-          audioService.playFromSegment(index)
+          // Check if segment has audio already generated
+          const segmentData = getGeneratedSegment(chapter.id, index)
+          const hasAudio = segmentData !== null
+
+          if (!hasAudio && !isGenerating) {
+            // No audio and not generating - start generation from this segment
+            generationService.generateSingleChapterFromSegment(chapter, index).catch((err) => {
+              logger.error('Failed to start generation from segment', err)
+            })
+          } else {
+            // Has audio or already generating - just play normally
+            audioService.playFromSegment(index)
+          }
         }
       }
     }
@@ -717,15 +743,23 @@
       {#if isLoading}
         <div class="loading-indicator">
           <div class="spinner"></div>
-          <p>Loading chapter audio...</p>
+          <p>Loading chapter...</p>
         </div>
-      {:else if loadError && !audioAvailable && !isGenerating}
+      {:else if loadError}
         <div class="error-message">
-          <p>⚠️ Audio not available</p>
-          <p>Generate audio for this chapter first.</p>
+          <p>⚠️ Failed to load chapter</p>
+          <p>Please try again or go back to the book.</p>
           <button class="back-link" onclick={handleClose}>← Back to book</button>
         </div>
       {:else}
+        {#if !audioAvailable}
+          <div class="info-banner">
+            <p>
+              💡 Click any segment to generate and play audio from that point. It will continue
+              generating all missing segments.
+            </p>
+          </div>
+        {/if}
         <!-- We render the pre-wrapped HTML content with segment spans. Active segment highlighting is managed by the updateActiveSegment function. -->
         {@html wrappedContent || chapter.content}
       {/if}
@@ -1064,6 +1098,78 @@
     font-size: 18px;
     color: var(--text-color);
     transition: color 0.3s;
+  }
+
+  .loading-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 60px 40px;
+    color: var(--secondary-text);
+  }
+
+  .loading-indicator .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--text-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .error-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 60px 40px;
+    color: var(--text-color);
+    text-align: center;
+  }
+
+  .error-message p {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+
+  .error-message .back-link {
+    padding: 8px 16px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-color);
+    color: var(--text-color);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 16px;
+  }
+
+  .error-message .back-link:hover {
+    border-color: var(--text-color);
+    background: var(--active-bg);
+  }
+
+  .info-banner {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    color: var(--text-color);
+  }
+
+  .info-banner p {
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.6;
   }
 
   /* Style for injected segments */

@@ -872,6 +872,30 @@ class GenerationService {
     }
   }
 
+  /**
+   * Generate audio for a single chapter starting from a specific segment index.
+   * This is used when clicking a segment in the reader to start generation from that point.
+   * After reaching the end, it will generate all missing segments to ensure complete audio.
+   *
+   * @param chapter - The chapter to generate
+   * @param startSegmentIndex - The segment index to start from (0-based)
+   */
+  async generateSingleChapterFromSegment(chapter: Chapter, startSegmentIndex: number = 0) {
+    if (this.running) {
+      logger.warn('Generation already running')
+      toastStore.warning('Generation is already running')
+      return
+    }
+
+    logger.info(`Starting generation for chapter ${chapter.id} from segment ${startSegmentIndex}`)
+
+    // Set priority for this chapter and segment
+    this.priorityOverrides.set(chapter.id, startSegmentIndex)
+
+    // Use the existing generateChapters method which handles priorities
+    await this.generateChapters([chapter])
+  }
+
   async generateChapters(chapters: Chapter[]) {
     // Direct console log to bypass logger filtering
     console.error('=== GENERATION STARTING ===')
