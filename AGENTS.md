@@ -93,16 +93,48 @@ Agent safety & repository etiquette
 - Respect existing linters and pre-commit hooks: this repo uses `husky` + `lint-staged` (see `package.json` for details).
 - Run `pnpm lint` and `pnpm type-check` before pushing changes to catch issues early.
 
-Testing requirements for new features
+Testing requirements for new features (Test-Driven Development)
+
+This project follows **Test-Driven Development (TDD)** principles. Write tests BEFORE implementing functionality.
+
+TDD Workflow (Red-Green-Refactor):
+
+1. **Red**: Write a failing test that describes the desired behavior
+   - Start with the simplest test case
+   - Run test and verify it fails for the right reason
+   - Do not write implementation yet
+
+2. **Green**: Write minimal code to make the test pass
+   - Implement only what's needed to pass the test
+   - It's okay if the implementation is naive/simple
+   - Run test and verify it passes
+
+3. **Refactor**: Clean up code while keeping tests green
+   - Improve structure, naming, efficiency
+   - Run tests after each refactor to ensure nothing broke
+   - Commit when tests pass
+
+Test Requirements:
 
 - **Unit tests are mandatory** for all new features and bug fixes. Place tests in `src/lib/**/*.test.ts` alongside the code they test.
+  - Write tests FIRST before implementation (TDD)
   - Test both happy-path and error scenarios.
   - Test edge cases relevant to the feature (empty inputs, boundary conditions, state transitions, etc.).
   - Aim for meaningful coverage; focus on testing logic and behavior, not just line coverage.
 - **E2E tests are strongly recommended** when the feature involves user interactions or cross-component workflows.
   - Add tests to `e2e/**/*.spec.ts` that verify the feature from the user's perspective.
+  - E2E tests can be written after unit tests pass (since they're slower and more complex)
   - Test against realistic use cases (e.g., for audio playback, test playing different languages, switching chapters, etc.).
   - Use `pnpm test:e2e:headed` locally to debug flaky tests interactively.
+
+TDD Best Practices:
+
+- Start with the simplest test case, then add more complex ones
+- One test should verify one specific behavior
+- Keep test names descriptive: `should return mobile chunk size of 300 when on mobile device`
+- Run tests frequently during development (`pnpm test --watch`)
+- Commit after each green test (with passing implementation)
+- If you find yourself writing implementation first, stop and write the test
 
 - **Always run the full test suite before submitting changes:**
   - `pnpm lint` and `pnpm type-check` to catch style/type issues.

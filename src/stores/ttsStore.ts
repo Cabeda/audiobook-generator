@@ -1,5 +1,6 @@
 import { writable, type Writable } from 'svelte/store'
 import logger from '../lib/utils/logger'
+import { getOptimalTTSSettings } from '../lib/utils/mobileDetect'
 
 // Storage keys
 const VOICE_KEY = 'audiobook_voice'
@@ -12,7 +13,22 @@ export type Quantization = 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
 export type Device = 'auto' | 'wasm' | 'webgpu' | 'cpu'
 export type TTSModel = 'kokoro' | 'piper'
 
+// Get adaptive defaults based on device capabilities
+// Mobile devices get smaller/faster settings (q4 instead of q8)
+function getAdaptiveDefaults(): { quantization: Quantization; device: Device } {
+  if (typeof window === 'undefined') {
+    // Server-side: use safe defaults
+    return { quantization: 'q8', device: 'wasm' }
+  }
+  const optimal = getOptimalTTSSettings()
+  return {
+    quantization: optimal.quantization,
+    device: optimal.device,
+  }
+}
+
 // Helper to create a localStorage-synced writable store
+// If no stored value exists, uses the provided default
 function persistedWritable<T>(key: string, defaultValue: T): Writable<T> {
   let initialValue = defaultValue
 
@@ -44,10 +60,56 @@ function persistedWritable<T>(key: string, defaultValue: T): Writable<T> {
   return store
 }
 
+// Helper to create a localStorage-synced store with adaptive defaults
+// Only uses adaptive default if no value is stored yet
+function persistedWritableWithAdaptiveDefault<T>(key: string, getDefault: () => T): Writable<T> {
+  // Check if user already has a stored preference
+  let hasStoredValue = false
+  let storedValue: T | undefined
+
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem(key)
+      if (stored !== null) {
+        hasStoredValue = true
+        storedValue = JSON.parse(stored) as T
+      }
+    } catch (e) {
+      logger.warn(`Failed to load ${key} from localStorage:`, e)
+    }
+  }
+
+  // Use stored value if available, otherwise compute adaptive default
+  const initialValue = hasStoredValue ? storedValue! : getDefault()
+
+  const store = writable<T>(initialValue)
+
+  // Subscribe to changes and persist to localStorage
+  if (typeof window !== 'undefined') {
+    store.subscribe((value) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(value))
+      } catch (e) {
+        logger.warn(`Failed to save ${key} to localStorage:`, e)
+      }
+    })
+  }
+
+  return store
+}
+
 // TTS configuration stores with localStorage persistence
 export const selectedVoice = persistedWritable<string>(VOICE_KEY, 'af_heart')
-export const selectedQuantization = persistedWritable<Quantization>(QUANT_KEY, 'q8')
-export const selectedDevice = persistedWritable<Device>(DEVICE_KEY, 'auto')
+// Use adaptive quantization: q4 on mobile, q8 on desktop (if no stored preference)
+export const selectedQuantization = persistedWritableWithAdaptiveDefault<Quantization>(
+  QUANT_KEY,
+  () => getAdaptiveDefaults().quantization
+)
+// Use adaptive device selection based on hardware capabilities
+export const selectedDevice = persistedWritableWithAdaptiveDefault<Device>(
+  DEVICE_KEY,
+  () => getAdaptiveDefaults().device
+)
 export const selectedModel = persistedWritable<TTSModel>(MODEL_KEY, 'kokoro')
 
 // Model-specific voice persistence

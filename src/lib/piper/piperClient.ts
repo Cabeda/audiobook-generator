@@ -3,11 +3,21 @@ import * as ort from 'onnxruntime-web'
 import logger from '../utils/logger'
 import { MIN_TEXT_LENGTH } from '../audioConstants'
 import { createSilentWav } from '../audioConcat'
+import {
+  getPiperChunkSize,
+  getPiperThreadingMode,
+  isLowResourceDevice,
+} from '../utils/mobileDetect'
 
 // Configure ONNX Runtime for the worker environment
-// If crossOriginIsolated is false, we must disable multi-threading to avoid crashes
-if (typeof self !== 'undefined' && !self.crossOriginIsolated) {
-  logger.info('Running in non-isolated context, forcing single-threaded execution')
+// If crossOriginIsolated is false OR on low-resource device, force single-threaded execution
+const shouldForceSingleThread =
+  (typeof self !== 'undefined' && !self.crossOriginIsolated) ||
+  isLowResourceDevice() ||
+  getPiperThreadingMode() === 'single-threaded'
+
+if (shouldForceSingleThread) {
+  logger.info('Forcing single-threaded ONNX execution (non-isolated or low-resource device)')
   ort.env.wasm.numThreads = 1
   ort.env.wasm.proxy = false
 } else {
@@ -86,7 +96,13 @@ export class PiperClient {
       // Split text into sentences to avoid memory issues with large inputs
       // Simple regex split on punctuation followed by whitespace
       const sentences = cleanText.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) || [cleanText]
-      const chunks = this.chunkSentences(sentences, 400) // group to reduce call count
+
+      // Use adaptive chunk size based on device capabilities
+      // Mobile/low-resource devices get smaller chunks (300) for faster time-to-first-audio
+      const chunkSize = getPiperChunkSize()
+      logger.info(`Using adaptive chunk size: ${chunkSize} chars (mobile optimization)`)
+
+      const chunks = this.chunkSentences(sentences, chunkSize)
       const blobs: Blob[] = []
       const failedSegments: Array<{ index: number; text: string; error: string }> = []
 

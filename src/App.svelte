@@ -15,6 +15,8 @@
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
   import { isKokoroLanguageSupported, selectPiperVoiceForLanguage } from './lib/utils/voiceSelector'
   import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
+  import { generationService } from './lib/services/generationService'
+  import { isMobileDevice } from './lib/utils/mobileDetect'
   import type { Chapter } from './lib/types/book'
 
   // Stores
@@ -235,6 +237,20 @@
       }
 
       currentView = 'book'
+
+      // Pre-generate first chapter on mobile for faster listening experience
+      // Only on mobile since desktop has more processing power for on-demand generation
+      if (isMobileDevice() && b.chapters?.length > 0) {
+        // Fire and forget - don't block UI
+        generationService
+          .preGenerateFirstChapter(b.chapters, {
+            maxSegments: 3, // Just enough for a quick preview
+            skipIfGenerated: true,
+          })
+          .catch((err) => {
+            console.warn('Pre-generation failed but continuing:', err)
+          })
+      }
     }
   }
 

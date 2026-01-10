@@ -240,11 +240,22 @@ async function getKokoroInstance(
   return ttsInstance
 }
 
+import { getRecommendedChunkSize } from '../utils/mobileDetect'
+
 /**
  * Split text into chunks at sentence boundaries
- * Kokoro TTS works best with smaller text chunks (recommended: ~500-1000 chars)
+ * Kokoro TTS works best with smaller text chunks
+ *
+ * Chunk size is adaptive based on device:
+ * - Desktop: 1000 chars (better quality, fewer API calls)
+ * - Mobile: 400 chars (faster time-to-first-audio)
+ *
+ * @param text - Text to split
+ * @param maxChunkSize - Maximum chunk size (uses adaptive default if not specified)
  */
-export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): string[] {
+export function splitTextIntoChunks(text: string, maxChunkSize?: number): string[] {
+  // Use adaptive chunk size based on device if not specified
+  const effectiveChunkSize = maxChunkSize ?? getRecommendedChunkSize()
   const chunks: string[] = []
 
   // Split by sentences (periods, question marks, exclamation points)
@@ -258,11 +269,11 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
       sentences.push(...parts.map((p) => p.trim()))
     } else {
       // Last resort: split by words if text is too long
-      if (text.length > maxChunkSize) {
+      if (text.length > effectiveChunkSize) {
         const words = text.split(/\s+/)
         let wordChunk = ''
         for (const word of words) {
-          if (wordChunk.length + word.length + 1 > maxChunkSize && wordChunk.length > 0) {
+          if (wordChunk.length + word.length + 1 > effectiveChunkSize && wordChunk.length > 0) {
             sentences.push(wordChunk.trim())
             wordChunk = word + ' '
           } else {
@@ -290,8 +301,8 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
       continue
     }
 
-    // If a single sentence is longer than maxChunkSize, it becomes its own chunk
-    if (trimmedSentence.length > maxChunkSize) {
+    // If a single sentence is longer than effectiveChunkSize, it becomes its own chunk
+    if (trimmedSentence.length > effectiveChunkSize) {
       // Save current chunk if it has content
       if (currentChunk.trim()) {
         chunks.push(currentChunk.trim())
@@ -304,7 +315,7 @@ export function splitTextIntoChunks(text: string, maxChunkSize: number = 1000): 
 
     // If adding this sentence would exceed the limit, save current chunk and start new one
     if (
-      currentChunk.length + trimmedSentence.length + 1 > maxChunkSize &&
+      currentChunk.length + trimmedSentence.length + 1 > effectiveChunkSize &&
       currentChunk.length > 0
     ) {
       chunks.push(currentChunk.trim())

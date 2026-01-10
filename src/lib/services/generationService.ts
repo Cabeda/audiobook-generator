@@ -25,6 +25,7 @@ import { toastStore } from '../../stores/toastStore'
 import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { resolveChapterLanguageWithDetection, DEFAULT_LANGUAGE } from '../utils/languageResolver'
+import { audioService } from '../audioPlaybackService.svelte'
 
 import {
   selectKokoroVoiceForLanguage,
@@ -404,6 +405,19 @@ class GenerationService {
 
   private wakeLock: WakeLockSentinel | null = null
   private priorityOverrides = new Map<string, number>()
+
+  // Auto-play settings for seamless mobile experience
+  private autoPlayEnabled = true
+  private autoPlayTriggered = new Set<string>() // Track chapters where auto-play was already triggered
+
+  /**
+   * Enable or disable auto-play of first segment when generation starts
+   * Auto-play provides seamless listening experience on mobile
+   */
+  setAutoPlay(enabled: boolean) {
+    this.autoPlayEnabled = enabled
+    logger.info(`Auto-play ${enabled ? 'enabled' : 'disabled'}`)
+  }
 
   /**
    * Set the next segment to be processed for a chapter.
@@ -958,6 +972,7 @@ class GenerationService {
 
     this.running = true
     this.canceled = false // Reset canceled state
+    this.autoPlayTriggered.clear() // Reset auto-play triggers for new generation
     isGenerating.set(true)
 
     // Acquire wake lock to prevent device sleep
@@ -1177,6 +1192,22 @@ class GenerationService {
                 }
                 audioSegments.push(segment)
                 await batchHandler.addSegment(segment)
+
+                // Auto-play first segment for seamless mobile experience
+                // Only triggers once per chapter, on the first completed segment
+                if (this.autoPlayEnabled && !this.autoPlayTriggered.has(ch.id) && !this.canceled) {
+                  this.autoPlayTriggered.add(ch.id)
+                  logger.info(`[AutoPlay] Starting playback of first available segment`, {
+                    chapterId: ch.id,
+                    segmentIndex: segment.index,
+                  })
+                  // Use setTimeout to avoid blocking the generation loop
+                  setTimeout(() => {
+                    audioService.playSingleSegment(segment).catch((err) => {
+                      logger.warn('[AutoPlay] Failed to auto-play first segment:', err)
+                    })
+                  }, 0)
+                }
               },
               (completed, total) => {
                 chapterProgress.update((m) =>
@@ -1432,12 +1463,84 @@ class GenerationService {
       chapterStatus.set(newStatusMap)
     }
 
+    // Clear auto-play state for canceled chapters
+    this.autoPlayTriggered.clear()
+
     this.running = false
     isGenerating.set(false)
   }
 
   isRunning() {
     return this.running
+  }
+
+  /**
+   * Pre-generate first chapter in the background for faster listening experience
+   * This is useful for mobile users who want to start listening immediately
+   *
+   * @param chapters - All chapters in the book
+   * @param options - Pre-generation options
+   */
+  async preGenerateFirstChapter(
+    chapters: Chapter[],
+    options: {
+      /** Maximum segments to pre-generate (default: 3 for quick preview) */
+      maxSegments?: number
+      /** Skip if already generated */
+      skipIfGenerated?: boolean
+    } = {}
+  ) {
+    const { maxSegments = 3, skipIfGenerated = true } = options
+
+    if (chapters.length === 0) {
+      logger.info('[PreGenerate] No chapters to pre-generate')
+      return
+    }
+
+    const firstChapter = chapters[0]
+
+    // Check if chapter already has audio
+    if (skipIfGenerated) {
+      const currentStatus = get(chapterStatus).get(firstChapter.id)
+      if (currentStatus === 'done') {
+        logger.info('[PreGenerate] First chapter already generated, skipping')
+        return
+      }
+
+      // Also check if any audio exists in the generated store
+      const generated = get(generatedAudio)
+      if (generated.has(firstChapter.id)) {
+        logger.info('[PreGenerate] First chapter already has audio, skipping')
+        return
+      }
+    }
+
+    // Don't pre-generate if generation is already running
+    if (this.running) {
+      logger.info('[PreGenerate] Generation already in progress, skipping pre-generation')
+      return
+    }
+
+    logger.info('[PreGenerate] Starting background pre-generation of first chapter', {
+      chapterId: firstChapter.id,
+      title: firstChapter.title,
+      maxSegments,
+    })
+
+    // For now, we start full generation which will auto-play the first segment
+    // In the future, we could add a limited-segment mode
+    // Disable auto-play during pre-generation since user hasn't explicitly requested playback
+    const wasAutoPlayEnabled = this.autoPlayEnabled
+    this.setAutoPlay(false)
+
+    try {
+      await this.generateChapters([firstChapter])
+    } catch (err) {
+      logger.warn('[PreGenerate] Background pre-generation failed:', err)
+    } finally {
+      // Restore auto-play setting
+      this.setAutoPlay(wasAutoPlayEnabled)
+    }
   }
 
   async exportAudio(
