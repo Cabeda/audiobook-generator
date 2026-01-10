@@ -127,8 +127,14 @@ class SegmentBatchHandler {
 /**
  * Type guard to check if a book has an ID property (i.e., is a LibraryBook with ID)
  */
-function hasBookId(book: any): book is LibraryBookWithId {
-  return book !== null && book !== undefined && 'id' in book && typeof book.id === 'number'
+function hasBookId(book: unknown): book is LibraryBookWithId {
+  return (
+    book !== null &&
+    book !== undefined &&
+    typeof book === 'object' &&
+    'id' in book &&
+    typeof (book as LibraryBookWithId).id === 'number'
+  )
 }
 
 /**
@@ -475,7 +481,9 @@ class GenerationService {
       // Stop any existing silent audio to ensure clean state
       await this.stopSilentAudio()
 
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
       if (!AudioContextClass) return
 
       this.audioContext = new AudioContextClass()
@@ -1421,9 +1429,9 @@ class GenerationService {
             newMap.delete(ch.id)
             return newMap
           })
-        } catch (err: any) {
+        } catch (err: unknown) {
           if (this.canceled) break
-          const errorMsg = err.message || 'Unknown error'
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error'
           logger.error(`Generation failed for chapter ${ch.title}:`, err)
           chapterStatus.update((m) => new Map(m).set(ch.id, 'error'))
           chapterErrors.update((m) => new Map(m).set(ch.id, errorMsg))

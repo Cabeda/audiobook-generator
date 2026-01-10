@@ -1,8 +1,13 @@
 import { test, expect } from '@playwright/test'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
 
 test.describe('Mobile Optimizations', () => {
-  const testFilePath = path.join(__dirname, 'test-files', 'sample.txt')
+  const testFilePath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    'test-files',
+    'sample.txt'
+  )
 
   test.beforeEach(async ({ page }) => {
     await page.goto('http://localhost:5173')

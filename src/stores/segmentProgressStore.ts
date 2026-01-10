@@ -37,7 +37,7 @@ export function initChapterSegments(
 
     const chapterProgress = {
       totalSegments: segments.length,
-      generatedIndices: new Set(),
+      generatedIndices: new Set<number>(),
       segmentTexts,
       generatedSegments: new Map(),
       isGenerating: true,

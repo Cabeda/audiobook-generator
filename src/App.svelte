@@ -269,11 +269,11 @@
       }
 
       const bookId = parsed.bookId
-      const chapterId = parsed.chapterId
+      const chapterId = parsed.view === 'reader' ? parsed.chapterId : undefined
 
       // Load book if not already loaded or different book
       if (bookId !== 'unsaved') {
-        const id = parseInt(bookId, 10)
+        const id = typeof bookId === 'string' ? parseInt(bookId, 10) : bookId
         if (!isNaN(id)) {
           // Check if we need to load
           const needsLoad = !$book || $currentLibraryBookId !== id
