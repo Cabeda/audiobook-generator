@@ -590,6 +590,10 @@ class AudioPlaybackService {
       this.chapterAudioUrl = null
     }
 
+    // Clear store caches and segments to avoid cross-chapter bleed
+    audioPlayerStore.clearAudioSegments()
+    this.segments = []
+
     this.currentSegmentIndex = -1
     // Clear derived info
     this.segmentDurations.clear()

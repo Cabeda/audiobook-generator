@@ -80,6 +80,23 @@ Agent safety & repository etiquette
 - Respect existing linters and pre-commit hooks: this repo uses `husky` + `lint-staged` (see `package.json` for details).
 - Run `pnpm lint` and `pnpm type-check` before pushing changes to catch issues early.
 
+Testing requirements for new features
+
+- **Unit tests are mandatory** for all new features and bug fixes. Place tests in `src/lib/**/*.test.ts` alongside the code they test.
+  - Test both happy-path and error scenarios.
+  - Test edge cases relevant to the feature (empty inputs, boundary conditions, state transitions, etc.).
+  - Aim for meaningful coverage; focus on testing logic and behavior, not just line coverage.
+- **E2E tests are strongly recommended** when the feature involves user interactions or cross-component workflows.
+  - Add tests to `e2e/**/*.spec.ts` that verify the feature from the user's perspective.
+  - Test against realistic use cases (e.g., for audio playback, test playing different languages, switching chapters, etc.).
+  - Use `pnpm test:e2e:headed` locally to debug flaky tests interactively.
+
+- **Always run the full test suite before submitting changes:**
+  - `pnpm lint` and `pnpm type-check` to catch style/type issues.
+  - `pnpm test` to run all unit tests and ensure nothing breaks.
+  - `pnpm test:e2e` to run end-to-end tests (or a subset if specified).
+  - If any test fails, investigate and fix before pushing. Do not ignore failing tests.
+
 Testing and validation
 
 - Unit tests: `pnpm test` (vitest)
