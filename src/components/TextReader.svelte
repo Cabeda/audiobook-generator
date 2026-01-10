@@ -1338,17 +1338,6 @@
     background: var(--surface-color);
   }
 
-  .model-select,
-  .voice-select {
-    width: 100%;
-    padding: 8px;
-    border-radius: 6px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-color);
-    color: var(--text-color);
-    font-size: 14px;
-  }
-
   /* Subtle indicator for buffered segments */
   .theme-selector {
     display: flex;

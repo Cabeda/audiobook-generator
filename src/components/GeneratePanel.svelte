@@ -550,7 +550,12 @@
           <span class="label-text">🧠 TTS Model</span>
           <p class="help-text">Choose the text-to-speech engine</p>
         </label>
-        <select id="model-select" bind:value={selectedModel} disabled={running || concatenating}>
+        <select
+          id="model-select"
+          class="model-select"
+          bind:value={selectedModel}
+          disabled={running || concatenating}
+        >
           {#each TTS_MODELS as model}
             <option value={model.id}>{model.name}</option>
           {/each}
@@ -563,6 +568,7 @@
         </label>
         <select
           id="voice-select"
+          class="voice-select"
           bind:value={selectedVoice}
           disabled={running || concatenating}
           onchange={() => dispatch('voicechanged', { voice: selectedVoice })}
@@ -753,15 +759,11 @@
 
   <!-- Action Buttons -->
   <div class="actions">
-    {@const selectedChapters = getSelectedChapters()}
-    {@const allGenerated =
-      selectedChapters.length > 0 && selectedChapters.every((ch) => generatedChapters.has(ch.id))}
-
     <div class="button-group">
       <button
         class="primary"
         onclick={generateAudio}
-        disabled={running || concatenating || selectedChapters.length === 0}
+        disabled={running || concatenating || getSelectedChapters().length === 0}
         aria-busy={running}
       >
         {running ? '⏳ Generating...' : '🎧 Generate Audio'}
@@ -771,12 +773,13 @@
         <button
           class="secondary export-btn"
           onclick={exportAudio}
-          disabled={running || concatenating || selectedChapters.length === 0}
+          disabled={running || concatenating || getSelectedChapters().length === 0}
           aria-busy={concatenating}
         >
           {concatenating
             ? '📦 Exporting...'
-            : allGenerated
+            : getSelectedChapters().length > 0 &&
+                getSelectedChapters().every((ch) => generatedChapters.has(ch.id))
               ? `📥 Export ${selectedFormat.toUpperCase()}`
               : `⚡ Generate & Export ${selectedFormat.toUpperCase()}`}
         </button>
@@ -1279,6 +1282,17 @@
     opacity: 0.6;
     cursor: not-allowed;
     background: var(--bg-color);
+  }
+
+  .model-select,
+  .voice-select {
+    width: 100%;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-size: 14px;
   }
 
   .download-section {

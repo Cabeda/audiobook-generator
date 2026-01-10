@@ -211,6 +211,23 @@
       </button>
     </div>
 
+    <!-- Progress Section -->
+    <div class="progress-section" aria-hidden={false}>
+      <div class="time">{formatTime(playerState.currentTime)}</div>
+      <div
+        class="progress-bar"
+        role="progressbar"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={Math.round(playbackInfo.progress * 100)}
+      >
+        <div
+          class="progress-fill"
+          style="width: {Math.max(0, Math.min(100, playbackInfo.progress * 100))}%"
+        ></div>
+      </div>
+    </div>
+
     <!-- Extra Actions -->
     <div class="actions">
       {#if mode === 'reader'}
