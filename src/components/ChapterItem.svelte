@@ -72,6 +72,7 @@
   // Segment progress for this chapter
   let chapterSegmentProgress = $derived($segmentProgress.get(chapter.id))
   let segmentPercentage = $derived($segmentProgressPercentage.get(chapter.id) ?? 0)
+
   // A chapter is "partially generated" only if generation is NOT currently in progress
   // and there are some (but not all) segments generated. This differentiates between:
   // 1. Currently generating with partial progress (shown in processing state above)

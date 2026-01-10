@@ -879,8 +879,13 @@ class GenerationService {
    *
    * @param chapter - The chapter to generate
    * @param startSegmentIndex - The segment index to start from (0-based)
+   * @param totalSegments - Optional total number of segments for immediate progress display
    */
-  async generateSingleChapterFromSegment(chapter: Chapter, startSegmentIndex: number = 0) {
+  async generateSingleChapterFromSegment(
+    chapter: Chapter,
+    startSegmentIndex: number = 0,
+    totalSegments?: number
+  ) {
     if (this.running) {
       logger.warn('Generation already running')
       toastStore.warning('Generation is already running')
@@ -888,6 +893,30 @@ class GenerationService {
     }
 
     logger.info(`Starting generation for chapter ${chapter.id} from segment ${startSegmentIndex}`)
+
+    // Immediately set status to 'processing' so UI updates before async work begins
+    chapterStatus.update((m) => new Map(m).set(chapter.id, 'processing'))
+
+    // If we know the total segments, initialize segment progress immediately for better UX
+    if (totalSegments && totalSegments > 0) {
+      // Create placeholder segments with the known count
+      const placeholderSegments = Array.from({ length: totalSegments }, (_, i) => ({
+        text: '',
+        id: `${chapter.id}-seg-${i}`,
+        index: i,
+      }))
+      initChapterSegments(chapter.id, placeholderSegments)
+      logger.info(`Pre-initialized ${totalSegments} segments for immediate UI feedback`)
+    } else {
+      // Fallback: Set initial progress message for immediate UI feedback
+      chapterProgress.update((m) =>
+        new Map(m).set(chapter.id, {
+          current: 0,
+          total: 1,
+          message: 'Starting generation from segment...',
+        })
+      )
+    }
 
     // Set priority for this chapter and segment
     this.priorityOverrides.set(chapter.id, startSegmentIndex)

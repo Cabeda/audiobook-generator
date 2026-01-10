@@ -35,13 +35,14 @@ export function initChapterSegments(
     const segmentTexts = new Map<number, string>()
     segments.forEach((s) => segmentTexts.set(s.index, s.text))
 
-    newMap.set(chapterId, {
+    const chapterProgress = {
       totalSegments: segments.length,
       generatedIndices: new Set(),
       segmentTexts,
       generatedSegments: new Map(),
       isGenerating: true,
-    })
+    }
+    newMap.set(chapterId, chapterProgress)
     return newMap
   })
 }

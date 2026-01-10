@@ -608,9 +608,13 @@
 
       if (!hasAudio && !isGenerating) {
         // No audio and not generating - start generation from this segment
-        generationService.generateSingleChapterFromSegment(chapter, index).catch((err) => {
-          logger.error('Failed to start generation from segment', err)
-        })
+        // Pass the total segment count for immediate progress display
+        const totalSegments = audioService.segments.length
+        generationService
+          .generateSingleChapterFromSegment(chapter, index, totalSegments)
+          .catch((err) => {
+            logger.error('Failed to start generation from segment', err)
+          })
       } else {
         // Has audio or already generating - inject progressive segment if available, then play
         if (segmentData) {
