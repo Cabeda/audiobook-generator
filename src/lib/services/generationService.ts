@@ -142,43 +142,6 @@ function getBookId(): number {
   return 0
 }
 
-/**
- * Process items in parallel batches
- * @param items Array of items to process
- * @param batchSize Number of items to process concurrently
- * @param processor Function that processes a single item and returns a result
- * @param onProgress Optional callback called after each batch completes
- * @returns Array of results in the same order as the input items
- */
-async function processBatch<T, R>(
-  items: T[],
-  batchSize: number,
-  processor: (item: T, index: number) => Promise<R>,
-  onProgress?: (completedCount: number, total: number) => void
-): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let completedCount = 0
-
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, Math.min(i + batchSize, items.length))
-    const batchResults = await Promise.all(
-      batch.map((item, batchIndex) => processor(item, i + batchIndex))
-    )
-
-    // Store results in order
-    batchResults.forEach((result, batchIndex) => {
-      results[i + batchIndex] = result
-    })
-
-    completedCount += batch.length
-    if (onProgress) {
-      onProgress(completedCount, items.length)
-    }
-  }
-
-  return results
-}
-
 export interface SegmentOptions {
   ignoreCodeBlocks?: boolean
   ignoreLinks?: boolean
@@ -439,6 +402,20 @@ class GenerationService {
   private canceled = false
 
   private wakeLock: WakeLockSentinel | null = null
+  private priorityOverrides = new Map<string, number>()
+
+  /**
+   * Set the next segment to be processed for a chapter.
+   * This allows the user to click a segment and prioritize its generation,
+   * continuing sequentially from there.
+   */
+  setGenerationPriority(chapterId: string, segmentIndex: number) {
+    // Only accept if we are running
+    if (this.running) {
+      this.priorityOverrides.set(chapterId, segmentIndex)
+      logger.info(`Set generation priority for chapter ${chapterId} to segment ${segmentIndex}`)
+    }
+  }
 
   // Bind the handler so it can be added/removed as an event listener
   private handleVisibilityChange = async () => {
@@ -773,6 +750,127 @@ class GenerationService {
   }
   // END OF DISABLED COMPLEX SEGMENTATION
 
+  /**
+   * Process segments with dynamic priority handling.
+   * Replaces strict sequential/batch processing.
+   *
+   * @param chapterId Chapter ID for priority lookup
+   * @param segments List of segments to process
+   * @param parallelism Number of concurrent tasks
+   * @param processor Function to process a single segment
+   * @param onResult Function to handle the result (e.g. saving to DB)
+   * @param onProgress Function to report progress
+   */
+  private async processSegmentsWithPriority<T, R>(
+    chapterId: string,
+    segments: T[],
+    parallelism: number,
+    processor: (segment: T) => Promise<R>,
+    onResult: (result: R) => Promise<void>,
+    onProgress: (completed: number, total: number) => void
+  ) {
+    const total = segments.length
+    const processed = new Set<number>()
+    let cursor = 0 // Start at beginning
+
+    // To ensure O(1) access if T has an index property matching array index,
+    // we assume segments is sorted by index 0..N-1.
+    // If not, we might need a map, but for now we assume array index = segment index.
+
+    // Main loop: Continue until all segments are processed or canceled
+    while (processed.size < total && !this.canceled) {
+      const batch: T[] = []
+      const batchIndices = new Set<number>()
+
+      // Fill batch with next available segments
+      while (batch.length < parallelism && processed.size + batch.length < total) {
+        let nextIndex: number | undefined
+
+        // 1. Check for priority override
+        if (this.priorityOverrides.has(chapterId)) {
+          const priority = this.priorityOverrides.get(chapterId)!
+          // Only use if not already processed or in current batch
+          // We assume priority is a valid index
+          if (
+            priority >= 0 &&
+            priority < total &&
+            !processed.has(priority) &&
+            !batchIndices.has(priority)
+          ) {
+            nextIndex = priority
+            // Move cursor to follow priority for subsequent items
+            // This ensures "proceed from there" behavior
+            cursor = (priority + 1) % total
+            // Consume the override
+            this.priorityOverrides.delete(chapterId)
+          } else {
+            // Priority already done or invalid, discard
+            this.priorityOverrides.delete(chapterId)
+          }
+        }
+
+        // 2. Fallback to cursor logic if no valid priority
+        if (nextIndex === undefined) {
+          // Advance cursor continuously until we find an available item
+          // We limit the search to 'total' to prevent infinite loops (though processed check guards this)
+          let checked = 0
+          while ((processed.has(cursor) || batchIndices.has(cursor)) && checked < total) {
+            cursor = (cursor + 1) % total
+            checked++
+          }
+
+          if (checked < total) {
+            nextIndex = cursor
+            // Prepare cursor for next iteration
+            cursor = (cursor + 1) % total
+          }
+        }
+
+        if (nextIndex !== undefined) {
+          // Add to batch
+          // We assume segments array maps index->segment directly
+          const seg = segments[nextIndex]
+          if (seg) {
+            batch.push(seg)
+            batchIndices.add(nextIndex)
+          } else {
+            logger.warn(`Segment at index ${nextIndex} not found`)
+            // Skip this index
+            processed.add(nextIndex) // Mark as "processed" to avoid stuck loop
+          }
+        } else {
+          // No more items found?
+          break
+        }
+      }
+
+      if (batch.length === 0) break
+
+      // Process batch
+      const results = await Promise.all(
+        batch.map(async (seg) => {
+          if (this.canceled) return null
+          return await processor(seg)
+        })
+      )
+
+      if (this.canceled) break
+
+      // Handle results and update state
+      for (const result of results) {
+        if (result) {
+          await onResult(result)
+        }
+      }
+
+      // Mark as processed (even if failed? No, only successful ones, but we assume success if no throw)
+      // Ideally processor throws on fail.
+      batchIndices.forEach((idx) => processed.add(idx))
+
+      onProgress(processed.size, total)
+    }
+  }
+
   async generateChapters(chapters: Chapter[]) {
     // Direct console log to bypass logger filtering
     console.error('=== GENERATION STARTING ===')
@@ -948,98 +1046,21 @@ class GenerationService {
 
             const worker = getTTSWorker()
 
-            // Filter out empty segments first
-            const nonEmptySegments = textSegments.filter((seg) => seg.text.trim())
+            // Create batch handler for efficient database writes
+            const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
 
-            if (parallelChunks > 1) {
-              // Parallel batch processing
-              logger.info(
-                `[generateChapters] Processing ${nonEmptySegments.length} segments with parallelism ${parallelChunks}`
-              )
-
-              const results = await processBatch(
-                nonEmptySegments,
-                parallelChunks,
-                async (segment) => {
-                  if (this.canceled) {
-                    throw new Error('Generation canceled')
-                  }
-
-                  const blob = await worker.generateVoice({
-                    text: segment.text,
-                    modelType: 'kokoro',
-                    voice: effectiveVoice,
-                    dtype: currentQuantization,
-                    device: currentDevice,
-                    language: effectiveLanguage,
-                    advancedSettings: currentAdvancedSettings,
-                  })
-
-                  return {
-                    segment,
-                    blob,
-                    duration: this.calculateWavDuration(blob),
-                  }
-                },
-                (completedCount, total) => {
-                  chapterProgress.update((m) =>
-                    new Map(m).set(ch.id, {
-                      current: completedCount,
-                      total,
-                      message: `Generating segment ${completedCount}/${total} (${parallelChunks}x parallel)`,
-                    })
-                  )
-                }
-              )
-
-              // Create batch handler for efficient database writes
-              const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
-
-              // Calculate cumulative times and build audioSegments array
-              let cumulativeTime = 0
-              for (const result of results) {
-                const segment: AudioSegment = {
-                  id: result.segment.id,
-                  chapterId: ch.id,
-                  index: result.segment.index,
-                  text: result.segment.text,
-                  audioBlob: result.blob as Blob,
-                  duration: result.duration,
-                  startTime: cumulativeTime,
-                }
-                audioSegments.push(segment)
-
-                // Add segment to batch (will auto-flush when batch is full)
-                await batchHandler.addSegment(segment)
-
-                cumulativeTime += result.duration
-              }
-
-              // Flush any remaining segments in the batch
-              await batchHandler.flush()
-            } else {
-              // Sequential processing (original behavior)
-              const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
-              let cumulativeTime = 0
-
-              for (let i = 0; i < textSegments.length; i++) {
-                if (this.canceled) break
-                const segText = textSegments[i].text
+            await this.processSegmentsWithPriority(
+              ch.id,
+              textSegments,
+              parallelChunks,
+              async (segment) => {
+                if (this.canceled) throw new Error('Generation canceled')
 
                 // Skip empty segments
-                if (!segText.trim()) continue
+                if (!segment.text.trim()) return null
 
-                chapterProgress.update((m) =>
-                  new Map(m).set(ch.id, {
-                    current: i + 1,
-                    total: textSegments.length,
-                    message: `Generating segment ${i + 1}/${textSegments.length}`,
-                  })
-                )
-
-                // Generate audio for this specific sentence
                 const blob = await worker.generateVoice({
-                  text: segText,
+                  text: segment.text,
                   modelType: 'kokoro',
                   voice: effectiveVoice,
                   dtype: currentQuantization,
@@ -1048,28 +1069,45 @@ class GenerationService {
                   advancedSettings: currentAdvancedSettings,
                 })
 
-                const duration = this.calculateWavDuration(blob)
-
-                const segment: AudioSegment = {
-                  id: textSegments[i].id,
-                  chapterId: ch.id,
-                  index: i,
-                  text: segText,
-                  audioBlob: blob as Blob,
-                  duration,
-                  startTime: cumulativeTime,
+                return {
+                  segment,
+                  blob,
+                  duration: this.calculateWavDuration(blob),
                 }
-
+              },
+              async (result) => {
+                if (!result) return
+                const segment: AudioSegment = {
+                  id: result.segment.id,
+                  chapterId: ch.id,
+                  index: result.segment.index,
+                  text: result.segment.text,
+                  audioBlob: result.blob as Blob,
+                  duration: result.duration,
+                  startTime: 0, // Placeholder, fixed after sort
+                }
                 audioSegments.push(segment)
-
-                // Add segment to batch (will auto-flush when batch is full)
                 await batchHandler.addSegment(segment)
-
-                cumulativeTime += duration
+              },
+              (completed, total) => {
+                chapterProgress.update((m) =>
+                  new Map(m).set(ch.id, {
+                    current: completed,
+                    total,
+                    message: `Generating segment ${completed}/${total}`,
+                  })
+                )
               }
+            )
 
-              // Flush any remaining segments in the batch
-              await batchHandler.flush()
+            await batchHandler.flush()
+
+            // Sort audio segments by index and fix start times
+            audioSegments.sort((a, b) => a.index - b.index)
+            let cumulativeTime = 0
+            for (const s of audioSegments) {
+              s.startTime = cumulativeTime
+              cumulativeTime += s.duration || 0
             }
 
             if (this.canceled) break
@@ -1155,55 +1193,37 @@ class GenerationService {
             // Get parallelization setting (default to 1 for sequential processing)
             const parallelChunks = Math.max(1, Number(currentAdvancedSettings.parallelChunks) || 1)
 
-            // Filter out empty segments first
-            const nonEmptySegments = textSegments.filter((seg) => seg.text.trim())
+            // Create batch handler for efficient database writes
+            const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
 
-            if (parallelChunks > 1) {
-              // Parallel batch processing
-              logger.info(
-                `[generateChapters] Processing ${nonEmptySegments.length} Piper segments with parallelism ${parallelChunks}`
-              )
+            await this.processSegmentsWithPriority(
+              ch.id,
+              textSegments,
+              parallelChunks,
+              async (segment) => {
+                if (this.canceled) throw new Error('Generation canceled')
 
-              const results = await processBatch(
-                nonEmptySegments,
-                parallelChunks,
-                async (segment) => {
-                  if (this.canceled) {
-                    throw new Error('Generation canceled')
-                  }
+                // Skip empty segments
+                if (!segment.text.trim()) return null
 
-                  const blob = await worker.generateVoice({
-                    text: segment.text,
-                    modelType: 'piper',
-                    voice: effectiveVoice,
-                    device: currentDevice,
-                    language: effectiveLanguage,
-                    advancedSettings: currentAdvancedSettings,
-                  })
+                const blob = await worker.generateVoice({
+                  text: segment.text,
+                  modelType: 'piper', // Piper
+                  voice: effectiveVoice,
+                  device: currentDevice,
+                  language: effectiveLanguage,
+                  advancedSettings: currentAdvancedSettings,
+                  // No dtype for Piper
+                })
 
-                  return {
-                    segment,
-                    blob,
-                    duration: this.calculateWavDuration(blob),
-                  }
-                },
-                (completedCount, total) => {
-                  chapterProgress.update((m) =>
-                    new Map(m).set(ch.id, {
-                      current: completedCount,
-                      total,
-                      message: `Generating segment ${completedCount}/${total} (${parallelChunks}x parallel)`,
-                    })
-                  )
+                return {
+                  segment,
+                  blob,
+                  duration: this.calculateWavDuration(blob),
                 }
-              )
-
-              // Create batch handler for efficient database writes
-              const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
-
-              // Calculate cumulative times and build audioSegments array
-              let cumulativeTime = 0
-              for (const result of results) {
+              },
+              async (result) => {
+                if (!result) return
                 const segment: AudioSegment = {
                   id: result.segment.id,
                   chapterId: ch.id,
@@ -1211,76 +1231,30 @@ class GenerationService {
                   text: result.segment.text,
                   audioBlob: result.blob as Blob,
                   duration: result.duration,
-                  startTime: cumulativeTime,
+                  startTime: 0, // Placeholder, fixed after sort
                 }
                 audioSegments.push(segment)
-
-                // Add segment to batch (will auto-flush when batch is full)
                 await batchHandler.addSegment(segment)
-
-                cumulativeTime += result.duration
-              }
-
-              // Flush any remaining segments in the batch
-              await batchHandler.flush()
-            } else {
-              // Sequential processing (original behavior)
-              const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
-              let cumulativeTime = 0
-
-              for (let i = 0; i < textSegments.length; i++) {
-                if (this.canceled) break
-                const segText = textSegments[i].text
-
-                if (i === 0) {
-                  logger.warn('[generateChapters] About to generate first Piper segment', {
-                    segmentIndex: i,
-                    segmentId: textSegments[i].id,
-                    text: segText,
-                    textLength: segText.length,
-                  })
-                }
-
+              },
+              (completed, total) => {
                 chapterProgress.update((m) =>
                   new Map(m).set(ch.id, {
-                    current: i + 1,
-                    total: textSegments.length,
-                    message: `Generating segment ${i + 1}/${textSegments.length}`,
+                    current: completed,
+                    total,
+                    message: `Generating segment ${completed}/${total}`,
                   })
                 )
-
-                const blob = await worker.generateVoice({
-                  text: segText,
-                  modelType: 'piper',
-                  voice: effectiveVoice,
-                  device: currentDevice,
-                  language: effectiveLanguage,
-                  advancedSettings: currentAdvancedSettings,
-                })
-
-                // Piper outputs WAV too, use same calculation
-                const duration = this.calculateWavDuration(blob)
-
-                const segment: AudioSegment = {
-                  id: textSegments[i].id,
-                  chapterId: ch.id,
-                  index: i,
-                  text: segText,
-                  audioBlob: blob as Blob,
-                  duration,
-                  startTime: cumulativeTime,
-                }
-
-                audioSegments.push(segment)
-
-                // Add segment to batch (will auto-flush when batch is full)
-                await batchHandler.addSegment(segment)
-
-                cumulativeTime += duration
               }
+            )
 
-              // Flush any remaining segments in the batch
-              await batchHandler.flush()
+            await batchHandler.flush()
+
+            // Sort audio segments by index and fix start times
+            audioSegments.sort((a, b) => a.index - b.index)
+            let cumulativeTime = 0
+            for (const s of audioSegments) {
+              s.startTime = cumulativeTime
+              cumulativeTime += s.duration || 0
             }
 
             if (this.canceled) break

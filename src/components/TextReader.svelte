@@ -7,7 +7,7 @@
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
   import { segmentProgress, getGeneratedSegment } from '../stores/segmentProgressStore'
-  import { segmentHtmlContent } from '../lib/services/generationService'
+  import { segmentHtmlContent, generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
 
@@ -596,6 +596,9 @@
     const segmentEl = target.closest('.segment') as HTMLElement | null
     const index = getSegmentIndex(segmentEl)
     if (index !== null) {
+      if (isGenerating) {
+        generationService.setGenerationPriority(chapter.id, index)
+      }
       // Just play normally - the service now handles checking for progressive segments
       audioService.playFromSegment(index)
     }
