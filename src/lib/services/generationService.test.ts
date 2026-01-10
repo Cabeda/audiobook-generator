@@ -246,20 +246,18 @@ describe('Potential Bugs (Failing Tests)', () => {
      * Actual: Errors are silently logged, generation appears successful
      */
     it.fails('should notify user when all segment saves fail', async () => {
-      let errorShown = false
-
-      // Simulate all flush operations failing
-      const _mockSave = vi.fn().mockRejectedValue(new Error('DB write failed'))
-
-      // After all segments processed with save failures,
-      // user should see an error notification
-      // Currently, errors are logged but user sees "100% complete"
-
-      expect(errorShown).toBe(true) // Will fail - error not shown to user
+      // Intentionally failing placeholder test documenting a known bug.
+      // Once SegmentBatchHandler correctly surfaces persistent save failures
+      // to the user (e.g., via an error notification), replace this throw
+      // with assertions that verify the notification behavior under
+      // simulated "all segment saves fail" conditions.
+      throw new Error(
+        'Known bug: SegmentBatchHandler does not notify the user when all segment saves fail.'
+      )
     })
   })
 
-  describe('processSegmentsWithPriority loop termination (lines 765-860)', () => {
+  describe('Segment processing termination (lines 765-860)', () => {
     /**
      * This tests that segment processing terminates correctly even when
      * segments fail. Failed segments should be marked as processed to
@@ -407,7 +405,13 @@ describe('Potential Bugs (Failing Tests)', () => {
       }
     })
   })
+})
 
+// ============================================================================
+// CANCELLATION AND CLEANUP TESTS
+// ============================================================================
+
+describe('Cancellation and Cleanup', () => {
   describe('Cancellation during batch flush (line 1227)', () => {
     /**
      * This tests cancellation handling during batch operations.

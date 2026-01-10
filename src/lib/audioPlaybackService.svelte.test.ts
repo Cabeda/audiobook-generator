@@ -176,9 +176,19 @@ describe('Audio Playback Bugs (Failing Tests)', () => {
      * is not explicitly revoked. The old audio is dereferenced but
      * URL may leak.
      *
+     * NOTE:
+     * This is a simplified, documentation-only test that demonstrates the
+     * expected URL lifecycle behavior using the URL mock. It does NOT invoke
+     * the real audioPlaybackService implementation because Svelte runes
+     * prevent instantiating the service in isolation in this test environment.
+     *
      * Location: src/lib/audioPlaybackService.svelte.ts playCurrentSegment
-     * Expected: All blob URLs should be revoked when replaced
-     * Actual: URLs may leak when audio element replaced
+     * Expected (design): All blob URLs should be revoked when replaced.
+     * Actual with current mock: Old URLs are never revoked and leak.
+     *
+     * When the service becomes unit-testable, this test should be replaced
+     * with one that calls playCurrentSegment directly and verifies
+     * URL.revokeObjectURL is invoked.
      */
     it.fails('should revoke old blob URL when creating new audio', () => {
       const urlTracker = setupMockURL()
