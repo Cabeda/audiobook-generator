@@ -30,6 +30,7 @@ import {
   selectKokoroVoiceForLanguage,
   selectPiperVoiceForLanguage,
   isKokoroLanguageSupported,
+  normalizeLanguageCode,
 } from '../utils/voiceSelector'
 import { PiperClient } from '../piper/piperClient'
 import {
@@ -999,6 +1000,41 @@ class GenerationService {
           }
         } else {
           logger.info(`Using chapter-specific voice: ${effectiveVoice}`)
+        }
+
+        // If a specific Piper voice is selected but doesn't match the detected language, switch to a matching one
+        if (effectiveModel === 'piper' && !shouldAutoSelectVoice) {
+          const piperClient = PiperClient.getInstance()
+          const availableVoices = await piperClient.getVoices()
+          const selectedVoiceInfo = availableVoices.find((v) => v.key === effectiveVoice)
+          const normalizedChapterLang = normalizeLanguageCode(effectiveLanguage)
+          const voiceLang = selectedVoiceInfo
+            ? normalizeLanguageCode(selectedVoiceInfo.language)
+            : null
+
+          const voiceMatchesLanguage = selectedVoiceInfo && voiceLang === normalizedChapterLang
+
+          if (!voiceMatchesLanguage) {
+            logger.warn(
+              `Selected Piper voice '${effectiveVoice}' is not compatible with language '${effectiveLanguage}', auto-switching`,
+              {
+                chapterId: ch.id,
+                detectedLanguage: effectiveLanguage,
+                selectedVoice: effectiveVoice,
+                selectedVoiceLanguage: selectedVoiceInfo?.language,
+              }
+            )
+
+            effectiveVoice = selectPiperVoiceForLanguage(
+              effectiveLanguage,
+              availableVoices,
+              undefined
+            )
+
+            logger.info(
+              `Switched Piper voice to '${effectiveVoice}' for language '${effectiveLanguage}'`
+            )
+          }
         }
 
         try {

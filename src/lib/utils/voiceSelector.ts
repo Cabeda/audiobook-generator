@@ -133,7 +133,7 @@ const LANGUAGE_CODE_MAP: Record<string, string> = {
 /**
  * Normalize language code to ISO 639-1 format
  */
-function normalizeLanguageCode(language: string): string {
+export function normalizeLanguageCode(language: string): string {
   const lower = language.toLowerCase().trim()
 
   // Already a standard code (2 letters)

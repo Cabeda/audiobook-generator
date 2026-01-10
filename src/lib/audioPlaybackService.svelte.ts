@@ -4,8 +4,9 @@ import { audioPlayerStore } from '../stores/audioPlayerStore'
 import type { Chapter } from './types/book'
 import { getChapterSegments, getChapterAudio } from './libraryDB'
 import { segmentHtmlContent } from './services/generationService'
-import { getGeneratedSegment } from '../stores/segmentProgressStore'
 import type { AudioSegment } from './types/audio'
+import { selectPiperVoiceForLanguage, normalizeLanguageCode } from './utils/voiceSelector'
+import { PiperClient } from './piper/piperClient'
 
 interface TextSegment {
   index: number
@@ -34,7 +35,6 @@ class AudioPlaybackService {
   private pendingGenerations = new Map<number, Promise<void>>()
   private bufferTarget = 5
   private chapterAudioUrl: string | null = null // Track chapter audio URL for cleanup
-  private currentChapterId: string | null = null // Track current chapter ID for progressive playback
 
   // Configuration
   private voice = ''
@@ -83,7 +83,6 @@ class AudioPlaybackService {
     }
   ) {
     this.stop() // Stop previous playback
-    this.currentChapterId = chapter.id
 
     this.voice = settings.voice
     this.quantization = settings.quantization
@@ -140,9 +139,6 @@ class AudioPlaybackService {
     }
     this.duration = 0
     this.isPlaying = false
-
-    // Setup Media Session
-    this.setupMediaSession(chapter.title, bookTitle)
 
     // Initialize store
     audioPlayerStore.startPlayback(
@@ -231,6 +227,38 @@ class AudioPlaybackService {
     })
   }
 
+  // Ensure Piper voice matches the chapter language; auto-switch if mismatched
+  private async ensurePiperVoiceForLanguage(language?: string) {
+    const normalizedLang = language ? normalizeLanguageCode(language) : 'en'
+
+    try {
+      const piperClient = PiperClient.getInstance()
+      const availableVoices = await piperClient.getVoices()
+      if (availableVoices.length === 0) return
+
+      const selected = availableVoices.find((v) => v.key === this.voice)
+      const selectedLang = selected ? normalizeLanguageCode(selected.language) : null
+
+      const matches = selected && selectedLang === normalizedLang
+      if (matches) return
+
+      const newVoice = selectPiperVoiceForLanguage(normalizedLang, availableVoices)
+      if (newVoice !== this.voice) {
+        logger.info('Auto-switching Piper voice to match language', {
+          previousVoice: this.voice,
+          newVoice,
+          language: normalizedLang,
+        })
+        this.voice = newVoice
+      }
+    } catch (err) {
+      logger.warn('Failed to ensure Piper voice for language', {
+        error: err instanceof Error ? err.message : String(err),
+        language: normalizedLang,
+      })
+    }
+  }
+
   /**
    * Load a pre-generated chapter for pure playback.
    * This method uses stored segments with timing data and a single concatenated audio file.
@@ -249,7 +277,6 @@ class AudioPlaybackService {
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
     this.stop()
-    this.currentChapterId = chapter.id
 
     if (settings) {
       this.voice = settings.voice || this.voice
@@ -257,6 +284,12 @@ class AudioPlaybackService {
       this.device = settings.device || this.device
       this.selectedModel = settings.selectedModel || this.selectedModel
       this.playbackSpeed = settings.playbackSpeed || this.playbackSpeed
+
+      // If Piper is selected, ensure the voice matches the chapter language
+      if (this.selectedModel === 'piper') {
+        const lang = chapter.detectedLanguage || chapter.language
+        await this.ensurePiperVoiceForLanguage(lang)
+      }
     }
 
     // Load segments with timing data
@@ -365,9 +398,6 @@ class AudioPlaybackService {
     this.currentSegmentIndex = 0
     this.currentTime = 0
 
-    // Setup Media Session
-    this.setupMediaSession(chapter.title, bookTitle)
-
     // Initialize store
     audioPlayerStore.startPlayback(
       bookId,
@@ -399,7 +429,6 @@ class AudioPlaybackService {
         this.isPlaying = false
         audioPlayerStore.pause()
       }
-      this.updateMediaSessionState()
       return
     }
 
@@ -416,7 +445,6 @@ class AudioPlaybackService {
   pause() {
     this.isPlaying = false
     audioPlayerStore.pause()
-    this.updateMediaSessionState()
 
     if (this.audio) {
       this.audio.pause()
@@ -535,7 +563,6 @@ class AudioPlaybackService {
       this.audio.playbackRate = speed
     }
     audioPlayerStore.setPlaybackSpeed(speed)
-    this.updateMediaSessionState()
   }
 
   stop() {
@@ -570,11 +597,17 @@ class AudioPlaybackService {
     this.totalWords = 0
     this.wordsMeasured = 0
     audioPlayerStore.setChapterDuration(0)
-    this.currentChapterId = null
   }
 
   // Internal Logic
+  private isPlayingSegment = false // Guard against concurrent playCurrentSegment calls
+
   private async playCurrentSegment() {
+    // Prevent concurrent execution that can cause repeated audio
+    if (this.isPlayingSegment) {
+      return
+    }
+
     const index = this.currentSegmentIndex
 
     let url = this.audioSegments.get(index)
@@ -593,93 +626,89 @@ class AudioPlaybackService {
       }
     }
 
-    // Create new audio element with proper cleanup
-    // First ensure any old instance is fully cleaned
-    if (this.audio) {
-      this.audio.pause()
-      this.audio.onended = null
-      this.audio.ontimeupdate = null
-      this.audio.onerror = null
-      this.audio.onloadedmetadata = null
-      this.audio.src = ''
-    }
-
-    this.audio = new Audio(url)
-    this.audio.playbackRate = this.playbackSpeed
-
-    // Update duration when metadata loads
-    this.audio.onloadedmetadata = () => {
-      if (this.audio) this.duration = this.audio.duration
-    }
-
-    // Update time during playback
-    this.audio.ontimeupdate = () => {
-      if (this.audio) this.currentTime = this.audio.currentTime
-    }
-
-    this.audio.onended = () => {
-      const nextIndex = this.currentSegmentIndex + 1
-      if (nextIndex < this.segments.length && this.isPlaying) {
-        this.currentSegmentIndex = nextIndex
-
-        // Check buffer
-        const buffered = this.countBufferedSegments()
-        if (buffered < 3) {
-          this.bufferSegments(this.currentSegmentIndex + 1, this.bufferTarget).catch((err) =>
-            logger.error('[AudioPlayback]', err)
-          )
-        }
-
-        this.cleanupOldSegments()
-        this.playCurrentSegment()
-      } else {
-        this.isPlaying = false
-        audioPlayerStore.pause()
-        if (this.audio) {
-          this.audio.onended = null
-          this.audio.ontimeupdate = null
-          this.audio.onerror = null
-          this.audio.onloadedmetadata = null
-          this.audio.onpause = null
-          this.audio.onplay = null
-          this.audio.src = ''
-        }
-        this.audio = null
-      }
-    }
-
-    this.audio.onpause = () => {
-      // If paused by system (interruption) or UI, sync state
-      if (this.audio?.ended) return // Ignore if standard end
-      if (this.isPlaying) {
-        logger.info('Audio paused by system/external event')
-        this.isPlaying = false
-        audioPlayerStore.pause()
-        this.updateMediaSessionState()
-      }
-    }
-
-    this.audio.onplay = () => {
-      if (!this.isPlaying) {
-        logger.info('Audio resumed by system/external event')
-        this.isPlaying = true
-        audioPlayerStore.play()
-        this.updateMediaSessionState()
-      }
-    }
-
-    this.audio.onerror = (err) => {
-      logger.error('Audio playback error:', err)
-      if (this.currentSegmentIndex === index) {
-        this.audioSegments.delete(index)
-        this.playCurrentSegment()
-      }
-    }
+    this.isPlayingSegment = true
 
     try {
+      // Create new audio element with proper cleanup
+      // First ensure any old instance is fully cleaned
+      if (this.audio) {
+        this.audio.pause()
+        this.audio.onended = null
+        this.audio.ontimeupdate = null
+        this.audio.onerror = null
+        this.audio.onloadedmetadata = null
+        this.audio.src = ''
+      }
+
+      this.audio = new Audio(url)
+      this.audio.playbackRate = this.playbackSpeed
+
+      // Update duration when metadata loads
+      this.audio.onloadedmetadata = () => {
+        if (this.audio) this.duration = this.audio.duration
+      }
+
+      // Update time during playback
+      this.audio.ontimeupdate = () => {
+        if (this.audio) this.currentTime = this.audio.currentTime
+      }
+
+      this.audio.onended = () => {
+        this.isPlayingSegment = false
+        const nextIndex = this.currentSegmentIndex + 1
+        if (nextIndex < this.segments.length && this.isPlaying) {
+          this.currentSegmentIndex = nextIndex
+
+          // Check buffer
+          const buffered = this.countBufferedSegments()
+          if (buffered < 3) {
+            this.bufferSegments(this.currentSegmentIndex + 1, this.bufferTarget).catch((err) =>
+              logger.error('[AudioPlayback]', err)
+            )
+          }
+
+          this.cleanupOldSegments()
+          this.playCurrentSegment()
+        } else {
+          this.isPlaying = false
+          audioPlayerStore.pause()
+          if (this.audio) {
+            this.audio.onended = null
+            this.audio.ontimeupdate = null
+            this.audio.onerror = null
+            this.audio.onloadedmetadata = null
+            this.audio.src = ''
+          }
+          this.audio = null
+        }
+      }
+
+      this.audio.onerror = (err) => {
+        this.isPlayingSegment = false
+        logger.error('Audio playback error:', err)
+        if (this.currentSegmentIndex === index) {
+          this.audioSegments.delete(index)
+          // Retry by regenerating the segment
+          this.generateSegment(index)
+            .then(() => {
+              if (this.currentSegmentIndex === index && this.isPlaying) {
+                this.playCurrentSegment()
+              }
+            })
+            .catch((err) => {
+              logger.error('Failed to regenerate segment after error:', err)
+              this.isPlaying = false
+              audioPlayerStore.pause()
+            })
+        }
+      }
+
       await this.audio.play()
     } catch (err) {
-      logger.error('Failed to play audio:', err)
+      this.isPlayingSegment = false
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      const errorName = err instanceof Error ? err.name : 'Unknown'
+      logger.error('Failed to play audio:', { error: errorMsg, name: errorName, err })
       if (this.currentSegmentIndex === index) {
         this.isPlaying = false
         audioPlayerStore.pause()
@@ -688,8 +717,6 @@ class AudioPlaybackService {
           this.audio.ontimeupdate = null
           this.audio.onerror = null
           this.audio.onloadedmetadata = null
-          this.audio.onpause = null
-          this.audio.onplay = null
           this.audio.src = ''
         }
         this.audio = null
@@ -743,35 +770,6 @@ class AudioPlaybackService {
   private async generateSegment(index: number): Promise<void> {
     if (this.audioSegments.has(index)) return
     if (this.pendingGenerations.has(index)) return this.pendingGenerations.get(index)
-
-    // Optimization: Check if this segment is already generated in the progressive store
-    // This allows us to use segments generated by the main generation process without re-generating
-    if (this.currentChapterId) {
-      const progressiveSegment = getGeneratedSegment(this.currentChapterId, index)
-      if (progressiveSegment && progressiveSegment.audioBlob) {
-        // Reuse the blob!
-        try {
-          const url = URL.createObjectURL(progressiveSegment.audioBlob)
-          this.audioSegments.set(index, url)
-          audioPlayerStore.setAudioSegment(index, url)
-
-          if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(false)
-
-          // Use stored duration if available
-          if (progressiveSegment.duration) {
-            this.segmentDurations.set(index, progressiveSegment.duration)
-          } else {
-            // Try to get duration from URL if not stored
-            this.getDurationFromUrl(url).then((dur) => {
-              if (dur > 0) this.segmentDurations.set(index, dur)
-            })
-          }
-          return
-        } catch (e) {
-          logger.warn('Failed to reuse progressive segment', e)
-        }
-      }
-    }
 
     const segment = this.segments[index]
     if (!segment) return
@@ -877,123 +875,6 @@ class AudioPlaybackService {
       if (index < threshold) {
         URL.revokeObjectURL(url)
         this.audioSegments.delete(index)
-      }
-    }
-  }
-
-  private setupMediaSession(title: string, artist: string) {
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title,
-        artist,
-        album: 'Audiobook',
-      })
-
-      navigator.mediaSession.setActionHandler('play', () => {
-        void (async () => {
-          try {
-            await this.play()
-          } catch (error) {
-            logger.error('Error handling MediaSession "play" action', error)
-          }
-        })()
-      })
-      navigator.mediaSession.setActionHandler('pause', () => {
-        try {
-          this.pause()
-        } catch (error) {
-          logger.error('Error handling MediaSession "pause" action', error)
-        }
-      })
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
-        void (async () => {
-          try {
-            await this.skipPrevious()
-          } catch (error) {
-            logger.error('Error handling MediaSession "previoustrack" action', error)
-          }
-        })()
-      })
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
-        void (async () => {
-          try {
-            await this.skipNext()
-          } catch (error) {
-            logger.error('Error handling MediaSession "nexttrack" action', error)
-          }
-        })()
-      })
-      navigator.mediaSession.setActionHandler('seekto', (details) => {
-        void (async () => {
-          if (details.seekTime !== undefined) {
-            try {
-              // If we have a monolithic audio file (loadChapter), we can seek directly
-              if (this.audio && this.audio.src.startsWith('blob:') && this.chapterAudioUrl) {
-                this.audio.currentTime = details.seekTime
-                if (details.fastSeek && 'fastSeek' in this.audio) {
-                  this.audio.fastSeek(details.seekTime)
-                }
-              } else {
-                // Segmented playback mode: finding the right segment is tricky without a "seek" method.
-                // We can try to map time to segment index.
-                // Helper: find segment by time
-                const targetSegment = this.segments.find(
-                  (s) =>
-                    (s.startTime || 0) <= details.seekTime &&
-                    (s.startTime || 0) + (s.duration || 0) > details.seekTime
-                )
-                if (targetSegment) {
-                  await this.playFromSegment(targetSegment.index)
-                  // Fine-tune offset within segment?
-                  // this.audio.currentTime = details.seekTime - targetSegment.startTime
-                  // But `playFromSegment` creates a new audio element for that segment (duration only of that segment)
-                  // Wait, if using segments, `audio` src is just that segment.
-                  // The `currentTime` in store is global.
-                  // This is complex. For now, strict seeking in segmented mode is limited.
-                  // Best effort: jump to segment start.
-                }
-              }
-              this.updateMediaSessionState()
-            } catch (error) {
-              logger.error('Error handling MediaSession "seekto" action', error)
-            }
-          }
-        })()
-      })
-    }
-  }
-
-  private updateMediaSessionState() {
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = this.isPlaying ? 'playing' : 'paused'
-
-      const duration = this.duration
-      const position = this.currentTime
-      const playbackRate = this.playbackSpeed
-
-      // Validate values before calling setPositionState to avoid runtime errors
-      if (
-        Number.isFinite(duration) &&
-        Number.isFinite(position) &&
-        Number.isFinite(playbackRate) &&
-        duration > 0
-      ) {
-        const clampedPosition = Math.min(Math.max(position, 0), duration)
-        try {
-          navigator.mediaSession.setPositionState({
-            duration,
-            playbackRate,
-            position: clampedPosition,
-          })
-        } catch (error) {
-          // Common error if position > duration due to slight timing mismatches
-          logger.warn('Failed to update media session position state', {
-            error,
-            duration,
-            position,
-            playbackRate,
-          })
-        }
       }
     }
   }
@@ -1125,7 +1006,6 @@ class AudioPlaybackService {
 
     try {
       await this.audio.play()
-      this.updateMediaSessionState()
     } catch (err) {
       // Extract error details for better debugging
       const errorMessage = err instanceof Error ? err.message : String(err)
