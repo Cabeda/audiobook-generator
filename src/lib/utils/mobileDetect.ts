@@ -34,7 +34,8 @@ export function isMobileDevice(): boolean {
   const isMobileUA = mobileRegex.test(navigator.userAgent)
 
   // Also check for touch capability as a secondary signal
-  const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+  const hasTouch =
+    (typeof window !== 'undefined' && 'ontouchstart' in window) || navigator.maxTouchPoints > 0
 
   // Check screen size (mobile typically < 768px width)
   const isSmallScreen = typeof window !== 'undefined' && window.innerWidth < 768

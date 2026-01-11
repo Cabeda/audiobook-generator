@@ -481,6 +481,8 @@ class GenerationService {
       // Stop any existing silent audio to ensure clean state
       await this.stopSilentAudio()
 
+      if (typeof window === 'undefined') return
+
       const AudioContextClass =
         window.AudioContext ||
         (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
