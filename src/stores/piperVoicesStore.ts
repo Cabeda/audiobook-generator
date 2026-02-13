@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store'
+import { writable, get } from 'svelte/store'
 import type { PiperVoice } from '../lib/piper/piperClient'
 
 export const piperVoices = writable<PiperVoice[]>([])
@@ -7,9 +7,7 @@ let loaded = false
 
 export async function loadPiperVoices(): Promise<PiperVoice[]> {
   if (loaded) {
-    let current: PiperVoice[] = []
-    piperVoices.subscribe((v) => (current = v))()
-    return current
+    return get(piperVoices)
   }
   try {
     const { PiperClient } = await import('../lib/piper/piperClient')
