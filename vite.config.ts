@@ -42,6 +42,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', 'pdfjs-dist'],
+    include: ['jszip'],
   },
   build: {
     rollupOptions: {
