@@ -31,7 +31,7 @@
     ]
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "^9.39.2",
     "@playwright/test": "^1.58.2",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@types/html-to-text": "^9.0.4",
@@ -39,7 +39,7 @@
     "@typescript-eslint/parser": "^8.55.0",
     "@typescript/native-preview": "7.0.0-dev.20260213.1",
     "@vitest/ui": "^4.0.18",
-    "eslint": "^9.39.1",
+    "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-svelte": "^3.15.0",
     "fake-indexeddb": "^6.2.5",
