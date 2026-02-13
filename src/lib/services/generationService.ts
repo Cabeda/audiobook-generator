@@ -173,6 +173,21 @@ export function segmentHtmlContent(
   const parser = new DOMParser()
   const doc = parser.parseFromString(htmlContent, 'text/html')
 
+  // Strip existing segment spans to prevent double-wrapping on regeneration.
+  // This handles the case where ch.content was mutated in a previous generation run.
+  doc.querySelectorAll('span.segment').forEach((span) => {
+    const parent = span.parentNode
+    if (parent) {
+      // Move all children out of the span, then remove the empty span
+      while (span.firstChild) {
+        parent.insertBefore(span.firstChild, span)
+      }
+      parent.removeChild(span)
+    }
+  })
+  // Normalize adjacent text nodes that were split by span removal
+  doc.body.normalize()
+
   // Remove elements we want to skip
   if (options.ignoreCodeBlocks) {
     doc.querySelectorAll('pre, code').forEach((el) => el.remove())
@@ -796,103 +811,112 @@ class GenerationService {
   ) {
     const total = segments.length
     const processed = new Set<number>()
+    const failed = new Set<number>()
     let cursor = 0 // Start at beginning
 
-    // To ensure O(1) access if T has an index property matching array index,
-    // we assume segments is sorted by index 0..N-1.
-    // If not, we might need a map, but for now we assume array index = segment index.
-
     // Main loop: Continue until all segments are processed or canceled
-    while (processed.size < total && !this.canceled) {
+    while (processed.size + failed.size < total && !this.canceled) {
       const batch: T[] = []
       const batchIndices = new Set<number>()
 
       // Fill batch with next available segments
-      while (batch.length < parallelism && processed.size + batch.length < total) {
+      while (batch.length < parallelism && processed.size + failed.size + batch.length < total) {
         let nextIndex: number | undefined
 
         // 1. Check for priority override
         if (this.priorityOverrides.has(chapterId)) {
           const priority = this.priorityOverrides.get(chapterId)!
-          // Only use if not already processed or in current batch
-          // We assume priority is a valid index
           if (
             priority >= 0 &&
             priority < total &&
             !processed.has(priority) &&
+            !failed.has(priority) &&
             !batchIndices.has(priority)
           ) {
             nextIndex = priority
-            // Move cursor to follow priority for subsequent items
-            // This ensures "proceed from there" behavior
             cursor = (priority + 1) % total
-            // Consume the override
             this.priorityOverrides.delete(chapterId)
           } else {
-            // Priority already done or invalid, discard
             this.priorityOverrides.delete(chapterId)
           }
         }
 
         // 2. Fallback to cursor logic if no valid priority
         if (nextIndex === undefined) {
-          // Advance cursor continuously until we find an available item
-          // We limit the search to 'total' to prevent infinite loops (though processed check guards this)
           let checked = 0
-          while ((processed.has(cursor) || batchIndices.has(cursor)) && checked < total) {
+          while (
+            (processed.has(cursor) || failed.has(cursor) || batchIndices.has(cursor)) &&
+            checked < total
+          ) {
             cursor = (cursor + 1) % total
             checked++
           }
 
           if (checked < total) {
             nextIndex = cursor
-            // Prepare cursor for next iteration
             cursor = (cursor + 1) % total
           }
         }
 
         if (nextIndex !== undefined) {
-          // Add to batch
-          // We assume segments array maps index->segment directly
           const seg = segments[nextIndex]
           if (seg) {
             batch.push(seg)
             batchIndices.add(nextIndex)
           } else {
             logger.warn(`Segment at index ${nextIndex} not found`)
-            // Skip this index
-            processed.add(nextIndex) // Mark as "processed" to avoid stuck loop
+            failed.add(nextIndex)
           }
         } else {
-          // No more items found?
           break
         }
       }
 
       if (batch.length === 0) break
 
-      // Process batch
-      const results = await Promise.all(
+      // Process batch — handle individual failures without losing the whole batch
+      const results = await Promise.allSettled(
         batch.map(async (seg) => {
-          if (this.canceled) return null
+          if (this.canceled) throw new Error('Generation canceled')
           return await processor(seg)
         })
       )
 
       if (this.canceled) break
 
-      // Handle results and update state
-      for (const result of results) {
-        if (result) {
-          await onResult(result)
+      // Handle results: successful ones go to onResult, failed ones are tracked
+      const batchIndexArray = Array.from(batchIndices)
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i]
+        const idx = batchIndexArray[i]
+
+        if (result.status === 'fulfilled' && result.value) {
+          try {
+            await onResult(result.value)
+            processed.add(idx)
+          } catch (err) {
+            logger.error(`Failed to handle result for segment ${idx}:`, err)
+            failed.add(idx)
+          }
+        } else if (result.status === 'rejected') {
+          logger.error(`Segment ${idx} generation failed:`, result.reason)
+          failed.add(idx)
+        } else {
+          // fulfilled with null (e.g. empty segment) — mark as processed
+          processed.add(idx)
         }
       }
 
-      // Mark as processed (even if failed? No, only successful ones, but we assume success if no throw)
-      // Ideally processor throws on fail.
-      batchIndices.forEach((idx) => processed.add(idx))
-
       onProgress(processed.size, total)
+    }
+
+    if (failed.size > 0) {
+      logger.warn(
+        `[processSegments] ${failed.size}/${total} segments failed for chapter ${chapterId}`,
+        {
+          failedIndices: Array.from(failed),
+        }
+      )
     }
   }
 
@@ -1212,7 +1236,12 @@ class GenerationService {
                     segmentIndex: segment.index,
                   })
                   // Use setTimeout to avoid blocking the generation loop
+                  // Re-check canceled inside callback to prevent playing after cancellation
                   setTimeout(() => {
+                    if (this.canceled) {
+                      logger.info('[AutoPlay] Skipped — generation was canceled')
+                      return
+                    }
                     audioService.playSingleSegment(segment).catch((err) => {
                       logger.warn('[AutoPlay] Failed to auto-play first segment:', err)
                     })
