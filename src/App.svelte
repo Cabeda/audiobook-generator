@@ -16,7 +16,6 @@
   import { isKokoroLanguageSupported, selectPiperVoiceForLanguage } from './lib/utils/voiceSelector'
   import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
   import { generationService } from './lib/services/generationService'
-  import { isMobileDevice } from './lib/utils/mobileDetect'
   import type { Chapter } from './lib/types/book'
 
   // Stores
@@ -245,18 +244,18 @@
 
       currentView = 'book'
 
-      // Pre-generate first chapter on mobile for faster listening experience
-      // Only on mobile since desktop has more processing power for on-demand generation
-      if (isMobileDevice() && b.chapters?.length > 0) {
+      // Auto-generate on new imports only (not when reopening library books)
+      if (!event.detail.fromLibrary && b.chapters?.length > 0) {
+        // Select all chapters and start generation
+        selectedChapters.update((m) => {
+          const newMap = new Map(m)
+          b.chapters.forEach((c: Chapter) => newMap.set(c.id, true))
+          return newMap
+        })
         // Fire and forget - don't block UI
-        generationService
-          .preGenerateFirstChapter(b.chapters, {
-            maxSegments: 3, // Just enough for a quick preview
-            skipIfGenerated: true,
-          })
-          .catch((err) => {
-            console.warn('Pre-generation failed but continuing:', err)
-          })
+        generationService.generateChapters(b.chapters).catch((err) => {
+          console.warn('Auto-generation failed but continuing:', err)
+        })
       }
     }
   }
