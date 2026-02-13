@@ -1861,7 +1861,7 @@ class GenerationService {
             content: `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head><title>${ch.title}</title></head>
-<body><h1>${ch.title}</h1><p>${ch.content}</p></body></html>`,
+<body><h1>${ch.title}</h1>${ch.content.replace(/&nbsp;/g, '&#160;')}</body></html>`,
           })
           continue
         }
@@ -1946,11 +1946,13 @@ class GenerationService {
         const totalDuration = cumulativeTime
 
         // Generate XHTML with matching IDs
+        // Replace HTML entities not valid in XHTML (e.g. &nbsp; → &#160;)
+        const sanitizedContent = ch.content.replace(/&nbsp;/g, '&#160;')
         const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head><title>${ch.title}</title></head>
 <body>
-  ${ch.content}
+  ${sanitizedContent}
 </body>
 </html>`
 

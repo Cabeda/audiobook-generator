@@ -93,6 +93,11 @@
     currentBook ? currentBook.chapters.reduce((sum, ch) => sum + countWords(ch.content), 0) : 0
   )
   let estimatedBookDurationSeconds = $derived(estimateSpeechDurationSeconds(totalWords))
+  let hasExportableChapters = $derived(
+    currentBook
+      ? currentBook.chapters.some((c) => selections.get(c.id) && statusMap.get(c.id) === 'done')
+      : false
+  )
 
   // Actions
   function toggleChapter(id: string) {
@@ -384,6 +389,16 @@
             Generate Selected
           {/if}
         </button>
+        {#if hasExportableChapters}
+          <button
+            class="export-primary-btn"
+            onclick={handleExport}
+            disabled={isGenerating}
+            title="Export as {selectedFormat.toUpperCase()}"
+          >
+            Export {selectedFormat.toUpperCase()}
+          </button>
+        {/if}
       </div>
     </div>
 
@@ -394,7 +409,7 @@
         <button class="text-btn" onclick={deselectAll}>Deselect All</button>
       </div>
       <button class="text-btn" onclick={() => (showAdvanced = !showAdvanced)}>
-        {showAdvanced ? '▾' : '▸'} Export & Advanced
+        {showAdvanced ? '▾' : '▸'} Advanced
       </button>
     </div>
 
@@ -732,6 +747,32 @@
   }
 
   .primary-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    filter: grayscale(0.5);
+  }
+
+  .export-primary-btn {
+    background: var(--success-color, #22c55e);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition:
+      background-color 0.2s,
+      box-shadow 0.2s;
+    box-shadow: 0 4px 12px var(--shadow-color);
+  }
+
+  .export-primary-btn:hover:not(:disabled) {
+    background: var(--success-hover, #16a34a);
+    box-shadow: 0 6px 16px var(--shadow-color);
+  }
+
+  .export-primary-btn:disabled {
     opacity: 0.7;
     cursor: not-allowed;
     filter: grayscale(0.5);
