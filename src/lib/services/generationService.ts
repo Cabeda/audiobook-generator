@@ -40,6 +40,10 @@ import {
   markChapterGenerationComplete,
   setProcessingIndex,
 } from '../../stores/segmentProgressStore'
+import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
+
+// Throttled progress updater — batches rapid segment progress updates into animation frames
+const throttledProgress = createThrottledMapUpdater(chapterProgress)
 
 /**
  * Type representing a LibraryBook with a guaranteed ID property
@@ -515,7 +519,7 @@ class GenerationService {
   private priorityOverrides = new Map<string, number>()
 
   // Auto-play settings for seamless mobile experience
-  private autoPlayEnabled = true
+  private autoPlayEnabled = false
   private autoPlayTriggered = new Set<string>() // Track chapters where auto-play was already triggered
 
   /**
@@ -898,7 +902,7 @@ class GenerationService {
    *
    * @param chapterId Chapter ID for priority lookup
    * @param segments List of segments to process
-   * @param parallelism Number of concurrent tasks
+   * @param getParallelism Function that returns current parallelism level (re-read each batch)
    * @param processor Function to process a single segment
    * @param onResult Function to handle the result (e.g. saving to DB)
    * @param onProgress Function to report progress
@@ -906,7 +910,7 @@ class GenerationService {
   private async processSegmentsWithPriority<T, R>(
     chapterId: string,
     segments: T[],
-    parallelism: number,
+    getParallelism: () => number,
     processor: (segment: T) => Promise<R>,
     onResult: (result: R) => Promise<void>,
     onProgress: (completed: number, total: number) => void
@@ -920,6 +924,9 @@ class GenerationService {
     while (processed.size + failed.size < total && !this.canceled) {
       const batch: T[] = []
       const batchIndices = new Set<number>()
+
+      // Re-read parallelism each batch so user changes take effect immediately
+      const parallelism = getParallelism()
 
       // Fill batch with next available segments
       while (batch.length < parallelism && processed.size + failed.size + batch.length < total) {
@@ -1300,7 +1307,8 @@ class GenerationService {
             )
 
             // Get parallelization setting (default to 1 for sequential processing)
-            const parallelChunks = Math.max(1, Number(currentAdvancedSettings.parallelChunks) || 1)
+            const getParallelChunks = () =>
+              Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
 
             const worker = getTTSWorker()
 
@@ -1310,7 +1318,7 @@ class GenerationService {
             await this.processSegmentsWithPriority(
               ch.id,
               textSegments,
-              parallelChunks,
+              getParallelChunks,
               async (segment) => {
                 if (this.canceled || this.canceledChapters.has(ch.id))
                   throw new Error('Generation canceled')
@@ -1377,13 +1385,11 @@ class GenerationService {
                 }
               },
               (completed, total) => {
-                chapterProgress.update((m) =>
-                  new Map(m).set(ch.id, {
-                    current: completed,
-                    total,
-                    message: `Generating segment ${completed}/${total}`,
-                  })
-                )
+                throttledProgress.set(ch.id, {
+                  current: completed,
+                  total,
+                  message: `Generating segment ${completed}/${total}`,
+                })
               }
             )
 
@@ -1478,7 +1484,8 @@ class GenerationService {
             const worker = getTTSWorker()
 
             // Get parallelization setting (default to 1 for sequential processing)
-            const parallelChunks = Math.max(1, Number(currentAdvancedSettings.parallelChunks) || 1)
+            const getParallelChunksPiper = () =>
+              Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
 
             // Create batch handler for efficient database writes
             const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
@@ -1486,7 +1493,7 @@ class GenerationService {
             await this.processSegmentsWithPriority(
               ch.id,
               textSegments,
-              parallelChunks,
+              getParallelChunksPiper,
               async (segment) => {
                 if (this.canceled || this.canceledChapters.has(ch.id))
                   throw new Error('Generation canceled')
@@ -1551,13 +1558,11 @@ class GenerationService {
                 }
               },
               (completed, total) => {
-                chapterProgress.update((m) =>
-                  new Map(m).set(ch.id, {
-                    current: completed,
-                    total,
-                    message: `Generating segment ${completed}/${total}`,
-                  })
-                )
+                throttledProgress.set(ch.id, {
+                  current: completed,
+                  total,
+                  message: `Generating segment ${completed}/${total}`,
+                })
               }
             )
 
@@ -1609,6 +1614,8 @@ class GenerationService {
             })
           }
 
+          // Flush any pending throttled progress updates before marking done
+          throttledProgress.flush()
           chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
           chapterErrors.update((m) => {
             const newMap = new Map(m)
@@ -1625,6 +1632,7 @@ class GenerationService {
         }
       }
     } finally {
+      throttledProgress.flush()
       this.running = false
       isGenerating.set(false)
 
@@ -1766,6 +1774,10 @@ class GenerationService {
     bitrate = 192,
     bookInfo: { title: string; author: string }
   ) {
+    // Ensure audio is loaded for all chapters (lazy load from DB if needed)
+    const { ensureChaptersAudio } = await import('../../stores/bookStore')
+    await ensureChaptersAudio(chapters.map((ch) => ch.id))
+
     const generated = get(generatedAudio)
 
     const audioChapters: AudioChapter[] = []

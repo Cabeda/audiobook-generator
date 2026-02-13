@@ -1,4 +1,4 @@
-import { writable, derived, type Writable } from 'svelte/store'
+import { writable, derived, get, type Writable } from 'svelte/store'
 import type { Book } from '../lib/types/book'
 
 // Book state store
@@ -10,6 +10,7 @@ export const book: Writable<Book | null> = writable(null)
 export const selectedChapters = writable(new Map<string, boolean>())
 
 // Generated audio state (Map of chapter id -> {url, blob})
+// Only populated on-demand (during generation or when user plays/exports)
 export const generatedAudio = writable(new Map<string, { url: string; blob: Blob }>())
 
 // Global generation state
@@ -27,6 +28,51 @@ export interface ChapterProgress {
 }
 export const chapterProgress = writable(new Map<string, ChapterProgress>())
 
+// Track the current library book ID for lazy audio loading
+let currentBookDatabaseId: number | null = null
+
+/**
+ * Lazily load a single chapter's audio from IndexedDB into the generatedAudio store.
+ * Returns the audio data if found, or null.
+ */
+export async function ensureChapterAudio(
+  chapterId: string
+): Promise<{ url: string; blob: Blob } | null> {
+  // Already in memory?
+  const existing = get(generatedAudio).get(chapterId)
+  if (existing) return existing
+
+  if (!currentBookDatabaseId) return null
+
+  try {
+    const { getChapterAudio } = await import('../lib/libraryDB')
+    const blob = await getChapterAudio(currentBookDatabaseId, chapterId)
+    if (blob) {
+      const entry = { url: URL.createObjectURL(blob), blob }
+      generatedAudio.update((map) => {
+        const newMap = new Map(map)
+        newMap.set(chapterId, entry)
+        return newMap
+      })
+      return entry
+    }
+  } catch (e) {
+    console.warn('Failed to lazy-load audio for chapter', chapterId, e)
+  }
+  return null
+}
+
+/**
+ * Lazily load audio for multiple chapters. Used by export flows.
+ */
+export async function ensureChaptersAudio(chapterIds: string[]): Promise<void> {
+  const current = get(generatedAudio)
+  const missing = chapterIds.filter((id) => !current.has(id))
+  if (missing.length === 0) return
+
+  await Promise.all(missing.map((id) => ensureChapterAudio(id)))
+}
+
 // Helper to get selected chapter IDs
 export const selectedChapterIds = derived(selectedChapters, ($selectedChapters) => {
   return Array.from($selectedChapters.entries())
@@ -43,15 +89,7 @@ export const selectedChaptersWithData = derived(
   }
 )
 
-// Reset derived stores when book changes
-// Must be defined after all stores are initialized
-// Helper to get selected chapter IDs
-// ... imports need to be updated to include getBookGenerationStatus and currentLibraryBookId logic if we want auto-hydration
-// But we cannot easily import currentLibraryBookId here due to potential circular dependencies if libraryStore imports bookStore.
-// Instead, let's expose a rehydration function.
 import { getBookGenerationStatus } from '../lib/libraryDB'
-
-// ... existing code ...
 
 book.subscribe((b) => {
   if (b) {
@@ -60,54 +98,33 @@ book.subscribe((b) => {
     b.chapters.forEach((ch) => statusMap.set(ch.id, 'pending'))
     chapterStatus.set(statusMap)
 
-    // Clear other maps
+    // Clear maps — audio is loaded lazily now
     generatedAudio.set(new Map())
     chapterErrors.set(new Map())
     chapterProgress.set(new Map())
     selectedChapters.set(new Map(b.chapters.map((c) => [c.id, true])))
 
-    // Hydrate status from DB (if book has an ID that matches library)
-    // We assume if book object has 'id' property that matches library ID, we can check.
-    // The `Book` interface in types/book usually doesn't have `id` as database ID, but `LibraryBook` does.
-    // Let's cast and check.
     const libBook = b as any
     if (libBook.id && typeof libBook.id === 'number') {
-      const bookDatabaseId = libBook.id
+      currentBookDatabaseId = libBook.id
 
-      // Hydrate chapterStatus
-      getBookGenerationStatus(bookDatabaseId)
-        .then(async (generatedIds) => {
+      // Only hydrate chapterStatus (lightweight — just IDs, no blobs)
+      getBookGenerationStatus(currentBookDatabaseId!)
+        .then((generatedIds) => {
           chapterStatus.update((map) => {
-            generatedIds.forEach((id) => map.set(id, 'done'))
-            return map
+            const newMap = new Map(map)
+            generatedIds.forEach((id) => newMap.set(id, 'done'))
+            return newMap
           })
-
-          // Hydrate generatedAudio for chapters that have audio in DB
-          // This enables local playback in ChapterItem without regeneration
-          const { getChapterAudio } = await import('../lib/libraryDB')
-          for (const chapterId of generatedIds) {
-            try {
-              const blob = await getChapterAudio(bookDatabaseId, chapterId)
-              if (blob) {
-                generatedAudio.update((map) => {
-                  const newMap = new Map(map)
-                  newMap.set(chapterId, {
-                    url: URL.createObjectURL(blob),
-                    blob: blob,
-                  })
-                  return newMap
-                })
-              }
-            } catch (e) {
-              console.warn('Failed to load audio for chapter', chapterId, e)
-            }
-          }
         })
         .catch((err) => {
           console.warn('Failed to hydrate generation status', err)
         })
+    } else {
+      currentBookDatabaseId = null
     }
   } else {
+    currentBookDatabaseId = null
     chapterStatus.set(new Map())
     generatedAudio.set(new Map())
     chapterErrors.set(new Map())

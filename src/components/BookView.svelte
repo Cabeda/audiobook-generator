@@ -10,6 +10,8 @@
     chapterProgress,
     generatedAudio,
     selectedChapterIds,
+    ensureChapterAudio,
+    ensureChaptersAudio,
   } from '../stores/bookStore'
   import {
     selectedModel as selectedModelStore,
@@ -24,6 +26,7 @@
   import { generationService } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
+  import VirtualList from './VirtualList.svelte'
   import type { Chapter } from '../lib/types/book'
   import type { LibraryBook } from '../lib/libraryDB'
   import {
@@ -81,6 +84,7 @@
   let isGenerating = $state(false)
   let showAdvanced = $state(false)
   let selectedFormat = $state<'mp3' | 'mp4' | 'm4b' | 'wav' | 'epub'>('mp3')
+  let showFormatPicker = $state(false)
   let selectedBitrate = $state(192)
 
   let selectedModel = $derived($selectedModelStore)
@@ -260,6 +264,10 @@
       return
     }
 
+    // Lazy-load audio for all relevant chapters before exporting
+    toastStore.info('Loading audio data...')
+    await ensureChaptersAudio(relevantChapters.map((c) => c.id))
+
     if (selectedFormat === 'epub') {
       // EPUB with Media Overlays
       await generationService.exportEpub(relevantChapters, {
@@ -286,10 +294,15 @@
   }
 
   async function handleDownload(chapterId: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') {
-    const audioData = audioMap.get(chapterId)
     const chapter = $book?.chapters.find((c) => c.id === chapterId)
+    if (!chapter) {
+      toastStore.error('Chapter not found')
+      return
+    }
 
-    if (!audioData || !chapter) {
+    // Lazy-load audio from DB if not already in memory
+    const audioData = audioMap.get(chapterId) || (await ensureChapterAudio(chapterId))
+    if (!audioData) {
       toastStore.error('No audio data available for this chapter')
       return
     }
@@ -328,6 +341,9 @@
     }
   }
 </script>
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<svelte:window onclick={() => (showFormatPicker = false)} />
 
 <div class="book-view" in:fade>
   {#if currentBook}
@@ -390,14 +406,46 @@
           {/if}
         </button>
         {#if hasExportableChapters}
-          <button
-            class="export-primary-btn"
-            onclick={handleExport}
-            disabled={isGenerating}
-            title="Export as {selectedFormat.toUpperCase()}"
-          >
-            Export {selectedFormat.toUpperCase()}
-          </button>
+          <div class="export-split-btn">
+            <button
+              class="export-primary-btn export-main"
+              onclick={handleExport}
+              disabled={isGenerating}
+              title="Export as {selectedFormat.toUpperCase()}"
+            >
+              Export {selectedFormat.toUpperCase()}
+            </button>
+            <div class="export-dropdown-wrapper">
+              <button
+                class="export-primary-btn export-toggle"
+                onclick={(e) => {
+                  e.stopPropagation()
+                  showFormatPicker = !showFormatPicker
+                }}
+                disabled={isGenerating}
+                aria-label="Choose export format"
+              >
+                ▾
+              </button>
+              {#if showFormatPicker}
+                <div class="export-format-menu" role="menu">
+                  {#each [{ value: 'mp3', label: 'MP3' }, { value: 'm4b', label: 'M4B Audiobook' }, { value: 'epub', label: 'EPUB' }, { value: 'mp4', label: 'MP4' }, { value: 'wav', label: 'WAV' }] as fmt}
+                    <button
+                      class="format-option"
+                      class:active={selectedFormat === fmt.value}
+                      role="menuitem"
+                      onclick={() => {
+                        selectedFormat = fmt.value as typeof selectedFormat
+                        showFormatPicker = false
+                      }}
+                    >
+                      {fmt.label}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          </div>
         {/if}
       </div>
     </div>
@@ -416,27 +464,10 @@
     {#if showAdvanced}
       <div class="advanced-panel">
         <div class="setting-group">
-          <h4 class="setting-group-title">Export</h4>
-          <div class="setting-row">
-            <label for="adv-format">
-              <span class="setting-label">Format</span>
-            </label>
-            <select
-              id="adv-format"
-              bind:value={selectedFormat}
-              disabled={isGenerating}
-              class="premium-select"
-            >
-              <option value="mp3">MP3</option>
-              <option value="mp4">MP4 (Chapters)</option>
-              <option value="m4b">M4B (Audiobook)</option>
-              <option value="wav">WAV</option>
-              <option value="epub">EPUB (Media Overlays)</option>
-            </select>
-          </div>
+          <h4 class="setting-group-title">Export Quality</h4>
           <div class="setting-row">
             <label for="adv-bitrate">
-              <span class="setting-label">Quality (Bitrate)</span>
+              <span class="setting-label">Bitrate</span>
             </label>
             <select id="adv-bitrate" bind:value={selectedBitrate} class="premium-select">
               <option value={128}>128 kbps</option>
@@ -445,9 +476,6 @@
               <option value={320}>320 kbps</option>
             </select>
           </div>
-          <button class="text-btn export-btn" onclick={handleExport} disabled={isGenerating}>
-            Export
-          </button>
         </div>
 
         <div class="setting-group">
@@ -567,28 +595,32 @@
 
     <!-- Chapter List -->
     <div class="content-area">
-      <div class="chapter-list">
-        {#each currentBook.chapters as chapter (chapter.id)}
-          <ChapterItem
-            {chapter}
-            book={currentBook}
-            selected={selections.get(chapter.id)}
-            status={statusMap.get(chapter.id)}
-            error={errorsMap.get(chapter.id)}
-            progress={$chapterProgress.get(chapter.id)}
-            audioData={audioMap.get(chapter.id)}
-            onToggle={toggleChapter}
-            onRead={handleRead}
-            onRetry={handleRetry}
-            onCancel={handleCancelChapter}
-            onDownload={handleDownload}
-            onModelChange={handleModelChange}
-            onVoiceChange={handleVoiceChange}
-            onLanguageChange={handleLanguageChange}
-            onSelectOnly={selectOnlyChapter}
-          />
-        {/each}
-      </div>
+      <VirtualList items={currentBook.chapters} itemHeight={100} buffer={3}>
+        {#snippet children(visibleItems: { item: Chapter; index: number }[])}
+          <div class="chapter-list">
+            {#each visibleItems as { item: chapter } (chapter.id)}
+              <ChapterItem
+                {chapter}
+                book={currentBook}
+                selected={selections.get(chapter.id)}
+                status={statusMap.get(chapter.id)}
+                error={errorsMap.get(chapter.id)}
+                progress={$chapterProgress.get(chapter.id)}
+                audioData={audioMap.get(chapter.id)}
+                onToggle={toggleChapter}
+                onRead={handleRead}
+                onRetry={handleRetry}
+                onCancel={handleCancelChapter}
+                onDownload={handleDownload}
+                onModelChange={handleModelChange}
+                onVoiceChange={handleVoiceChange}
+                onLanguageChange={handleLanguageChange}
+                onSelectOnly={selectOnlyChapter}
+              />
+            {/each}
+          </div>
+        {/snippet}
+      </VirtualList>
     </div>
   {/if}
 </div>
@@ -752,23 +784,45 @@
     filter: grayscale(0.5);
   }
 
+  .export-split-btn {
+    display: flex;
+    position: relative;
+  }
+
   .export-primary-btn {
     background: var(--success-color, #22c55e);
     color: white;
     border: none;
-    padding: 10px 24px;
-    border-radius: 10px;
     font-weight: 600;
     font-size: 1rem;
     cursor: pointer;
     transition:
       background-color 0.2s,
       box-shadow 0.2s;
+  }
+
+  .export-main {
+    padding: 10px 18px;
+    border-radius: 10px 0 0 10px;
+    box-shadow: 0 4px 12px var(--shadow-color);
+  }
+
+  .export-dropdown-wrapper {
+    position: relative;
+  }
+
+  .export-toggle {
+    padding: 10px 10px;
+    border-radius: 0 10px 10px 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.3);
     box-shadow: 0 4px 12px var(--shadow-color);
   }
 
   .export-primary-btn:hover:not(:disabled) {
     background: var(--success-hover, #16a34a);
+  }
+
+  .export-main:hover:not(:disabled) {
     box-shadow: 0 6px 16px var(--shadow-color);
   }
 
@@ -776,6 +830,41 @@
     opacity: 0.7;
     cursor: not-allowed;
     filter: grayscale(0.5);
+  }
+
+  .export-format-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px var(--shadow-color);
+    z-index: 20;
+    min-width: 150px;
+    overflow: hidden;
+  }
+
+  .format-option {
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-color);
+    transition: background-color 0.15s;
+  }
+
+  .format-option:hover {
+    background: var(--hover-bg);
+  }
+
+  .format-option.active {
+    font-weight: 600;
+    color: var(--success-color, #22c55e);
   }
 
   .text-btn {
@@ -803,6 +892,8 @@
   /* Content */
   .content-area {
     padding: 0 8px;
+    flex: 1;
+    min-height: 0;
   }
 
   .chapter-list {
