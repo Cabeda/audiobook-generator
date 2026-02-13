@@ -291,7 +291,6 @@
 
   .library-wrapper {
     margin-top: 16px;
-    max-height: 600px;
     overflow-y: auto;
     border-radius: 12px;
   }
