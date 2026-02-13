@@ -1,20 +1,23 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
   import { Readability } from '@mozilla/readability'
   import type { Book } from '../lib/types/book'
   import { retryWithBackoff } from '../lib/retryUtils'
 
-  const dispatch = createEventDispatcher()
+  let {
+    onbookloaded,
+  }: { onbookloaded: (detail: { book: Book; sourceFile?: File; sourceUrl?: string }) => void } =
+    $props()
 
   // File state
   let fileInput: HTMLInputElement
-  let parsing = false
-  let dragActive = false
+  let parsing = $state(false)
+  let dragActive = $state(false)
 
   // URL state
-  let url = ''
-  let urlLoading = false
-  let error: string | null = null
+  let url = $state('')
+  let urlLoading = $state(false)
+  let error: string | null = $state(null)
+  let hasUrl = $derived(url.trim().length > 0)
 
   // --- File Handling ---
 
@@ -56,7 +59,7 @@
     try {
       const { loadBook } = await import('../lib/bookLoader')
       const book = await loadBook(f)
-      dispatch('bookloaded', { book, sourceFile: f })
+      onbookloaded({ book, sourceFile: f })
     } catch (err) {
       console.error('Failed to parse book:', err)
       error = err instanceof Error ? err.message : 'Unknown error parsing file'
@@ -149,7 +152,7 @@
         ],
       }
 
-      dispatch('bookloaded', { book, sourceUrl: url })
+      onbookloaded({ book, sourceUrl: url })
       url = '' // Clear input on success
     } catch (err) {
       console.error('Error fetching article:', err)
@@ -162,7 +165,7 @@
   function handleUrlKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       e.stopPropagation()
-      if (!urlLoading && url) {
+      if (!urlLoading && hasUrl) {
         fetchArticle()
       }
     }
@@ -202,15 +205,19 @@
       <label for="article-url" class="sr-only">Article URL</label>
       <input
         id="article-url"
-        type="url"
+        type="text"
         placeholder="Paste article URL here..."
         bind:value={url}
+        onclick={(e: MouseEvent) => e.stopPropagation()}
         onkeydown={handleUrlKeydown}
         disabled={urlLoading || parsing}
       />
       <button
-        onclick={fetchArticle}
-        disabled={!url || urlLoading || parsing}
+        onclick={(e: MouseEvent) => {
+          e.stopPropagation()
+          fetchArticle()
+        }}
+        disabled={!hasUrl || urlLoading || parsing}
         aria-label="Import article from URL"
       >
         {#if urlLoading}

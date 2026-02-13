@@ -3,13 +3,13 @@
   import { LANGUAGE_OPTIONS, getLanguageLabel } from '../lib/utils/languageResolver'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import { voiceLabels } from '../stores/ttsStore'
-  import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroClient'
+  import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
   import {
     getKokoroVoicesForLanguage,
     getPiperVoicesForLanguage,
     isKokoroLanguageSupported,
   } from '../lib/utils/voiceSelector'
-  import { onMount } from 'svelte'
+  import { piperVoices, loadPiperVoices } from '../stores/piperVoicesStore'
 
   interface Props {
     onBack: () => void
@@ -21,19 +21,8 @@
   let addingLanguage = $state(false)
   let newLangCode = $state('')
 
-  // Piper voices (loaded async)
-  let piperVoices = $state<Array<{ key: string; name: string; language: string; quality: string }>>(
-    []
-  )
-
-  onMount(async () => {
-    try {
-      const { PiperClient } = await import('../lib/piper/piperClient')
-      piperVoices = await PiperClient.getInstance().getVoices()
-    } catch (e) {
-      console.error('Failed to load Piper voices:', e)
-    }
-  })
+  // Load piper voices via shared store (once across app)
+  loadPiperVoices()
 
   let configuredLanguages = $derived(Object.keys(settings.languageDefaults))
 
@@ -49,8 +38,8 @@
       return kokoroVoices
         .filter((v) => langVoices.includes(v))
         .map((v) => ({ id: v, label: voiceLabels[v] || v }))
-    } else if (model === 'piper' && piperVoices.length > 0) {
-      return getPiperVoicesForLanguage(langCode, piperVoices).map((v) => ({
+    } else if (model === 'piper' && $piperVoices.length > 0) {
+      return getPiperVoicesForLanguage(langCode, $piperVoices).map((v) => ({
         id: v.key,
         label: v.name,
       }))

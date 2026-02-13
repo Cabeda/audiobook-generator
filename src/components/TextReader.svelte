@@ -459,17 +459,7 @@
   // Track previous progress state to detect changes
   let prevGeneratedIndices: Set<number> | null = null
   let prevIsGenerating = false
-
-  // Helper function to get max index from a set
-  function getMaxIndex(indices: Set<number>): number {
-    let max = -1
-    for (const idx of indices) {
-      if (idx > max) {
-        max = idx
-      }
-    }
-    return max
-  }
+  let prevProcessingIndex = -1
 
   // Update segment visual states based on generation progress
   $effect(() => {
@@ -500,20 +490,20 @@
         }
       }
 
-      // If generating, also update the "next" segment (for pulsing effect)
+      // If generating, update the processing index segment (for pulsing effect)
       if (progress.isGenerating) {
-        const lastGenerated = getMaxIndex(progress.generatedIndices)
-        const prevLastGenerated = getMaxIndex(prevGeneratedIndices)
-        changedIndices.add(lastGenerated + 1)
-        // Also update the previous "next" segment if different
-        if (prevLastGenerated + 1 !== lastGenerated + 1) {
-          changedIndices.add(prevLastGenerated + 1)
+        if (progress.processingIndex >= 0) {
+          changedIndices.add(progress.processingIndex)
+        }
+        // Also update the previous processing segment if different
+        if (prevProcessingIndex >= 0 && prevProcessingIndex !== progress.processingIndex) {
+          changedIndices.add(prevProcessingIndex)
         }
       }
     }
 
-    // Compute lastGenerated once for reuse
-    const lastGenerated = progress.isGenerating ? getMaxIndex(progress.generatedIndices) : -1
+    // The segment currently being processed gets the pulse animation
+    const pulseIndex = progress.isGenerating ? progress.processingIndex : -1
 
     // Update only changed segments
     for (const index of changedIndices) {
@@ -528,7 +518,7 @@
       if (isGenerated) {
         el.classList.add('segment-generated')
       } else if (progress.isGenerating) {
-        if (index === lastGenerated + 1) {
+        if (index === pulseIndex) {
           el.classList.add('segment-generating')
         } else {
           el.classList.add('segment-pending')
@@ -541,6 +531,7 @@
     // Store current state for next comparison
     prevGeneratedIndices = new Set(progress.generatedIndices)
     prevIsGenerating = progress.isGenerating
+    prevProcessingIndex = progress.processingIndex
   })
 
   // Ensure initial highlight if already playing
@@ -610,7 +601,7 @@
 
       // Check if segment has audio already generated
       const segmentData = getGeneratedSegment(chapter.id, index)
-      const hasAudio = segmentData !== null
+      const hasAudio = !!segmentData
 
       if (!hasAudio && !isGenerating) {
         // No audio and not generating - start generation from this segment
@@ -642,13 +633,16 @@
         if (index !== null) {
           // Check if segment has audio already generated
           const segmentData = getGeneratedSegment(chapter.id, index)
-          const hasAudio = segmentData !== null
+          const hasAudio = !!segmentData
 
           if (!hasAudio && !isGenerating) {
             // No audio and not generating - start generation from this segment
-            generationService.generateSingleChapterFromSegment(chapter, index).catch((err) => {
-              logger.error('Failed to start generation from segment', err)
-            })
+            const totalSegments = audioService.segments.length
+            generationService
+              .generateSingleChapterFromSegment(chapter, index, totalSegments)
+              .catch((err) => {
+                logger.error('Failed to start generation from segment', err)
+              })
           } else {
             // Has audio or already generating - inject progressive segment if available, then play
             if (segmentData) {
@@ -1183,8 +1177,8 @@
   }
 
   .info-banner {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
-    border: 1px solid rgba(59, 130, 246, 0.3);
+    background: var(--feature-bg);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 16px 20px;
     margin-bottom: 24px;
@@ -1210,20 +1204,20 @@
   }
 
   :global(.segment:hover) {
-    background-color: var(--segment-hover-bg, rgba(59, 130, 246, 0.2));
-    box-shadow: 0 0 0 2px var(--segment-hover-border, rgba(59, 130, 246, 0.4));
+    background-color: var(--selected-bg);
+    box-shadow: 0 0 0 2px var(--border-color);
   }
 
   :global(.segment:focus) {
-    outline: 2px solid var(--highlight-border, #ffb74d);
+    outline: 2px solid var(--primary-color);
     outline-offset: 2px;
-    background-color: var(--hover-bg);
+    background-color: var(--selected-bg);
   }
 
   :global(.segment.active) {
-    background-color: var(--active-bg);
-    color: var(--active-text);
-    box-shadow: 0 0 0 2px var(--highlight-border, #ffb74d);
+    background-color: var(--selected-bg);
+    color: var(--text-color);
+    box-shadow: 0 0 0 2px var(--primary-color);
   }
 
   /* Progressive Generation Segment States */
@@ -1234,19 +1228,19 @@
   }
 
   :global(.segment-pending:hover) {
-    background-color: rgba(156, 163, 175, 0.15);
-    box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.3);
+    background-color: var(--feature-bg);
+    box-shadow: 0 0 0 2px var(--border-color);
   }
 
   :global(.segment-generating) {
     opacity: 0.7;
     animation: pulseSegment 1.5s ease-in-out infinite;
-    background-color: rgba(59, 130, 246, 0.1);
+    background-color: var(--feature-bg);
   }
 
   :global(.segment-generating:hover) {
-    background-color: rgba(59, 130, 246, 0.2);
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+    background-color: var(--selected-bg);
+    box-shadow: 0 0 0 2px var(--border-color);
   }
 
   @keyframes pulseSegment {
@@ -1407,8 +1401,9 @@
 
   @media (max-width: 640px) {
     .text-content {
-      padding: 24px 24px 100px 24px;
-      font-size: 16px;
+      padding: 16px 16px 100px 16px;
+      font-size: 17px;
+      line-height: 1.7;
     }
 
     .settings-menu {

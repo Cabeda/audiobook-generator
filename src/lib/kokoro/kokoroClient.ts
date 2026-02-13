@@ -1,39 +1,13 @@
-import { KokoroTTS } from 'kokoro-js'
+import type { KokoroTTS } from 'kokoro-js'
 import logger from '../utils/logger'
 import { retryWithBackoff, isRetryableError } from '../retryUtils'
 import { ModelLoadError, AudioGenerationError } from '../errors'
 import { MIN_TEXT_LENGTH } from '../audioConstants'
 import { createSilentWav } from '../audioConcat'
+import type { VoiceId } from './kokoroVoices'
 
-// Valid Kokoro voice IDs based on the official kokoro-js library
-export type VoiceId =
-  | 'af_heart'
-  | 'af_alloy'
-  | 'af_aoede'
-  | 'af_bella'
-  | 'af_jessica'
-  | 'af_kore'
-  | 'af_nicole'
-  | 'af_nova'
-  | 'af_river'
-  | 'af_sarah'
-  | 'af_sky'
-  | 'am_adam'
-  | 'am_echo'
-  | 'am_eric'
-  | 'am_liam'
-  | 'am_michael'
-  | 'am_onyx'
-  | 'am_puck'
-  | 'am_santa'
-  | 'bf_emma'
-  | 'bf_isabella'
-  | 'bm_george'
-  | 'bm_lewis'
-  | 'bf_alice'
-  | 'bf_lily'
-  | 'bm_daniel'
-  | 'bm_fable'
+export type { VoiceId } from './kokoroVoices'
+export { listVoices } from './kokoroVoices'
 
 export type DeviceType = 'wasm' | 'webgpu' | 'cpu' | 'auto'
 
@@ -186,6 +160,7 @@ async function getKokoroInstance(
         globalThis.fetch = createFetchWithCache(originalFetch) as typeof fetch
 
         try {
+          const { KokoroTTS } = await import('kokoro-js')
           const instance = await KokoroTTS.from_pretrained(modelId, {
             dtype,
             device,
@@ -627,42 +602,4 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
       `Failed to stream speech: ${error instanceof Error ? error.message : String(error)}`
     )
   }
-}
-
-/**
- * List all available voices
- * @returns Array of voice IDs
- */
-export function listVoices(): VoiceId[] {
-  // Return the known voices from kokoro-js
-  const voices: VoiceId[] = [
-    'af_heart',
-    'af_alloy',
-    'af_aoede',
-    'af_bella',
-    'af_jessica',
-    'af_kore',
-    'af_nicole',
-    'af_nova',
-    'af_river',
-    'af_sarah',
-    'af_sky',
-    'am_adam',
-    'am_echo',
-    'am_eric',
-    'am_liam',
-    'am_michael',
-    'am_onyx',
-    'am_puck',
-    'am_santa',
-    'bf_emma',
-    'bf_isabella',
-    'bm_george',
-    'bm_lewis',
-    'bf_alice',
-    'bf_lily',
-    'bm_daniel',
-    'bm_fable',
-  ]
-  return voices
 }

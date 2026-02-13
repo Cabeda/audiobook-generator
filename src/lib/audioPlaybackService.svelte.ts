@@ -7,7 +7,6 @@ import { getChapterSegments, getChapterAudio } from './libraryDB'
 import { segmentHtmlContent } from './services/generationService'
 import type { AudioSegment } from './types/audio'
 import { selectPiperVoiceForLanguage, normalizeLanguageCode } from './utils/voiceSelector'
-import { PiperClient } from './piper/piperClient'
 import { getGeneratedSegment } from '../stores/segmentProgressStore'
 
 interface TextSegment {
@@ -235,6 +234,7 @@ class AudioPlaybackService {
     const normalizedLang = language ? normalizeLanguageCode(language) : 'en'
 
     try {
+      const { PiperClient } = await import('./piper/piperClient')
       const piperClient = PiperClient.getInstance()
       const availableVoices = await piperClient.getVoices()
       if (availableVoices.length === 0) return
@@ -454,6 +454,12 @@ class AudioPlaybackService {
       try {
         await this.audio.play()
       } catch (e) {
+        const errorName = e instanceof Error ? e.name : 'Unknown'
+        // AbortError is expected when rapid skipping/clicking causes the previous play() promise to reject
+        if (errorName === 'AbortError') {
+          logger.debug('Playback aborted by user action (harmless)')
+          return
+        }
         logger.error('Failed to play audio:', e)
         this.isPlaying = false
         audioPlayerStore.pause()
@@ -776,6 +782,13 @@ class AudioPlaybackService {
       this.isPlayingSegment = false
       const errorMsg = err instanceof Error ? err.message : String(err)
       const errorName = err instanceof Error ? err.name : 'Unknown'
+
+      // AbortError is expected when rapid skipping/clicking causes the previous play() promise to reject
+      if (errorName === 'AbortError') {
+        logger.debug('Playback aborted by user action (harmless)')
+        return
+      }
+
       logger.error('Failed to play audio:', { error: errorMsg, name: errorName, err })
       if (this.currentSegmentIndex === index) {
         this.isPlaying = false

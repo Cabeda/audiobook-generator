@@ -43,6 +43,18 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', 'pdfjs-dist'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'piper-tts': ['onnxruntime-web', '@diffusionstudio/vits-web'],
+          'pdf-parser': ['pdfjs-dist'],
+          zip: ['jszip'],
+          ffmpeg: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+        },
+      },
+    },
+  },
   worker: {
     format: 'es',
   },

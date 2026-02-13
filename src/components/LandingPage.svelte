@@ -1,14 +1,27 @@
 <script lang="ts">
   import UnifiedInput from './UnifiedInput.svelte'
   import LibraryView from './LibraryView.svelte'
-  import { createEventDispatcher, onMount } from 'svelte'
+  import { onMount } from 'svelte'
   import { getBook, updateLastAccessed } from '../lib/libraryDB'
   import { libraryBooks } from '../stores/libraryStore'
   import { book } from '../stores/bookStore'
   import { appTheme, toggleTheme } from '../stores/themeStore'
   import { toastStore } from '../stores/toastStore'
+  import type { Book } from '../lib/types/book'
 
-  const dispatch = createEventDispatcher()
+  let {
+    onbookloaded,
+    onopensettings,
+  }: {
+    onbookloaded: (detail: {
+      book: Book
+      sourceFile?: File
+      sourceUrl?: string
+      fromLibrary?: boolean
+      libraryId?: number
+    }) => void
+    onopensettings: () => void
+  } = $props()
 
   let currentView = $state<'upload' | 'library'>('upload')
 
@@ -17,6 +30,8 @@
     const hash = location.hash.replace(/^#/, '') || '/'
     if (hash === '/library') {
       currentView = 'library'
+    } else if (hash === '/upload') {
+      currentView = 'upload'
     } else if (hash === '/' || hash === '') {
       // For root hash, show library if user has books (returning user)
       currentView = $libraryBooks.length > 0 ? 'library' : 'upload'
@@ -37,8 +52,8 @@
     return () => window.removeEventListener('hashchange', handleHashChange)
   })
 
-  function onBookLoaded(event: CustomEvent) {
-    dispatch('bookloaded', event.detail)
+  function onBookLoaded(detail: { book: Book; sourceFile?: File; sourceUrl?: string }) {
+    onbookloaded(detail)
   }
 
   async function handleLibraryBookSelected(bookId: number) {
@@ -49,8 +64,8 @@
         // Update last accessed time
         await updateLastAccessed(bookId)
 
-        // Dispatch book loaded event with library book data
-        dispatch('bookloaded', {
+        // Callback with book loaded data
+        onbookloaded({
           book: {
             title: libraryBook.title,
             author: libraryBook.author,
@@ -71,7 +86,7 @@
 
   function switchToUpload() {
     currentView = 'upload'
-    location.hash = '#/'
+    location.hash = '#/upload'
   }
 
   function switchToLibrary() {
@@ -122,7 +137,7 @@
       <!-- Content based on selected tab -->
       {#if currentView === 'upload'}
         <div class="input-wrapper" role="tabpanel" id="upload-panel" aria-labelledby="upload-tab">
-          <UnifiedInput on:bookloaded={onBookLoaded} />
+          <UnifiedInput onbookloaded={onBookLoaded} />
           <p class="drm-note">DRM-free files only</p>
         </div>
       {:else}
@@ -194,7 +209,7 @@
       {/if}
     </button>
 
-    <button class="settings-btn" onclick={() => dispatch('opensettings')} aria-label="Settings">
+    <button class="settings-btn" onclick={() => onopensettings()} aria-label="Settings">
       <svg
         xmlns="http://www.w3.org/2000/svg"
         width="18"

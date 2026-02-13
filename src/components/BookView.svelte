@@ -24,7 +24,6 @@
   import { generationService } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
-  import { createEventDispatcher } from 'svelte'
   import type { Chapter } from '../lib/types/book'
   import type { LibraryBook } from '../lib/libraryDB'
   import {
@@ -33,6 +32,8 @@
     formatDurationShort,
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
+
+  let { onread }: { onread: (detail: { chapter: Chapter }) => void } = $props()
 
   // Helper to group settings
   function getSettingsGroups(model: string) {
@@ -74,8 +75,6 @@
   }
 
   const numberFormatter = new Intl.NumberFormat()
-
-  const dispatch = createEventDispatcher()
 
   // Local state for UI
   let showSettings = $state(false)
@@ -278,7 +277,7 @@
   }
 
   function handleRead(chapter: Chapter) {
-    dispatch('read', { chapter })
+    onread({ chapter })
   }
 
   async function handleDownload(chapterId: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') {

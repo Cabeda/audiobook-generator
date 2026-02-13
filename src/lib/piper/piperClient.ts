@@ -1,5 +1,3 @@
-import * as tts from '@diffusionstudio/vits-web'
-import * as ort from 'onnxruntime-web'
 import logger from '../utils/logger'
 import { MIN_TEXT_LENGTH } from '../audioConstants'
 import { createSilentWav } from '../audioConcat'
@@ -9,19 +7,30 @@ import {
   isLowResourceDevice,
 } from '../utils/mobileDetect'
 
-// Configure ONNX Runtime for the worker environment
-// If crossOriginIsolated is false OR on low-resource device, force single-threaded execution
-const shouldForceSingleThread =
-  (typeof self !== 'undefined' && !self.crossOriginIsolated) ||
-  isLowResourceDevice() ||
-  getPiperThreadingMode() === 'single-threaded'
+// Lazy-loaded modules to avoid pulling onnxruntime-web (~535KB) and vits-web into the main chunk
+let tts: typeof import('@diffusionstudio/vits-web') | null = null
+let ortConfigured = false
 
-if (shouldForceSingleThread) {
-  logger.info('Forcing single-threaded ONNX execution (non-isolated or low-resource device)')
-  ort.env.wasm.numThreads = 1
-  ort.env.wasm.proxy = false
-} else {
-  logger.info('Running in crossOriginIsolated context, allowing multi-threading')
+async function getTts() {
+  if (!tts) {
+    tts = await import('@diffusionstudio/vits-web')
+  }
+  if (!ortConfigured) {
+    ortConfigured = true
+    const ort = await import('onnxruntime-web')
+    const shouldForceSingleThread =
+      (typeof self !== 'undefined' && !self.crossOriginIsolated) ||
+      isLowResourceDevice() ||
+      getPiperThreadingMode() === 'single-threaded'
+    if (shouldForceSingleThread) {
+      logger.info('Forcing single-threaded ONNX execution (non-isolated or low-resource device)')
+      ort.env.wasm.numThreads = 1
+      ort.env.wasm.proxy = false
+    } else {
+      logger.info('Running in crossOriginIsolated context, allowing multi-threading')
+    }
+  }
+  return tts
 }
 
 export interface PiperVoice {
@@ -45,7 +54,7 @@ export class PiperClient {
   }
 
   async getVoices(): Promise<PiperVoice[]> {
-    const voicesMap = await tts.voices()
+    const voicesMap = await (await getTts()).voices()
     return Object.entries(voicesMap).map(([key, data]: [string, any]) => {
       // If voicesMap is an array, key is an index. Use data.key if available.
       const voiceId = Array.isArray(voicesMap) && data.key ? data.key : key
@@ -69,14 +78,16 @@ export class PiperClient {
     logger.info('Piper generate called with voiceId:', voiceId)
 
     // Check if model is stored
-    const storedModels = await tts.stored()
+    const storedModels = await (await getTts()).stored()
     logger.info('Piper stored models:', storedModels)
     const isStored = storedModels.includes(voiceId as any)
 
     if (!isStored) {
       logger.info(`Model ${voiceId} not stored, downloading...`)
       options.onProgress?.(`Downloading voice model: ${voiceId}...`)
-      await tts.download(voiceId as any, (progress: any) => {
+      await (
+        await getTts()
+      ).download(voiceId as any, (progress: any) => {
         const percent = Math.round((progress.loaded * 100) / progress.total)
         options.onProgress?.(`Downloading model: ${percent}%`)
       })
@@ -338,7 +349,9 @@ export class PiperClient {
         voiceId,
       })
 
-      const wav = await tts.predict({
+      const wav = await (
+        await getTts()
+      ).predict({
         text,
         voiceId: voiceId as any,
       })

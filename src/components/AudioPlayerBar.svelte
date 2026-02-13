@@ -505,13 +505,31 @@
 
     /* Reader mode mobile */
     .reader .player-content {
-      flex-direction: column;
-      gap: 16px;
+      padding: 8px 12px;
+      gap: 8px;
+    }
+
+    .reader .controls {
+      gap: 4px;
+    }
+
+    .reader .control-btn {
+      padding: 6px;
+    }
+
+    .reader .control-btn.play-pause {
+      width: 36px;
+      height: 36px;
     }
 
     .reader .progress-section {
       width: 100%;
-      order: -1;
+      gap: 8px;
+    }
+
+    .time {
+      font-size: 11px;
+      min-width: 35px;
     }
   }
 </style>

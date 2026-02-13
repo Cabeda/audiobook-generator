@@ -28,8 +28,8 @@
     getPiperVoicesForLanguage,
     isKokoroLanguageSupported,
   } from '../lib/utils/voiceSelector'
-  import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroClient'
-  import { onMount } from 'svelte'
+  import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
+  import { piperVoices } from '../stores/piperVoicesStore'
 
   let {
     chapter,
@@ -92,29 +92,6 @@
   let chapterVoice = $state(chapter.voice)
   let chapterLanguage = $state(chapter.language)
 
-  // Piper voices with full metadata (loaded async)
-  let piperVoicesWithMetadata = $state<
-    Array<{ key: string; name: string; language: string; quality: string }>
-  >([])
-  let piperVoicesLoadAttempted = $state(false)
-
-  // Load piper voices on mount (once)
-  onMount(() => {
-    if (!piperVoicesLoadAttempted) {
-      piperVoicesLoadAttempted = true
-      import('../lib/piper/piperClient')
-        .then(({ PiperClient }) => {
-          return PiperClient.getInstance().getVoices()
-        })
-        .then((voices) => {
-          piperVoicesWithMetadata = voices
-        })
-        .catch((error) => {
-          console.error('Failed to load Piper voices:', error)
-        })
-    }
-  })
-
   // Update local state when chapter prop changes
   $effect(() => {
     chapterModel = chapter.model
@@ -155,8 +132,8 @@
         .map((v) => ({ id: v, label: voiceLabels[v] || v }))
     } else if (effectiveModel === 'piper') {
       // Filter piper voices by language using metadata
-      if (piperVoicesWithMetadata.length > 0) {
-        const matchingVoices = getPiperVoicesForLanguage(effectiveLanguage, piperVoicesWithMetadata)
+      if ($piperVoices.length > 0) {
+        const matchingVoices = getPiperVoicesForLanguage(effectiveLanguage, $piperVoices)
         return matchingVoices.map((v) => ({ id: v.key, label: v.name }))
       }
       return []
