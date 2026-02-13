@@ -22,6 +22,7 @@
     resolveChapterLanguageWithDetection,
     DETECTION_CONFIDENCE_THRESHOLD,
   } from '../lib/utils/languageResolver'
+  import { appSettings } from '../stores/appSettingsStore'
   import {
     getKokoroVoicesForLanguage,
     getPiperVoicesForLanguage,
@@ -125,8 +126,10 @@
   let effectiveLanguage = $derived(book ? resolveChapterLanguageWithDetection(chapter, book) : 'en')
 
   // Compute the effective model (with automatic fallback if language not supported)
+  // Priority: chapter override > app language default > global toolbar selection
   let effectiveModel = $derived.by(() => {
-    const baseModel = chapterModel || $selectedModel
+    const langDefault = $appSettings.languageDefaults[effectiveLanguage]
+    const baseModel = chapterModel || langDefault?.model || $selectedModel
     // If Kokoro is selected but doesn't support the language, fallback to Piper
     if (baseModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
       return 'piper'
@@ -135,9 +138,11 @@
   })
 
   // Is this a fallback from the user's choice?
-  let isModelFallback = $derived(
-    (chapterModel || $selectedModel) === 'kokoro' && effectiveModel === 'piper'
-  )
+  let isModelFallback = $derived.by(() => {
+    const langDefault = $appSettings.languageDefaults[effectiveLanguage]
+    const userChoice = chapterModel || langDefault?.model || $selectedModel
+    return userChoice === 'kokoro' && effectiveModel === 'piper'
+  })
 
   // Compute available voices for the effective model and language
   let chapterAvailableVoices = $derived.by(() => {
@@ -160,18 +165,24 @@
   })
 
   // Compute the effective voice (auto-select first available if current is invalid)
+  // Priority: chapter override > app language default > auto-select first > global toolbar
   let effectiveVoice = $derived.by(() => {
+    // 1. Chapter-level override
     if (chapterVoice) {
-      // Check if the chapter's voice is valid for the effective model
       const isValid = chapterAvailableVoices.some((v) => v.id === chapterVoice)
-      if (isValid) {
-        return chapterVoice
-      }
+      if (isValid) return chapterVoice
     }
-    // Auto-select: pick first voice for the language
+    // 2. App-level language default
+    const langDefault = $appSettings.languageDefaults[effectiveLanguage]
+    if (langDefault?.voice) {
+      const isValid = chapterAvailableVoices.some((v) => v.id === langDefault.voice)
+      if (isValid) return langDefault.voice
+    }
+    // 3. Auto-select first available voice for the language
     if (chapterAvailableVoices.length > 0) {
       return chapterAvailableVoices[0].id
     }
+    // 4. Global toolbar fallback
     return $selectedVoice
   })
 
@@ -280,22 +291,7 @@
         <span>{numberFormatter.format(wordCount)} words</span>
         <span class="dot" aria-hidden="true">•</span>
         <span>~{formatDurationShort(estimatedDurationSeconds)}</span>
-        {#if chapter.detectedLanguage && chapter.detectedLanguage !== 'und'}
-          <span class="dot" aria-hidden="true">•</span>
-          <span
-            class="language-badge"
-            title={`Detected: ${chapter.detectedLanguage} (confidence: ${Math.round((chapter.languageConfidence || 0) * 100)}%)`}
-          >
-            🌐 {chapter.detectedLanguage.toUpperCase()}
-            {#if chapter.languageConfidence !== undefined}
-              <span class="confidence">{Math.round(chapter.languageConfidence * 100)}%</span>
-            {/if}
-          </span>
-        {/if}
       </div>
-      <p class="chapter-preview">
-        {chapter.content.slice(0, 180)}{chapter.content.length > 180 ? '…' : ''}
-      </p>
     </div>
 
     <div class="card-actions">
@@ -330,15 +326,6 @@
         aria-label={`Read chapter: ${chapter.title}`}
       >
         <span class="icon" aria-hidden="true">📖</span> Read
-      </button>
-
-      <button
-        class="action-btn icon-only"
-        onclick={copy}
-        title="Copy text"
-        aria-label={`Copy text of chapter: ${chapter.title}`}
-      >
-        <span aria-hidden="true">📋</span>
       </button>
     </div>
   </div>
@@ -600,12 +587,13 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    transition: all 0.2s ease;
+    transition:
+      background-color 0.2s,
+      border-color 0.2s;
   }
 
   .chapter-card:hover {
     border-color: var(--secondary-text);
-    box-shadow: 0 2px 8px var(--shadow-color);
   }
 
   .chapter-card.selected {
@@ -646,14 +634,6 @@
     line-height: 1.4;
   }
 
-  .chapter-preview {
-    margin: 0;
-    font-size: 0.9rem;
-    color: var(--secondary-text);
-    line-height: 1.5;
-    padding-left: 30px;
-  }
-
   .chapter-meta {
     display: flex;
     align-items: center;
@@ -666,23 +646,6 @@
 
   .dot {
     color: var(--border-color);
-  }
-
-  .language-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    background: var(--bg-color);
-    border: 1px solid var(--input-border);
-    border-radius: 12px;
-    font-size: 0.8rem;
-    font-weight: 500;
-  }
-
-  .language-badge .confidence {
-    opacity: 0.7;
-    font-size: 0.75rem;
   }
 
   .card-actions {
@@ -725,10 +688,6 @@
     color: var(--secondary-text);
   }
 
-  .action-btn.icon-only {
-    padding: 8px;
-  }
-
   .action-btn.small {
     font-size: 0.8rem;
     padding: 4px 8px;
@@ -753,7 +712,6 @@
   .icon-btn:hover {
     background: var(--bg-color);
     border-color: var(--text-color);
-    transform: scale(1.05);
   }
 
   .generate-chapter-btn {
@@ -764,7 +722,6 @@
 
   .generate-chapter-btn:hover {
     background: linear-gradient(135deg, #5568d3 0%, #6a3f8f 100%);
-    transform: scale(1.1);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   }
 
@@ -779,7 +736,6 @@
     background: var(--error-text, #dc2626);
     color: white;
     border-color: var(--error-text, #dc2626);
-    transform: scale(1.1);
   }
 
   .audio-controls {
@@ -842,16 +798,6 @@
     .card-main {
       flex-direction: column;
       gap: 12px;
-    }
-
-    .chapter-preview {
-      padding-left: 0;
-      margin-top: 8px;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
     }
 
     .card-actions {

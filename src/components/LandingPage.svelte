@@ -12,13 +12,15 @@
 
   let currentView = $state<'upload' | 'library'>('upload')
 
-  // Sync currentView with URL hash
+  // Sync currentView with URL hash, defaulting to library if user has books
   function syncViewFromHash() {
     const hash = location.hash.replace(/^#/, '') || '/'
     if (hash === '/library') {
       currentView = 'library'
+    } else if (hash === '/' || hash === '') {
+      // For root hash, show library if user has books (returning user)
+      currentView = $libraryBooks.length > 0 ? 'library' : 'upload'
     } else {
-      // Default to upload for '/', '/upload', or any other hash on landing
       currentView = 'upload'
     }
   }
@@ -83,9 +85,7 @@
     <div class="hero-content">
       <h1 class="title">Audiobook Generator</h1>
       <p class="subtitle">
-        Turn any eBook or web article into a high-quality audiobook in seconds.
-        <br />
-        Private, local, and free. <span class="drm-note">📖 DRM-free files only</span>
+        Turn any eBook or web article into a high-quality audiobook. Private, local, and free.
       </p>
 
       <!-- Tab Navigation -->
@@ -99,7 +99,7 @@
           aria-selected={currentView === 'upload'}
           aria-controls="upload-panel"
         >
-          📤 Upload New
+          Upload New
         </button>
         <button
           id="library-tab"
@@ -110,7 +110,7 @@
           aria-selected={currentView === 'library'}
           aria-controls="library-panel"
         >
-          📚 My Library
+          My Library
           {#if $libraryBooks.length > 0}
             <span class="library-count" aria-label="{$libraryBooks.length} books"
               >{$libraryBooks.length}</span
@@ -123,25 +123,7 @@
       {#if currentView === 'upload'}
         <div class="input-wrapper" role="tabpanel" id="upload-panel" aria-labelledby="upload-tab">
           <UnifiedInput on:bookloaded={onBookLoaded} />
-        </div>
-
-        <div class="features">
-          <div class="feature-item">
-            <span class="icon">🔒</span>
-            <span>100% Local Processing</span>
-          </div>
-          <div class="feature-item">
-            <span class="icon">⚡</span>
-            <span>Instant Generation</span>
-          </div>
-          <div class="feature-item">
-            <span class="icon">🎙️</span>
-            <span>Support Kokoro and Piper AI models</span>
-          </div>
-          <div class="feature-item drm-free-feature">
-            <span class="icon">📖</span>
-            <span>DRM-Free Files Only</span>
-          </div>
+          <p class="drm-note">DRM-free files only</p>
         </div>
       {:else}
         <div
@@ -162,29 +144,22 @@
       target="_blank"
       rel="noopener noreferrer"
       class="github-link"
+      aria-label="View on GitHub"
     >
-      <svg
-        height="24"
-        width="24"
-        viewBox="0 0 16 16"
-        version="1.1"
-        class="github-icon"
-        aria-hidden="true"
-      >
+      <svg height="20" width="20" viewBox="0 0 16 16" version="1.1" aria-hidden="true">
         <path
           fill="currentColor"
           d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
         ></path>
       </svg>
-      <span>View on GitHub</span>
     </a>
 
     <button class="theme-toggle" onclick={toggleTheme} aria-label="Toggle dark mode">
       {#if $appTheme === 'light'}
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
+          width="18"
+          height="18"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -205,8 +180,8 @@
       {:else}
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
+          width="18"
+          height="18"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -217,6 +192,25 @@
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
         </svg>
       {/if}
+    </button>
+
+    <button class="settings-btn" onclick={() => dispatch('opensettings')} aria-label="Settings">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <circle cx="12" cy="12" r="3"></circle>
+        <path
+          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+        ></path>
+      </svg>
     </button>
   </footer>
 </div>
@@ -236,28 +230,25 @@
       system-ui,
       -apple-system,
       sans-serif;
-    transition: background 0.3s;
+    transition: background-color 0.3s;
   }
 
   .hero {
     width: 100%;
-    max-width: 800px;
+    max-width: 720px;
     text-align: center;
     background: var(--hero-bg);
-    backdrop-filter: blur(10px);
-    border-radius: 24px;
-    padding: 60px 40px;
-    box-shadow: 0 20px 40px var(--shadow-color);
+    border-radius: 20px;
+    padding: 32px 24px;
+    box-shadow: 0 8px 24px var(--shadow-color);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    transition:
-      background-color 0.3s,
-      box-shadow 0.3s;
+    transition: background-color 0.3s;
   }
 
   .title {
-    font-size: 3.5rem;
-    font-weight: 800;
-    margin: 0 0 16px;
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0 0 8px;
     background: linear-gradient(135deg, #2196f3 0%, #9c27b0 100%);
     -webkit-background-clip: text;
     background-clip: text;
@@ -266,46 +257,46 @@
   }
 
   .subtitle {
-    font-size: 1.25rem;
+    font-size: 1rem;
     color: var(--secondary-text);
-    line-height: 1.6;
-    margin-bottom: 32px;
+    line-height: 1.5;
+    margin-bottom: 24px;
     font-weight: 400;
   }
 
   .tabs {
     display: flex;
-    gap: 12px;
-    margin-bottom: 32px;
+    gap: 8px;
+    margin-bottom: 24px;
     justify-content: center;
   }
 
   .tab {
-    padding: 12px 24px;
-    border: 2px solid var(--shadow-color);
+    padding: 10px 20px;
+    border: 1px solid var(--shadow-color);
     background: var(--feature-bg);
     color: var(--secondary-text);
-    border-radius: 12px;
-    font-size: 1rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition:
+      background-color 0.2s,
+      color 0.2s;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
   }
 
   .tab:hover {
     background: var(--surface-color);
     color: var(--text-color);
-    transform: translateY(-2px);
   }
 
   .tab.active {
     background: linear-gradient(135deg, #2196f3 0%, #9c27b0 100%);
     color: white;
     border-color: transparent;
-    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
   }
 
   .library-count {
@@ -313,137 +304,93 @@
     color: white;
     padding: 2px 8px;
     border-radius: 12px;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 700;
   }
 
   .library-wrapper {
-    margin-top: 24px;
-    max-height: 600px;
+    margin-top: 16px;
     overflow-y: auto;
-    border-radius: 16px;
+    border-radius: 12px;
   }
 
   .input-wrapper {
-    margin-bottom: 48px;
-    transform: scale(1.05);
-    transition: transform 0.3s ease;
-  }
-
-  .input-wrapper:hover {
-    transform: scale(1.06);
-  }
-
-  .features {
-    display: flex;
-    justify-content: center;
-    gap: 32px;
-    flex-wrap: wrap;
-  }
-
-  .feature-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.95rem;
-    color: var(--secondary-text);
-    font-weight: 500;
-    background: var(--feature-bg);
-    padding: 8px 16px;
-    border-radius: 100px;
-    border: 1px solid var(--shadow-color);
-  }
-
-  .feature-item.drm-free-feature {
-    background: rgba(244, 67, 54, 0.1);
-    color: #f44336;
-    border-color: rgba(244, 67, 54, 0.3);
-  }
-
-  .icon {
-    font-size: 1.2em;
+    margin-bottom: 16px;
   }
 
   .drm-note {
-    display: inline-block;
-    background: rgba(244, 67, 54, 0.1);
-    color: #f44336;
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 0.85em;
-    font-weight: 600;
-    border: 1px solid rgba(244, 67, 54, 0.3);
-    margin-left: 8px;
+    color: var(--secondary-text);
+    font-size: 0.75rem;
+    margin-top: 8px;
+    opacity: 0.7;
   }
 
   @media (max-width: 600px) {
     .title {
-      font-size: 2.5rem;
+      font-size: 1.6rem;
     }
     .hero {
-      padding: 40px 20px;
-    }
-    .features {
-      gap: 16px;
+      padding: 24px 16px;
     }
   }
 
   .footer {
-    margin-top: 48px;
-    padding: 20px;
-    text-align: center;
+    margin-top: 24px;
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
+    gap: 12px;
   }
 
   .github-link {
     display: flex;
     align-items: center;
-    gap: 8px;
     color: var(--secondary-text);
     text-decoration: none;
-    font-weight: 500;
-    font-size: 0.95rem;
-    padding: 10px 20px;
-    background: var(--feature-bg);
-    border-radius: 100px;
-    transition: all 0.2s ease;
-    border: 1px solid var(--shadow-color);
+    padding: 8px;
+    border-radius: 50%;
+    transition: color 0.2s;
   }
 
   .github-link:hover {
-    background: var(--surface-color);
     color: var(--text-color);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px var(--shadow-color);
-  }
-
-  .github-icon {
-    opacity: 0.8;
   }
 
   .theme-toggle {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 100px;
-    border: 1px solid var(--shadow-color);
-    background: var(--feature-bg);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
     color: var(--secondary-text);
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: color 0.2s;
     padding: 0;
   }
 
   .theme-toggle:hover {
-    background: var(--surface-color);
     color: var(--text-color);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px var(--shadow-color);
+  }
+
+  .settings-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--secondary-text);
+    cursor: pointer;
+    transition: color 0.2s;
+    padding: 0;
+  }
+
+  .settings-btn:hover {
+    color: var(--text-color);
   }
 </style>

@@ -365,11 +365,9 @@
 
   .books-grid {
     display: grid;
-    /* Optimized for smaller items: ~180px min width */
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 16px;
     margin-bottom: 24px;
-    transition: all 0.3s ease;
   }
 
   /* List View Overrides */
@@ -488,8 +486,8 @@
     }
 
     .books-grid {
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
     }
   }
 
