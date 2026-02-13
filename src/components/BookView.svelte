@@ -67,8 +67,8 @@
       typeof book.id === 'number' &&
       typeof book.title === 'string' &&
       typeof book.author === 'string' &&
-      typeof book.dateAdded === 'string' &&
-      typeof book.lastAccessed === 'string' &&
+      typeof book.dateAdded === 'number' &&
+      typeof book.lastAccessed === 'number' &&
       Array.isArray(book.chapters)
     )
   }
