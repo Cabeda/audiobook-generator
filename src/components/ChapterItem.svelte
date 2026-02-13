@@ -22,6 +22,7 @@
     resolveChapterLanguageWithDetection,
     DETECTION_CONFIDENCE_THRESHOLD,
   } from '../lib/utils/languageResolver'
+  import { appSettings } from '../stores/appSettingsStore'
   import {
     getKokoroVoicesForLanguage,
     getPiperVoicesForLanguage,
@@ -125,8 +126,10 @@
   let effectiveLanguage = $derived(book ? resolveChapterLanguageWithDetection(chapter, book) : 'en')
 
   // Compute the effective model (with automatic fallback if language not supported)
+  // Priority: chapter override > app language default > global toolbar selection
   let effectiveModel = $derived.by(() => {
-    const baseModel = chapterModel || $selectedModel
+    const langDefault = $appSettings.languageDefaults[effectiveLanguage]
+    const baseModel = chapterModel || langDefault?.model || $selectedModel
     // If Kokoro is selected but doesn't support the language, fallback to Piper
     if (baseModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
       return 'piper'
@@ -135,9 +138,11 @@
   })
 
   // Is this a fallback from the user's choice?
-  let isModelFallback = $derived(
-    (chapterModel || $selectedModel) === 'kokoro' && effectiveModel === 'piper'
-  )
+  let isModelFallback = $derived.by(() => {
+    const langDefault = $appSettings.languageDefaults[effectiveLanguage]
+    const userChoice = chapterModel || langDefault?.model || $selectedModel
+    return userChoice === 'kokoro' && effectiveModel === 'piper'
+  })
 
   // Compute available voices for the effective model and language
   let chapterAvailableVoices = $derived.by(() => {
@@ -160,18 +165,24 @@
   })
 
   // Compute the effective voice (auto-select first available if current is invalid)
+  // Priority: chapter override > app language default > auto-select first > global toolbar
   let effectiveVoice = $derived.by(() => {
+    // 1. Chapter-level override
     if (chapterVoice) {
-      // Check if the chapter's voice is valid for the effective model
       const isValid = chapterAvailableVoices.some((v) => v.id === chapterVoice)
-      if (isValid) {
-        return chapterVoice
-      }
+      if (isValid) return chapterVoice
     }
-    // Auto-select: pick first voice for the language
+    // 2. App-level language default
+    const langDefault = $appSettings.languageDefaults[effectiveLanguage]
+    if (langDefault?.voice) {
+      const isValid = chapterAvailableVoices.some((v) => v.id === langDefault.voice)
+      if (isValid) return langDefault.voice
+    }
+    // 3. Auto-select first available voice for the language
     if (chapterAvailableVoices.length > 0) {
       return chapterAvailableVoices[0].id
     }
+    // 4. Global toolbar fallback
     return $selectedVoice
   })
 

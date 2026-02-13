@@ -6,6 +6,7 @@
   import LandingPage from './components/LandingPage.svelte'
   import BookView from './components/BookView.svelte'
   import TextReader from './components/TextReader.svelte'
+  import SettingsPage from './components/SettingsPage.svelte'
   import Toast from './components/Toast.svelte'
   import ReloadPrompt from './components/ReloadPrompt.svelte'
 
@@ -41,7 +42,7 @@
   import { appTheme as theme } from './stores/themeStore'
 
   // State
-  type ViewType = 'landing' | 'book' | 'reader'
+  type ViewType = 'landing' | 'book' | 'reader' | 'settings'
   let currentView = $state<ViewType>('landing')
   let currentChapter = $state<Chapter | null>(null) // For Reader
 
@@ -339,7 +340,14 @@
 
   {#if currentView === 'landing'}
     <div in:fade>
-      <LandingPage on:bookloaded={onBookLoaded} />
+      <LandingPage
+        on:bookloaded={onBookLoaded}
+        on:opensettings={() => (currentView = 'settings')}
+      />
+    </div>
+  {:else if currentView === 'settings'}
+    <div in:fade class="view-wrapper">
+      <SettingsPage onBack={() => (currentView = 'landing')} />
     </div>
   {:else if currentView === 'book'}
     <div in:fade class="view-wrapper">
