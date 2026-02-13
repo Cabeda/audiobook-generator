@@ -155,6 +155,91 @@ export interface SegmentOptions {
   ignoreLinks?: boolean
 }
 
+/**
+ * Read a Blob (or a slice of it) as a Uint8Array.
+ * Works in both browser and jsdom test environments where
+ * Blob.arrayBuffer() or Blob.slice().arrayBuffer() may be missing.
+ */
+async function readBlobAsUint8Array(blob: Blob, maxBytes?: number): Promise<Uint8Array> {
+  const target = maxBytes != null && maxBytes < blob.size ? blob.slice(0, maxBytes) : blob
+
+  // Try the modern API first
+  if (typeof target.arrayBuffer === 'function') {
+    try {
+      return new Uint8Array(await target.arrayBuffer())
+    } catch {
+      // fall through
+    }
+  }
+
+  // Fallback: FileReader (works in jsdom)
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(new Uint8Array(reader.result))
+      } else {
+        reject(new Error('FileReader did not return ArrayBuffer'))
+      }
+    }
+    reader.onerror = () => reject(reader.error || new Error('FileReader error'))
+    reader.readAsArrayBuffer(target)
+  })
+}
+
+/**
+ * Parse a WAV blob header and return the accurate duration in seconds.
+ * Handles arbitrary chunk layouts (extra LIST/fact/etc. chunks before data).
+ *
+ * This replaces the old hardcoded `(blob.size - 44) / (24000 * 4)` estimate
+ * which assumed 24 kHz float32 mono and caused highlight-audio desync when
+ * the actual format differed (e.g. 16-bit PCM, different sample rates).
+ */
+export async function parseWavDuration(blob: Blob): Promise<number> {
+  const headerBytes = await readBlobAsUint8Array(blob, 1024)
+  const view = new DataView(headerBytes.buffer)
+
+  // Validate RIFF/WAVE
+  const riff = String.fromCharCode(...headerBytes.slice(0, 4))
+  const wave = String.fromCharCode(...headerBytes.slice(8, 12))
+  if (riff !== 'RIFF' || wave !== 'WAVE') {
+    // Not a valid WAV — fall back to blob-size estimate (24kHz 16-bit mono)
+    const fallback = (blob.size - 44) / (24000 * 2)
+    return fallback > 0 ? fallback : 0
+  }
+
+  let offset = 12
+  let sampleRate = 24000
+  let numChannels = 1
+  let bitsPerSample = 16
+  let dataLength = -1
+
+  while (offset + 8 <= headerBytes.length) {
+    const chunkId = String.fromCharCode(...headerBytes.slice(offset, offset + 4))
+    const chunkSize = view.getUint32(offset + 4, true)
+
+    if (chunkId === 'fmt ') {
+      numChannels = view.getUint16(offset + 10, true)
+      sampleRate = view.getUint32(offset + 12, true)
+      bitsPerSample = view.getUint16(offset + 22, true)
+    } else if (chunkId === 'data') {
+      dataLength = chunkSize
+      break
+    }
+
+    offset += 8 + chunkSize
+  }
+
+  if (dataLength <= 0) {
+    // Could not find data chunk — fall back using parsed fmt values
+    const fallback = (blob.size - 44) / (sampleRate * (bitsPerSample / 8) * numChannels)
+    return fallback > 0 ? fallback : 0
+  }
+
+  const bytesPerSec = sampleRate * (bitsPerSample / 8) * numChannels
+  return bytesPerSec > 0 ? dataLength / bytesPerSec : 0
+}
+
 export function segmentHtmlContent(
   chapterId: string,
   htmlContent: string,
@@ -554,12 +639,27 @@ class GenerationService {
     }
   }
 
-  // Helper to calculate duration of a WAV blob
-  // WAV header is 44 bytes, Kokoro outputs 24kHz float32 mono
+  /**
+   * Calculate duration of a WAV blob by parsing its header.
+   *
+   * Previous implementation hardcoded 24 kHz / float32 / mono which caused
+   * duration mis-estimates (and therefore highlight desync) whenever the
+   * actual WAV format differed — e.g. 16-bit PCM from Kokoro's toBlob(),
+   * Piper at 22050 Hz, or the audioBufferToWav helper which writes 16-bit.
+   *
+   * The async variant reads the first 1 KB of the blob to locate the "fmt "
+   * and "data" chunks so it works regardless of extra chunks (LIST, fact, …).
+   * A synchronous fast-path is kept for callers that only have blob.size.
+   */
   private calculateWavDuration(blob: Blob): number {
+    // Synchronous fallback: use the most common output format (24 kHz 16-bit mono)
+    // This is only used as the return value; the async path below is preferred
+    // when the caller can await, but both call-sites currently use the sync return.
+    // We parse the header synchronously via the blob size heuristic but with the
+    // correct default bytes-per-sample for PCM-16.
     const headerSize = 44
     const sampleRate = 24000
-    const bytesPerSample = 4 // float32
+    const bytesPerSample = 2 // 16-bit PCM (most common output)
     const channels = 1
 
     const pcmDataSize = blob.size - headerSize
@@ -1207,10 +1307,12 @@ class GenerationService {
                   advancedSettings: currentAdvancedSettings,
                 })
 
+                const duration = await parseWavDuration(blob)
+
                 return {
                   segment,
                   blob,
-                  duration: this.calculateWavDuration(blob),
+                  duration,
                 }
               },
               async (result) => {
@@ -1375,10 +1477,12 @@ class GenerationService {
                   // No dtype for Piper
                 })
 
+                const duration = await parseWavDuration(blob)
+
                 return {
                   segment,
                   blob,
-                  duration: this.calculateWavDuration(blob),
+                  duration,
                 }
               },
               async (result) => {
@@ -1739,8 +1843,13 @@ class GenerationService {
           // Calculate duration from blob if stored duration is missing/invalid
           let duration = s.duration
           if (!duration || duration <= 0) {
-            // Fallback: estimate from WAV blob size (24kHz float32 mono = 96000 bytes/sec)
-            duration = (s.audioBlob.size - 44) / (24000 * 4)
+            // Fallback: parse WAV header for accurate duration
+            try {
+              duration = await parseWavDuration(s.audioBlob)
+            } catch {
+              // Last resort: estimate assuming 24kHz 16-bit mono (48000 bytes/sec)
+              duration = (s.audioBlob.size - 44) / (24000 * 2)
+            }
             if (duration < 0) duration = 1 // Minimum fallback
           }
 

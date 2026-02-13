@@ -366,9 +366,9 @@ class AudioPlaybackService {
       if (lastSeg.startTime !== undefined && lastSeg.duration !== undefined) {
         totalDuration = (lastSeg.startTime || 0) + (lastSeg.duration || 0)
       } else if (dbSegments.length > 0) {
-        // Fallback duration calculation
+        // Fallback duration calculation — assume 24kHz 16-bit mono (48000 bytes/sec)
         totalDuration = dbSegments.reduce((acc, seg) => {
-          const est = (seg.audioBlob.size - 44) / (24000 * 4) // Estimate
+          const est = (seg.audioBlob.size - 44) / (24000 * 2)
           return acc + Math.max(est, 0)
         }, 0)
       }
