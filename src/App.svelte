@@ -201,6 +201,13 @@
           const id = await addBook(b)
           currentLibraryBookId.set(id)
 
+          // Patch the in-memory book with DB metadata so isLibraryBook checks pass
+          // and chapter settings (voice, model, language) can be persisted immediately.
+          // Mutate directly to avoid triggering book.subscribe which resets all state.
+          ;(b as any).id = id
+          ;(b as any).dateAdded = Date.now()
+          ;(b as any).lastAccessed = Date.now()
+
           // Run language detection in background (non-blocking)
           try {
             const { detectAndPersistLanguagesForBook } = await import(
