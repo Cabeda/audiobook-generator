@@ -233,12 +233,44 @@
     isGenerating = false
   }
 
+  function handleCancelChapter(id: string) {
+    generationService.cancelChapter(id)
+  }
+
   function handleRetry(id: string) {
     if (!$book) return
     const ch = $book.chapters.find((c) => c.id === id)
     if (ch) {
       generationService.generateChapters([ch])
     }
+  }
+
+  function handleRegenerate(id: string) {
+    if (!$book) return
+    const ch = $book.chapters.find((c) => c.id === id)
+    if (!ch) return
+
+    // Clear existing audio for this chapter
+    generatedAudio.update((m) => {
+      const newMap = new Map(m)
+      const existing = newMap.get(id)
+      if (existing) {
+        URL.revokeObjectURL(existing.url)
+        newMap.delete(id)
+      }
+      return newMap
+    })
+
+    // Reset chapter status
+    chapterStatus.update((m) => new Map(m).set(id, 'pending'))
+    chapterErrors.update((m) => {
+      const newMap = new Map(m)
+      newMap.delete(id)
+      return newMap
+    })
+
+    // Trigger generation for just this chapter
+    generationService.generateChapters([ch])
   }
 
   async function handleExport() {
@@ -545,6 +577,8 @@
             onToggle={toggleChapter}
             onRead={handleRead}
             onRetry={handleRetry}
+            onCancel={handleCancelChapter}
+            onRegenerate={handleRegenerate}
             onDownload={handleDownload}
             onModelChange={handleModelChange}
             onVoiceChange={handleVoiceChange}

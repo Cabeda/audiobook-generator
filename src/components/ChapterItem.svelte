@@ -41,6 +41,8 @@
     status,
     error,
     onRetry,
+    onCancel,
+    onRegenerate,
     progress,
     onModelChange,
     onVoiceChange,
@@ -57,6 +59,8 @@
     onRead: (chapter: Chapter) => void
     onDownload: (id: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') => void
     onRetry?: (id: string) => void
+    onCancel?: (id: string) => void
+    onRegenerate?: (id: string) => void
     progress?: { current: number; total: number; message?: string }
     onModelChange?: (chapterId: string, model: string | undefined) => void
     onVoiceChange?: (chapterId: string, voice: string | undefined) => void
@@ -307,10 +311,29 @@
           ⚡
         </button>
       {/if}
-      {#if status === 'processing'}
+      {#if status === 'processing' && onCancel}
+        <button
+          class="icon-btn cancel-chapter-btn"
+          onclick={() => onCancel(chapter.id)}
+          title="Cancel generation for this chapter"
+          aria-label="Cancel this chapter"
+        >
+          ✕
+        </button>
+      {:else if status === 'processing'}
         <div class="spinner-container">
           <span class="spinner" aria-hidden="true"></span>
         </div>
+      {/if}
+      {#if audioData && status === 'done' && onRegenerate}
+        <button
+          class="icon-btn regenerate-chapter-btn"
+          onclick={() => onRegenerate(chapter.id)}
+          title="Regenerate audio for this chapter (uses current settings)"
+          aria-label="Regenerate this chapter"
+        >
+          🔄
+        </button>
       {/if}
       <button
         class="action-btn"
@@ -755,6 +778,32 @@
     background: linear-gradient(135deg, #5568d3 0%, #6a3f8f 100%);
     transform: scale(1.1);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  }
+
+  .cancel-chapter-btn {
+    background: var(--error-bg, #fee2e2);
+    border: 1px solid var(--error-border, #fecaca);
+    color: var(--error-text, #dc2626);
+    font-size: 1rem;
+  }
+
+  .cancel-chapter-btn:hover {
+    background: var(--error-text, #dc2626);
+    color: white;
+    border-color: var(--error-text, #dc2626);
+    transform: scale(1.1);
+  }
+
+  .regenerate-chapter-btn {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    border: none;
+    color: white;
+  }
+
+  .regenerate-chapter-btn:hover {
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
   }
 
   .audio-controls {

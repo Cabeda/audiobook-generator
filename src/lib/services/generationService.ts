@@ -508,6 +508,7 @@ export function segmentHtmlContent(
 class GenerationService {
   private running = false
   private canceled = false
+  private canceledChapters = new Set<string>()
 
   private wakeLock: WakeLockSentinel | null = null
   private priorityOverrides = new Map<string, number>()
@@ -1106,6 +1107,7 @@ class GenerationService {
 
     this.running = true
     this.canceled = false // Reset canceled state
+    this.canceledChapters.clear() // Reset per-chapter cancellation
     this.autoPlayTriggered.clear() // Reset auto-play triggers for new generation
     isGenerating.set(true)
 
@@ -1124,6 +1126,13 @@ class GenerationService {
         if (this.canceled) break
 
         const ch = chapters[i]
+
+        // Skip chapters that were individually canceled
+        if (this.canceledChapters.has(ch.id)) {
+          logger.info(`[generateChapters] Skipping canceled chapter ${ch.id}`)
+          continue
+        }
+
         const currentBook = get(book)
 
         // Resolve the effective language for this chapter (with auto-detection support)
@@ -1292,7 +1301,8 @@ class GenerationService {
               textSegments,
               parallelChunks,
               async (segment) => {
-                if (this.canceled) throw new Error('Generation canceled')
+                if (this.canceled || this.canceledChapters.has(ch.id))
+                  throw new Error('Generation canceled')
 
                 // Skip empty segments
                 if (!segment.text.trim()) return null
@@ -1331,7 +1341,12 @@ class GenerationService {
 
                 // Auto-play first segment for seamless mobile experience
                 // Only triggers once per chapter, on the first completed segment
-                if (this.autoPlayEnabled && !this.autoPlayTriggered.has(ch.id) && !this.canceled) {
+                if (
+                  this.autoPlayEnabled &&
+                  !this.autoPlayTriggered.has(ch.id) &&
+                  !this.canceled &&
+                  !this.canceledChapters.has(ch.id)
+                ) {
                   this.autoPlayTriggered.add(ch.id)
                   logger.info(`[AutoPlay] Starting playback of first available segment`, {
                     chapterId: ch.id,
@@ -1340,7 +1355,7 @@ class GenerationService {
                   // Use setTimeout to avoid blocking the generation loop
                   // Re-check canceled inside callback to prevent playing after cancellation
                   setTimeout(() => {
-                    if (this.canceled) {
+                    if (this.canceled || this.canceledChapters.has(ch.id)) {
                       logger.info('[AutoPlay] Skipped — generation was canceled')
                       return
                     }
@@ -1371,7 +1386,7 @@ class GenerationService {
               cumulativeTime += s.duration || 0
             }
 
-            if (this.canceled) break
+            if (this.canceled || this.canceledChapters.has(ch.id)) break
 
             // Mark chapter generation as complete
             markChapterGenerationComplete(ch.id)
@@ -1462,7 +1477,8 @@ class GenerationService {
               textSegments,
               parallelChunks,
               async (segment) => {
-                if (this.canceled) throw new Error('Generation canceled')
+                if (this.canceled || this.canceledChapters.has(ch.id))
+                  throw new Error('Generation canceled')
 
                 // Skip empty segments
                 if (!segment.text.trim()) return null
@@ -1520,7 +1536,7 @@ class GenerationService {
               cumulativeTime += s.duration || 0
             }
 
-            if (this.canceled) break
+            if (this.canceled || this.canceledChapters.has(ch.id)) break
 
             // Mark chapter generation as complete
             markChapterGenerationComplete(ch.id)
@@ -1566,6 +1582,7 @@ class GenerationService {
           })
         } catch (err: unknown) {
           if (this.canceled) break
+          if (this.canceledChapters.has(ch.id)) continue
           const errorMsg = err instanceof Error ? err.message : 'Unknown error'
           logger.error(`Generation failed for chapter ${ch.title}:`, err)
           chapterStatus.update((m) => new Map(m).set(ch.id, 'error'))
@@ -1608,9 +1625,31 @@ class GenerationService {
 
     // Clear auto-play state for canceled chapters
     this.autoPlayTriggered.clear()
+    this.canceledChapters.clear()
 
     this.running = false
     isGenerating.set(false)
+  }
+
+  /**
+   * Cancel generation for a single chapter without stopping the entire batch.
+   * The generation loop will skip this chapter and continue with the next one.
+   */
+  cancelChapter(chapterId: string) {
+    this.canceledChapters.add(chapterId)
+    logger.info(`[CancelChapter] Marked chapter ${chapterId} for cancellation`)
+
+    // Reset chapter status to pending
+    chapterStatus.update((m) => {
+      const newMap = new Map(m)
+      if (newMap.get(chapterId) === 'processing') {
+        newMap.set(chapterId, 'pending')
+      }
+      return newMap
+    })
+
+    // Mark generation as no longer in progress for this chapter
+    markChapterGenerationComplete(chapterId)
   }
 
   isRunning() {
