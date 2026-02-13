@@ -842,13 +842,51 @@
 
   @media (max-width: 768px) {
     .hero-header {
-      flex-direction: column;
-      align-items: center;
+      padding: 16px;
+      min-height: auto;
       text-align: center;
     }
+    .hero-bg {
+      display: none;
+    }
+    .hero-header {
+      background: var(--surface-color);
+      color: var(--text-color);
+      box-shadow: 0 4px 12px var(--shadow-color);
+    }
     .hero-content {
-      flex-direction: column;
+      flex-direction: row;
       align-items: center;
+      gap: 12px;
+      text-align: left;
+    }
+    .book-cover {
+      width: 60px;
+      height: 90px;
+      box-shadow: 0 4px 8px var(--shadow-color);
+      border: 1px solid var(--border-color);
+    }
+    .placeholder {
+      font-size: 1.5rem;
+    }
+    .book-info h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      text-shadow: none;
+    }
+    .author {
+      font-size: 0.85rem;
+      margin: 0 0 8px 0;
+    }
+    .meta-badges {
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .badge {
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      background: var(--feature-bg);
+      color: var(--secondary-text);
     }
     .toolbar {
       flex-direction: column;
