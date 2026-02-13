@@ -1174,9 +1174,20 @@ class GenerationService {
         // We determine if we need to auto-select a voice.
         // Auto-select if:
         // 1. Current voice is invalid/missing (!currentVoice)
-        // 2. OR we fell back to a different model (meaning ch.voice or global voice might be invalid for new model)
-        // Note: We do NOT auto-switch if a global voice is selected (!ch.voice is NOT enough reason to ignore global preference)
-        const shouldAutoSelectVoice = !currentVoice || isFallbackModel
+        // 2. OR we fell back to a different model AND the user's voice is not valid for the fallback model
+        // Note: If the user explicitly set a chapter voice that's valid for the fallback model, respect it
+        let shouldAutoSelectVoice = !currentVoice
+        if (!shouldAutoSelectVoice && isFallbackModel) {
+          // Only auto-select if the user's voice isn't valid for the fallback model
+          if (effectiveModel === 'piper') {
+            const piperClient = PiperClient.getInstance()
+            const voices = await piperClient.getVoices()
+            const isValidForPiper = voices.some((v) => v.key === currentVoice)
+            shouldAutoSelectVoice = !isValidForPiper
+          } else {
+            shouldAutoSelectVoice = true
+          }
+        }
 
         if (shouldAutoSelectVoice) {
           // Auto-select voice based on language
@@ -1213,8 +1224,10 @@ class GenerationService {
           logger.info(`Using chapter-specific voice: ${effectiveVoice}`)
         }
 
-        // If a specific Piper voice is selected but doesn't match the detected language, switch to a matching one
-        if (effectiveModel === 'piper' && !shouldAutoSelectVoice) {
+        // If a specific Piper voice is selected from the GLOBAL default (not a chapter override)
+        // but doesn't match the detected language, switch to a matching one.
+        // We skip this check when the user explicitly set a chapter voice — respect their choice.
+        if (effectiveModel === 'piper' && !shouldAutoSelectVoice && !ch.voice) {
           const piperClient = PiperClient.getInstance()
           const availableVoices = await piperClient.getVoices()
           const selectedVoiceInfo = availableVoices.find((v) => v.key === effectiveVoice)
