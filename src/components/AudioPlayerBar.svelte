@@ -1,7 +1,6 @@
 <script lang="ts">
   import { audioPlayerStore, currentPlaybackInfo } from '../stores/audioPlayerStore'
   import { audioService } from '../lib/audioPlaybackService.svelte'
-  import { appTheme } from '../stores/themeStore'
   import { onMount } from 'svelte'
   import type { Chapter } from '../lib/types/book'
 
@@ -137,7 +136,6 @@
   class="audio-player-bar"
   class:persistent={mode === 'persistent'}
   class:reader={mode === 'reader'}
-  class:dark={$appTheme === 'dark'}
   role={mode === 'persistent' ? 'button' : undefined}
   tabindex={mode === 'persistent' ? 0 : -1}
   aria-label={mode === 'persistent' ? 'Expand player' : undefined}
@@ -284,9 +282,9 @@
 
 <style>
   .audio-player-bar {
-    background: var(--surface-color, rgba(255, 255, 255, 0.98));
-    border-top: 1px solid rgba(0, 0, 0, 0.1);
-    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+    background: var(--surface-color);
+    border-top: 1px solid var(--border-color);
+    box-shadow: 0 -2px 12px var(--shadow-color);
     transition: background-color 0.2s;
   }
 
@@ -309,17 +307,7 @@
   }
 
   .audio-player-bar:hover {
-    background: rgba(255, 255, 255, 1);
-  }
-
-  .audio-player-bar.dark {
-    background: rgba(30, 30, 30, 0.95);
-    border-top-color: rgba(255, 255, 255, 0.1);
-    color: #e0e0e0;
-  }
-
-  .audio-player-bar.dark:hover {
-    background: rgba(40, 40, 40, 1);
+    background: var(--bg-color);
   }
 
   @keyframes slideUp {
@@ -358,7 +346,7 @@
   .book-title {
     font-weight: 600;
     font-size: 14px;
-    color: var(--text-primary, inherit);
+    color: var(--text-color);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -366,8 +354,7 @@
 
   .chapter-title {
     font-size: 12px;
-    color: var(--text-secondary, inherit);
-    opacity: 0.8;
+    color: var(--secondary-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -395,36 +382,30 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
+    transition:
+      background-color 0.2s,
+      transform 0.2s;
   }
 
   .control-btn:hover {
-    background: rgba(0, 0, 0, 0.05);
+    background: var(--feature-bg);
     transform: scale(1.1);
   }
 
-  .dark .control-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-  }
-
   .control-btn.play-pause {
-    background: var(--primary-color, #3b82f6);
-    color: white;
+    background: var(--primary-color);
+    color: var(--bg-color);
     width: 40px;
     height: 40px;
   }
 
   .control-btn.play-pause:hover {
-    background: var(--primary-hover, #2563eb);
+    background: var(--primary-hover);
     transform: scale(1.05);
   }
 
   .control-btn.settings-btn.active {
-    background: rgba(0, 0, 0, 0.1);
-  }
-
-  .dark .control-btn.settings-btn.active {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--selected-bg);
   }
 
   .spinner {
@@ -435,11 +416,6 @@
     border-top-color: white;
     border-radius: 50%;
     animation: spin 1s linear infinite;
-  }
-
-  .dark .spinner {
-    border: 2px solid rgba(255, 255, 255, 0.15);
-    border-top-color: white;
   }
 
   @keyframes spin {
@@ -459,18 +435,13 @@
     flex: 1;
   }
 
-  /* In reader mode, progress section might need adjustment if we want it centered or below */
-  /* For now, let's keep it flexible. In reader mode, we might want to hide it if it's too crowded? */
-  /* But the user wants the SAME component. */
   .reader .progress-section {
-    /* If we want it to look good in reader mode, we might need to adjust layout */
-    /* Let's try to fit it in */
     max-width: 400px;
   }
 
   .time {
     font-size: 12px;
-    opacity: 0.8;
+    color: var(--secondary-text);
     font-variant-numeric: tabular-nums;
     min-width: 40px;
   }
@@ -478,19 +449,15 @@
   .progress-bar {
     flex: 1;
     height: 4px;
-    background: rgba(0, 0, 0, 0.1);
+    background: var(--border-color);
     border-radius: 2px;
     overflow: hidden;
     min-width: 100px;
   }
 
-  .dark .progress-bar {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
   .progress-fill {
     height: 100%;
-    background: var(--primary-color, #3b82f6);
+    background: var(--primary-color);
     border-radius: 2px;
     transition: width 0.1s linear;
   }
@@ -501,8 +468,8 @@
   }
 
   .close-btn:hover {
-    background: rgba(255, 0, 0, 0.1);
-    color: #ff0000;
+    background: var(--error-bg);
+    color: var(--error-color);
   }
 
   /* Mobile responsive */
@@ -544,7 +511,7 @@
 
     .reader .progress-section {
       width: 100%;
-      order: -1; /* Put progress on top? */
+      order: -1;
     }
   }
 </style>

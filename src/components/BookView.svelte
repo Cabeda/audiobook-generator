@@ -713,9 +713,8 @@
 
   /* Buttons */
   .primary-btn {
-    background: #646cff; /* Fallback */
-    background: linear-gradient(135deg, #646cff 0%, #9f5afd 100%);
-    color: white;
+    background: var(--primary-color);
+    color: var(--bg-color);
     border: none;
     padding: 10px 24px;
     border-radius: 10px;
@@ -723,13 +722,14 @@
     font-size: 1rem;
     cursor: pointer;
     transition:
-      transform 0.2s,
+      background-color 0.2s,
       box-shadow 0.2s;
-    box-shadow: 0 4px 12px rgba(100, 108, 255, 0.3);
+    box-shadow: 0 4px 12px var(--shadow-color);
   }
 
   .primary-btn:hover:not(:disabled) {
-    box-shadow: 0 6px 16px rgba(100, 108, 255, 0.4);
+    background: var(--primary-hover);
+    box-shadow: 0 6px 16px var(--shadow-color);
   }
 
   .primary-btn:disabled {
@@ -800,10 +800,10 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--feature-bg);
     padding: 12px;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
   }
 
   .slider-container input[type='range'] {
@@ -818,15 +818,15 @@
     text-align: center;
     font-weight: 700;
     color: var(--primary-color);
-    background: rgba(100, 108, 255, 0.1);
+    background: var(--selected-bg);
     padding: 2px 8px;
     border-radius: 4px;
     font-family: monospace;
   }
 
   .premium-input {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
     color: var(--text-color);
     padding: 10px 14px;
     border-radius: 8px;
@@ -863,8 +863,8 @@
     margin: 0 8px 16px 8px;
     padding: 20px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--feature-bg);
+    border: 1px solid var(--border-color);
   }
 
   .setting-group-title {
@@ -872,7 +872,7 @@
     font-weight: 700;
     margin: 24px 0 12px 0;
     color: var(--text-color);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--border-color);
     padding-bottom: 8px;
     width: 100%;
   }
@@ -888,14 +888,14 @@
     padding: 12px;
     border-radius: 8px;
     cursor: pointer;
-    transition: background 0.2s;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: background-color 0.2s;
+    background: var(--feature-bg);
+    border: 1px solid var(--border-color);
     margin-bottom: 8px;
   }
 
   .checkbox-row:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--selected-bg);
   }
 
   .checkbox-row input[type='checkbox'] {
@@ -932,18 +932,20 @@
   }
 
   .cancel-btn {
-    background: var(--error-bg, #fee);
-    color: var(--error-text, #c00);
-    border: 1px solid var(--error-border, #fcc);
+    background: var(--error-bg);
+    color: var(--error-text);
+    border: 1px solid var(--error-border);
     padding: 8px 16px;
     border-radius: 8px;
     cursor: pointer;
     font-weight: 500;
-    transition: all 0.2s;
+    transition:
+      background-color 0.2s,
+      color 0.2s;
   }
 
   .cancel-btn:hover {
-    background: var(--error-text, #c00);
-    color: white;
+    background: var(--error-color);
+    color: var(--bg-color);
   }
 </style>

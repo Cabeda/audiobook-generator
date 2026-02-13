@@ -225,11 +225,6 @@
     justify-content: center;
     background: var(--landing-bg);
     padding: 20px;
-    font-family:
-      'Inter',
-      system-ui,
-      -apple-system,
-      sans-serif;
     transition: background-color 0.3s;
   }
 
@@ -241,7 +236,7 @@
     border-radius: 20px;
     padding: 32px 24px;
     box-shadow: 0 8px 24px var(--shadow-color);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-color);
     transition: background-color 0.3s;
   }
 
@@ -249,10 +244,7 @@
     font-size: 2rem;
     font-weight: 700;
     margin: 0 0 8px;
-    background: linear-gradient(135deg, #2196f3 0%, #9c27b0 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text-color);
     letter-spacing: -0.02em;
   }
 
@@ -273,7 +265,7 @@
 
   .tab {
     padding: 10px 20px;
-    border: 1px solid var(--shadow-color);
+    border: 1px solid var(--border-color);
     background: var(--feature-bg);
     color: var(--secondary-text);
     border-radius: 10px;
@@ -294,14 +286,14 @@
   }
 
   .tab.active {
-    background: linear-gradient(135deg, #2196f3 0%, #9c27b0 100%);
-    color: white;
+    background: var(--primary-color);
+    color: var(--bg-color);
     border-color: transparent;
   }
 
   .library-count {
-    background: rgba(255, 255, 255, 0.3);
-    color: white;
+    background: rgba(255, 255, 255, 0.25);
+    color: inherit;
     padding: 2px 8px;
     border-radius: 12px;
     font-size: 0.8rem;
