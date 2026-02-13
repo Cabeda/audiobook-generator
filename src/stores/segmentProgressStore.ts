@@ -15,6 +15,8 @@ export interface ChapterSegmentProgress {
   generatedSegments: Map<number, AudioSegment>
   /** Whether generation is currently in progress */
   isGenerating: boolean
+  /** Index of the segment currently being processed (-1 if none) */
+  processingIndex: number
 }
 
 /**
@@ -35,12 +37,13 @@ export function initChapterSegments(
     const segmentTexts = new Map<number, string>()
     segments.forEach((s) => segmentTexts.set(s.index, s.text))
 
-    const chapterProgress = {
+    const chapterProgress: ChapterSegmentProgress = {
       totalSegments: segments.length,
       generatedIndices: new Set<number>(),
       segmentTexts,
       generatedSegments: new Map(),
       isGenerating: true,
+      processingIndex: -1,
     }
     newMap.set(chapterId, chapterProgress)
     return newMap
@@ -98,6 +101,19 @@ export function clearChapterSegments(chapterId: string) {
   segmentProgress.update((map) => {
     const newMap = new Map(map)
     newMap.delete(chapterId)
+    return newMap
+  })
+}
+
+/**
+ * Update the currently-processing segment index for a chapter
+ */
+export function setProcessingIndex(chapterId: string, index: number) {
+  segmentProgress.update((map) => {
+    const progress = map.get(chapterId)
+    if (!progress) return map
+    const newMap = new Map(map)
+    newMap.set(chapterId, { ...progress, processingIndex: index })
     return newMap
   })
 }
@@ -172,6 +188,7 @@ export async function loadChapterSegmentProgress(bookId: number, chapterId: stri
         segmentTexts,
         generatedSegments,
         isGenerating: false,
+        processingIndex: -1,
       })
       return newMap
     })

@@ -11,13 +11,13 @@
   import ReloadPrompt from './components/ReloadPrompt.svelte'
 
   // APIs & Logic
-  import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroClient'
-  import { piperClient } from './lib/piper/piperClient'
+  import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroVoices'
+  import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
   import { isKokoroLanguageSupported, selectPiperVoiceForLanguage } from './lib/utils/voiceSelector'
   import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
   import { generationService } from './lib/services/generationService'
-  import type { Chapter } from './lib/types/book'
+  import type { Chapter, Book } from './lib/types/book'
 
   // Stores
   import {
@@ -40,6 +40,7 @@
   import { audioPlayerStore } from './stores/audioPlayerStore'
   import { currentLibraryBookId } from './stores/libraryStore'
   import { appTheme as theme } from './stores/themeStore'
+  import { appSettings } from './stores/appSettingsStore'
 
   // State
   type ViewType = 'landing' | 'book' | 'reader' | 'settings'
@@ -56,8 +57,10 @@
   })
 
   // Compute effective model (with language-based fallback from Kokoro to Piper)
+  // Priority: chapter override > app language default > global toolbar selection
   let readerModel = $derived.by(() => {
-    const baseModel = currentChapter?.model || $selectedModel
+    const langDefault = $appSettings.languageDefaults[readerLanguage]
+    const baseModel = currentChapter?.model || langDefault?.model || $selectedModel
     // If Kokoro is selected but doesn't support the language, fallback to Piper
     if (baseModel === 'kokoro' && !isKokoroLanguageSupported(readerLanguage)) {
       return 'piper' as const
@@ -66,25 +69,29 @@
   })
 
   // Compute effective voice considering model fallback
+  // Priority: chapter override > app language default > global toolbar > auto-select
   let readerVoice = $derived.by(() => {
     // 1. Explicit chapter voice override
     if (currentChapter?.voice) {
-      // Verify the voice is compatible with the effective model
-      // If model changed due to fallback, the explicit voice might be incompatible
       return currentChapter.voice
     }
 
-    // 2. No chapter override - check if using global settings
-    const baseModel = currentChapter?.model || $selectedModel
+    // 2. App-level language default
+    const langDefault = $appSettings.languageDefaults[readerLanguage]
+    if (langDefault?.voice) {
+      return langDefault.voice
+    }
+
+    // 3. No chapter/app override - check if using global settings
+    const baseModel = currentChapter?.model || langDefault?.model || $selectedModel
     if (readerModel === baseModel && baseModel === $selectedModel) {
       // Model didn't change due to fallback, use global voice
       return $selectedVoice
     }
 
-    // 3. Model changed due to language fallback - need to pick appropriate voice
+    // 4. Model changed due to language fallback - need to pick appropriate voice
     if (readerModel === 'piper') {
-      // For Piper, select a voice appropriate for the chapter language
-      return selectPiperVoiceForLanguage(readerLanguage, piperVoicesRaw)
+      return selectPiperVoiceForLanguage(readerLanguage, $piperVoices)
     }
     if (readerModel === 'kokoro') {
       return 'af_heart' // Default Kokoro voice
@@ -95,25 +102,6 @@
 
   // Voice Loading Logic (Centralized)
   let kokoroVoices = listKokoroVoices()
-  // Store raw Piper voice metadata for language-based selection
-  let piperVoicesRaw = $state<
-    Array<{ key: string; name: string; language: string; quality: string }>
-  >([])
-
-  async function loadPiperVoices() {
-    try {
-      const voices = await piperClient.getVoices()
-      // Store raw voices for language-based selection
-      piperVoicesRaw = voices
-      return voices.map((v) => ({
-        id: v.key,
-        label: `${v.name} (${v.language}) - ${v.quality}`,
-      }))
-    } catch (e) {
-      console.error('Failed to load Piper voices', e)
-      return []
-    }
-  }
 
   // Preload Piper voices on mount for language-based selection
   onMount(() => {
@@ -138,8 +126,12 @@
       })
     } else if (model === 'piper') {
       availableVoices.set([]) // Clear while loading
-      loadPiperVoices().then((voices) => {
+      loadPiperVoices().then((raw) => {
         if ($selectedModel === 'piper') {
+          const voices = raw.map((v) => ({
+            id: v.key,
+            label: `${v.name} (${v.language}) - ${v.quality}`,
+          }))
           availableVoices.set(voices)
           untrack(() => {
             /* Logic to restore last Piper voice */
@@ -186,14 +178,22 @@
   }
 
   // Book Loading
-  async function onBookLoaded(event: CustomEvent) {
-    const b = event.detail.book
+  async function onBookLoaded(detail: {
+    book: Book
+    sourceFile?: File
+    sourceUrl?: string
+    fromLibrary?: boolean
+    libraryId?: number
+  }) {
+    const b = detail.book
     if (b) {
       book.set(b) // Store handles state reset
 
-      if (event.detail.libraryId) {
-        currentLibraryBookId.set(event.detail.libraryId)
-        location.hash = buildBookHash(event.detail.libraryId, b)
+      let detectedBook: Book = b
+
+      if (detail.libraryId) {
+        currentLibraryBookId.set(detail.libraryId)
+        location.hash = buildBookHash(detail.libraryId, b)
       } else {
         // New import - save to library automatically
         try {
@@ -208,30 +208,25 @@
           ;(b as any).dateAdded = Date.now()
           ;(b as any).lastAccessed = Date.now()
 
-          // Run language detection in background (non-blocking)
+          // Run language detection before auto-generation so the correct
+          // language/voice is used from the start.
           try {
-            const { detectAndPersistLanguagesForBook } = await import(
-              './lib/services/languageDetectionService'
-            )
-            // Fire and forget - don't block UI
-            detectAndPersistLanguagesForBook(id, b)
-              .then(async () => {
-                // After detection, reload the book to update in-memory object with detected language
-                try {
-                  const { getBook } = await import('./lib/libraryDB')
-                  const updatedBook = await getBook(id)
-                  if (updatedBook) {
-                    book.set(updatedBook)
-                  }
-                } catch (reloadError) {
-                  console.warn('Failed to reload book after language detection:', reloadError)
-                }
-              })
-              .catch((err) => {
-                console.warn('Language detection failed but continuing:', err)
-              })
+            const { detectAndPersistLanguagesForBook } =
+              await import('./lib/services/languageDetectionService')
+            await detectAndPersistLanguagesForBook(id, b)
+            // Reload the book to get detected languages into the in-memory object
+            try {
+              const { getBook } = await import('./lib/libraryDB')
+              const updatedBook = await getBook(id)
+              if (updatedBook) {
+                book.set(updatedBook)
+                detectedBook = updatedBook
+              }
+            } catch (reloadError) {
+              console.warn('Failed to reload book after language detection:', reloadError)
+            }
           } catch (detectionError) {
-            console.warn('Could not start language detection:', detectionError)
+            console.warn('Language detection failed, continuing with defaults:', detectionError)
           }
 
           // Also refresh library list if we are listener
@@ -246,15 +241,16 @@
       currentView = 'book'
 
       // Auto-generate on new imports only (not when reopening library books)
-      if (!event.detail.fromLibrary && b.chapters?.length > 0) {
+      if (!detail.fromLibrary && detectedBook.chapters?.length > 0) {
         // Select all chapters and start generation
         selectedChapters.update((m) => {
           const newMap = new Map(m)
-          b.chapters.forEach((c: Chapter) => newMap.set(c.id, true))
+          detectedBook.chapters.forEach((c: Chapter) => newMap.set(c.id, true))
           return newMap
         })
-        // Fire and forget - don't block UI
-        generationService.generateChapters(b.chapters).catch((err) => {
+        const { toastStore } = await import('./stores/toastStore')
+        toastStore.info(`Generating audio for ${detectedBook.chapters.length} chapter(s)...`)
+        generationService.generateChapters(detectedBook.chapters).catch((err) => {
           console.warn('Auto-generation failed but continuing:', err)
         })
       }
@@ -340,10 +336,7 @@
 
   {#if currentView === 'landing'}
     <div in:fade>
-      <LandingPage
-        on:bookloaded={onBookLoaded}
-        on:opensettings={() => (currentView = 'settings')}
-      />
+      <LandingPage onbookloaded={onBookLoaded} onopensettings={() => (currentView = 'settings')} />
     </div>
   {:else if currentView === 'settings'}
     <div in:fade class="view-wrapper">
@@ -352,7 +345,7 @@
   {:else if currentView === 'book'}
     <div in:fade class="view-wrapper">
       <button class="back-link" onclick={() => (currentView = 'landing')}>← Library</button>
-      <BookView on:read={(e) => navigateToReader(e.detail.chapter)} />
+      <BookView onread={(e) => navigateToReader(e.chapter)} />
     </div>
   {:else if currentView === 'reader' && currentChapter}
     <div in:fade class="view-wrapper full-height">

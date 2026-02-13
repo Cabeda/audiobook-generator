@@ -24,7 +24,6 @@
   import { generationService } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
-  import { createEventDispatcher } from 'svelte'
   import type { Chapter } from '../lib/types/book'
   import type { LibraryBook } from '../lib/libraryDB'
   import {
@@ -33,6 +32,8 @@
     formatDurationShort,
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
+
+  let { onread }: { onread: (detail: { chapter: Chapter }) => void } = $props()
 
   // Helper to group settings
   function getSettingsGroups(model: string) {
@@ -75,8 +76,6 @@
 
   const numberFormatter = new Intl.NumberFormat()
 
-  const dispatch = createEventDispatcher()
-
   // Local state for UI
   let showSettings = $state(false)
   let isGenerating = $state(false)
@@ -94,6 +93,11 @@
     currentBook ? currentBook.chapters.reduce((sum, ch) => sum + countWords(ch.content), 0) : 0
   )
   let estimatedBookDurationSeconds = $derived(estimateSpeechDurationSeconds(totalWords))
+  let hasExportableChapters = $derived(
+    currentBook
+      ? currentBook.chapters.some((c) => selections.get(c.id) && statusMap.get(c.id) === 'done')
+      : false
+  )
 
   // Actions
   function toggleChapter(id: string) {
@@ -278,7 +282,7 @@
   }
 
   function handleRead(chapter: Chapter) {
-    dispatch('read', { chapter })
+    onread({ chapter })
   }
 
   async function handleDownload(chapterId: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') {
@@ -385,6 +389,16 @@
             Generate Selected
           {/if}
         </button>
+        {#if hasExportableChapters}
+          <button
+            class="export-primary-btn"
+            onclick={handleExport}
+            disabled={isGenerating}
+            title="Export as {selectedFormat.toUpperCase()}"
+          >
+            Export {selectedFormat.toUpperCase()}
+          </button>
+        {/if}
       </div>
     </div>
 
@@ -395,7 +409,7 @@
         <button class="text-btn" onclick={deselectAll}>Deselect All</button>
       </div>
       <button class="text-btn" onclick={() => (showAdvanced = !showAdvanced)}>
-        {showAdvanced ? '▾' : '▸'} Export & Advanced
+        {showAdvanced ? '▾' : '▸'} Advanced
       </button>
     </div>
 
@@ -713,8 +727,33 @@
 
   /* Buttons */
   .primary-btn {
-    background: #646cff; /* Fallback */
-    background: linear-gradient(135deg, #646cff 0%, #9f5afd 100%);
+    background: var(--primary-color);
+    color: var(--bg-color);
+    border: none;
+    padding: 10px 24px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition:
+      background-color 0.2s,
+      box-shadow 0.2s;
+    box-shadow: 0 4px 12px var(--shadow-color);
+  }
+
+  .primary-btn:hover:not(:disabled) {
+    background: var(--primary-hover);
+    box-shadow: 0 6px 16px var(--shadow-color);
+  }
+
+  .primary-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    filter: grayscale(0.5);
+  }
+
+  .export-primary-btn {
+    background: var(--success-color, #22c55e);
     color: white;
     border: none;
     padding: 10px 24px;
@@ -723,16 +762,17 @@
     font-size: 1rem;
     cursor: pointer;
     transition:
-      transform 0.2s,
+      background-color 0.2s,
       box-shadow 0.2s;
-    box-shadow: 0 4px 12px rgba(100, 108, 255, 0.3);
+    box-shadow: 0 4px 12px var(--shadow-color);
   }
 
-  .primary-btn:hover:not(:disabled) {
-    box-shadow: 0 6px 16px rgba(100, 108, 255, 0.4);
+  .export-primary-btn:hover:not(:disabled) {
+    background: var(--success-hover, #16a34a);
+    box-shadow: 0 6px 16px var(--shadow-color);
   }
 
-  .primary-btn:disabled {
+  .export-primary-btn:disabled {
     opacity: 0.7;
     cursor: not-allowed;
     filter: grayscale(0.5);
@@ -800,10 +840,10 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--feature-bg);
     padding: 12px;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
   }
 
   .slider-container input[type='range'] {
@@ -818,15 +858,15 @@
     text-align: center;
     font-weight: 700;
     color: var(--primary-color);
-    background: rgba(100, 108, 255, 0.1);
+    background: var(--selected-bg);
     padding: 2px 8px;
     border-radius: 4px;
     font-family: monospace;
   }
 
   .premium-input {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
     color: var(--text-color);
     padding: 10px 14px;
     border-radius: 8px;
@@ -842,13 +882,51 @@
 
   @media (max-width: 768px) {
     .hero-header {
-      flex-direction: column;
-      align-items: center;
+      padding: 16px;
+      min-height: auto;
       text-align: center;
     }
+    .hero-bg {
+      display: none;
+    }
+    .hero-header {
+      background: var(--surface-color);
+      color: var(--text-color);
+      box-shadow: 0 4px 12px var(--shadow-color);
+    }
     .hero-content {
-      flex-direction: column;
+      flex-direction: row;
       align-items: center;
+      gap: 12px;
+      text-align: left;
+    }
+    .book-cover {
+      width: 60px;
+      height: 90px;
+      box-shadow: 0 4px 8px var(--shadow-color);
+      border: 1px solid var(--border-color);
+    }
+    .placeholder {
+      font-size: 1.5rem;
+    }
+    .book-info h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      text-shadow: none;
+    }
+    .author {
+      font-size: 0.85rem;
+      margin: 0 0 8px 0;
+    }
+    .meta-badges {
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .badge {
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      background: var(--feature-bg);
+      color: var(--secondary-text);
     }
     .toolbar {
       flex-direction: column;
@@ -863,8 +941,8 @@
     margin: 0 8px 16px 8px;
     padding: 20px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--feature-bg);
+    border: 1px solid var(--border-color);
   }
 
   .setting-group-title {
@@ -872,7 +950,7 @@
     font-weight: 700;
     margin: 24px 0 12px 0;
     color: var(--text-color);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--border-color);
     padding-bottom: 8px;
     width: 100%;
   }
@@ -888,14 +966,14 @@
     padding: 12px;
     border-radius: 8px;
     cursor: pointer;
-    transition: background 0.2s;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: background-color 0.2s;
+    background: var(--feature-bg);
+    border: 1px solid var(--border-color);
     margin-bottom: 8px;
   }
 
   .checkbox-row:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--selected-bg);
   }
 
   .checkbox-row input[type='checkbox'] {
@@ -932,18 +1010,20 @@
   }
 
   .cancel-btn {
-    background: var(--error-bg, #fee);
-    color: var(--error-text, #c00);
-    border: 1px solid var(--error-border, #fcc);
+    background: var(--error-bg);
+    color: var(--error-text);
+    border: 1px solid var(--error-border);
     padding: 8px 16px;
     border-radius: 8px;
     cursor: pointer;
     font-weight: 500;
-    transition: all 0.2s;
+    transition:
+      background-color 0.2s,
+      color 0.2s;
   }
 
   .cancel-btn:hover {
-    background: var(--error-text, #c00);
-    color: white;
+    background: var(--error-color);
+    color: var(--bg-color);
   }
 </style>

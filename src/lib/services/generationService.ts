@@ -1,6 +1,6 @@
 import { get } from 'svelte/store'
 import type { Chapter } from '../types/book'
-import type { VoiceId } from '../kokoro/kokoroClient'
+import type { VoiceId } from '../kokoro/kokoroVoices'
 import { getTTSWorker } from '../ttsWorkerManager'
 import {
   selectedModel,
@@ -17,11 +17,12 @@ import {
   isGenerating,
 } from '../../stores/bookStore'
 import { advancedSettings } from '../../stores/ttsStore'
-import { listVoices as listKokoroVoices } from '../kokoro/kokoroClient'
+import { listVoices as listKokoroVoices } from '../kokoro/kokoroVoices'
 import { concatenateAudioChapters, downloadAudioFile, type AudioChapter } from '../audioConcat'
 import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
+import { appSettings } from '../../stores/appSettingsStore'
 import { saveChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { resolveChapterLanguageWithDetection, DEFAULT_LANGUAGE } from '../utils/languageResolver'
@@ -33,11 +34,11 @@ import {
   isKokoroLanguageSupported,
   normalizeLanguageCode,
 } from '../utils/voiceSelector'
-import { PiperClient } from '../piper/piperClient'
 import {
   initChapterSegments,
   markSegmentGenerated,
   markChapterGenerationComplete,
+  setProcessingIndex,
 } from '../../stores/segmentProgressStore'
 
 /**
@@ -975,6 +976,10 @@ class GenerationService {
 
       if (batch.length === 0) break
 
+      // Update the currently-processing index so the UI can pulse the right segment
+      const batchIndexArray = Array.from(batchIndices)
+      setProcessingIndex(chapterId, batchIndexArray[0])
+
       // Process batch — handle individual failures without losing the whole batch
       const results = await Promise.allSettled(
         batch.map(async (seg) => {
@@ -986,7 +991,6 @@ class GenerationService {
       if (this.canceled) break
 
       // Handle results: successful ones go to onResult, failed ones are tracked
-      const batchIndexArray = Array.from(batchIndices)
       for (let i = 0; i < results.length; i++) {
         const result = results[i]
         const idx = batchIndexArray[i]
@@ -1075,26 +1079,12 @@ class GenerationService {
   }
 
   async generateChapters(chapters: Chapter[]) {
-    // Direct console log to bypass logger filtering
-    console.error('=== GENERATION STARTING ===')
-    console.error('Chapter count:', chapters.length)
-    chapters.forEach((ch, i) => {
-      console.error(`Chapter ${i + 1}:`, {
-        id: ch.id,
-        title: ch.title,
-        contentLength: ch.content?.length || 0,
-        contentPreview: ch.content?.substring(0, 500) || '(empty)',
-      })
-    })
-    console.error('=== END CHAPTER DUMP ===')
-
-    logger.error('[generateChapters] Starting generation', {
+    logger.info('[generateChapters] Starting generation', {
       chapterCount: chapters.length,
       chapters: chapters.map((ch) => ({
         id: ch.id,
         title: ch.title,
         contentLength: ch.content?.length || 0,
-        contentPreview: ch.content?.substring(0, 500) || '(empty)',
       })),
     })
 
@@ -1140,9 +1130,12 @@ class GenerationService {
           ? resolveChapterLanguageWithDetection(ch, currentBook)
           : DEFAULT_LANGUAGE
 
-        // Resolve model: Use chapter-specific model if set, otherwise use global model
+        // Check app-level per-language defaults (priority: chapter > app language defaults > global)
+        const langDefaults = appSettings.getLanguageDefault(get(appSettings), effectiveLanguage)
+
+        // Resolve model: chapter override > app language default > global selected model
         // Fallback: If current model doesn't support the language, try to switch
-        let effectiveModel = ch.model || model
+        let effectiveModel = ch.model || langDefaults?.model || model
         let isFallbackModel = false
 
         if (effectiveModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
@@ -1153,7 +1146,7 @@ class GenerationService {
           isFallbackModel = true
         }
 
-        const currentVoice = ch.voice || get(selectedVoice)
+        const currentVoice = ch.voice || langDefaults?.voice || get(selectedVoice)
         const currentQuantization = get(selectedQuantization)
         const currentDevice = get(selectedDevice)
         const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
@@ -1180,9 +1173,10 @@ class GenerationService {
         if (!shouldAutoSelectVoice && isFallbackModel) {
           // Only auto-select if the user's voice isn't valid for the fallback model
           if (effectiveModel === 'piper') {
+            const { PiperClient } = await import('../piper/piperClient')
             const piperClient = PiperClient.getInstance()
             const voices = await piperClient.getVoices()
-            const isValidForPiper = voices.some((v) => v.key === currentVoice)
+            const isValidForPiper = voices.some((v: { key: string }) => v.key === currentVoice)
             shouldAutoSelectVoice = !isValidForPiper
           } else {
             shouldAutoSelectVoice = true
@@ -1209,6 +1203,7 @@ class GenerationService {
             )
           } else if (effectiveModel === 'piper') {
             // Automatically select Piper voice based on language
+            const { PiperClient } = await import('../piper/piperClient')
             const piperClient = PiperClient.getInstance()
             const availableVoices = await piperClient.getVoices()
             effectiveVoice = selectPiperVoiceForLanguage(
@@ -1228,9 +1223,12 @@ class GenerationService {
         // but doesn't match the detected language, switch to a matching one.
         // We skip this check when the user explicitly set a chapter voice — respect their choice.
         if (effectiveModel === 'piper' && !shouldAutoSelectVoice && !ch.voice) {
+          const { PiperClient } = await import('../piper/piperClient')
           const piperClient = PiperClient.getInstance()
           const availableVoices = await piperClient.getVoices()
-          const selectedVoiceInfo = availableVoices.find((v) => v.key === effectiveVoice)
+          const selectedVoiceInfo = availableVoices.find(
+            (v: { key: string }) => v.key === effectiveVoice
+          )
           const normalizedChapterLang = normalizeLanguageCode(effectiveLanguage)
           const voiceLang = selectedVoiceInfo
             ? normalizeLanguageCode(selectedVoiceInfo.language)
@@ -1527,6 +1525,30 @@ class GenerationService {
                 }
                 audioSegments.push(segment)
                 await batchHandler.addSegment(segment)
+
+                // Auto-play first segment for seamless mobile experience
+                // Only triggers once per chapter, on the first completed segment
+                if (
+                  this.autoPlayEnabled &&
+                  !this.autoPlayTriggered.has(ch.id) &&
+                  !this.canceled &&
+                  !this.canceledChapters.has(ch.id)
+                ) {
+                  this.autoPlayTriggered.add(ch.id)
+                  logger.info(`[AutoPlay/Piper] Starting playback of first available segment`, {
+                    chapterId: ch.id,
+                    segmentIndex: segment.index,
+                  })
+                  setTimeout(() => {
+                    if (this.canceled || this.canceledChapters.has(ch.id)) {
+                      logger.info('[AutoPlay/Piper] Skipped — generation was canceled')
+                      return
+                    }
+                    audioService.playSingleSegment(segment).catch((err) => {
+                      logger.warn('[AutoPlay/Piper] Failed to auto-play first segment:', err)
+                    })
+                  }, 0)
+                }
               },
               (completed, total) => {
                 chapterProgress.update((m) =>
@@ -1839,7 +1861,7 @@ class GenerationService {
             content: `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head><title>${ch.title}</title></head>
-<body><h1>${ch.title}</h1><p>${ch.content}</p></body></html>`,
+<body><h1>${ch.title}</h1>${ch.content.replace(/&nbsp;/g, '&#160;')}</body></html>`,
           })
           continue
         }
@@ -1924,11 +1946,13 @@ class GenerationService {
         const totalDuration = cumulativeTime
 
         // Generate XHTML with matching IDs
+        // Replace HTML entities not valid in XHTML (e.g. &nbsp; → &#160;)
+        const sanitizedContent = ch.content.replace(/&nbsp;/g, '&#160;')
         const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head><title>${ch.title}</title></head>
 <body>
-  ${ch.content}
+  ${sanitizedContent}
 </body>
 </html>`
 

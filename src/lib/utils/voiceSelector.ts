@@ -1,4 +1,4 @@
-import type { VoiceId } from '../kokoro/kokoroClient'
+import type { VoiceId } from '../kokoro/kokoroVoices'
 import type { PiperVoice } from '../piper/piperClient'
 
 /**

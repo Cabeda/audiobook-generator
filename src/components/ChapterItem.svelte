@@ -28,8 +28,8 @@
     getPiperVoicesForLanguage,
     isKokoroLanguageSupported,
   } from '../lib/utils/voiceSelector'
-  import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroClient'
-  import { onMount } from 'svelte'
+  import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
+  import { piperVoices } from '../stores/piperVoicesStore'
 
   let {
     chapter,
@@ -92,29 +92,6 @@
   let chapterVoice = $state(chapter.voice)
   let chapterLanguage = $state(chapter.language)
 
-  // Piper voices with full metadata (loaded async)
-  let piperVoicesWithMetadata = $state<
-    Array<{ key: string; name: string; language: string; quality: string }>
-  >([])
-  let piperVoicesLoadAttempted = $state(false)
-
-  // Load piper voices on mount (once)
-  onMount(() => {
-    if (!piperVoicesLoadAttempted) {
-      piperVoicesLoadAttempted = true
-      import('../lib/piper/piperClient')
-        .then(({ PiperClient }) => {
-          return PiperClient.getInstance().getVoices()
-        })
-        .then((voices) => {
-          piperVoicesWithMetadata = voices
-        })
-        .catch((error) => {
-          console.error('Failed to load Piper voices:', error)
-        })
-    }
-  })
-
   // Update local state when chapter prop changes
   $effect(() => {
     chapterModel = chapter.model
@@ -155,8 +132,8 @@
         .map((v) => ({ id: v, label: voiceLabels[v] || v }))
     } else if (effectiveModel === 'piper') {
       // Filter piper voices by language using metadata
-      if (piperVoicesWithMetadata.length > 0) {
-        const matchingVoices = getPiperVoicesForLanguage(effectiveLanguage, piperVoicesWithMetadata)
+      if ($piperVoices.length > 0) {
+        const matchingVoices = getPiperVoicesForLanguage(effectiveLanguage, $piperVoices)
         return matchingVoices.map((v) => ({ id: v.key, label: v.name }))
       }
       return []
@@ -665,7 +642,10 @@
     font-size: 0.9rem;
     color: var(--secondary-text);
     cursor: pointer;
-    transition: all 0.2s;
+    transition:
+      background-color 0.2s,
+      color 0.2s,
+      border-color 0.2s;
   }
 
   .action-btn:hover {
@@ -705,7 +685,9 @@
     border-radius: 6px;
     font-size: 1.2rem;
     cursor: pointer;
-    transition: all 0.2s;
+    transition:
+      background-color 0.2s,
+      border-color 0.2s;
     flex-shrink: 0;
   }
 
@@ -715,27 +697,27 @@
   }
 
   .generate-chapter-btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--primary-color);
     border: none;
-    color: white;
+    color: var(--bg-color);
   }
 
   .generate-chapter-btn:hover {
-    background: linear-gradient(135deg, #5568d3 0%, #6a3f8f 100%);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    background: var(--primary-hover);
+    box-shadow: 0 4px 12px var(--shadow-color);
   }
 
   .cancel-chapter-btn {
-    background: var(--error-bg, #fee2e2);
-    border: 1px solid var(--error-border, #fecaca);
-    color: var(--error-text, #dc2626);
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    color: var(--error-text);
     font-size: 1rem;
   }
 
   .cancel-chapter-btn:hover {
-    background: var(--error-text, #dc2626);
-    color: white;
-    border-color: var(--error-text, #dc2626);
+    background: var(--error-color);
+    color: var(--bg-color);
+    border-color: var(--error-color);
   }
 
   .audio-controls {
@@ -762,7 +744,9 @@
     font-size: 0.85rem;
     color: var(--text-color);
     cursor: pointer;
-    transition: all 0.2s;
+    transition:
+      background-color 0.2s,
+      border-color 0.2s;
     min-width: 160px;
   }
 
@@ -773,8 +757,8 @@
 
   .download-select:focus {
     outline: none;
-    border-color: var(--primary-color, #3b82f6);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--shadow-color);
   }
 
   audio {
@@ -822,8 +806,8 @@
   }
 
   .retry-btn {
-    background-color: var(--error-color, #ff3b30);
-    color: white;
+    background-color: var(--error-color);
+    color: var(--bg-color);
     border: none;
     border-radius: 4px;
     padding: 6px 12px;
@@ -840,10 +824,10 @@
   .error-container {
     margin-top: 8px;
     padding: 8px;
-    background: #fee2e2;
-    border: 1px solid #fecaca;
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
     border-radius: 6px;
-    color: #ef4444;
+    color: var(--error-text);
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -863,10 +847,10 @@
 
   .error-content {
     margin-top: 8px;
-    background: #fff;
+    background: var(--surface-color);
     padding: 8px;
     border-radius: 4px;
-    border: 1px solid #fca5a5;
+    border: 1px solid var(--error-border);
   }
 
   .error-text {
@@ -877,7 +861,7 @@
     max-height: 150px;
     overflow-y: auto;
     margin: 0;
-    color: #b91c1c;
+    color: var(--error-text);
   }
 
   .error-actions {
@@ -890,18 +874,20 @@
     flex: 1;
     font-size: 0.85rem;
     padding: 6px 12px;
-    background: #fef2f2;
-    border: 1px solid #fecaca;
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
     border-radius: 4px;
     cursor: pointer;
-    color: #b91c1c;
+    color: var(--error-text);
     font-weight: 500;
-    transition: all 0.2s;
+    transition:
+      background-color 0.2s,
+      border-color 0.2s;
   }
 
   .copy-stack-btn:hover {
-    background: #fee2e2;
-    border-color: #fca5a5;
+    background: var(--surface-color);
+    border-color: var(--error-color);
   }
   .spinner-container {
     display: flex;
@@ -914,7 +900,7 @@
     width: 20px;
     height: 20px;
     border: 2px solid var(--border-color);
-    border-top-color: var(--primary-color, #3b82f6);
+    border-top-color: var(--primary-color);
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
@@ -937,7 +923,7 @@
 
   .progress-fill {
     height: 100%;
-    background: var(--primary-color, #3b82f6);
+    background: var(--primary-color);
     transition: width 0.3s ease;
   }
 
@@ -970,7 +956,7 @@
 
   .segment-progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #22c55e, #4ade80);
+    background: var(--success-color);
     transition: width 0.3s ease;
     border-radius: 4px;
   }
@@ -988,30 +974,30 @@
 
   .segment-percentage {
     font-weight: 600;
-    color: #22c55e;
+    color: var(--success-color);
   }
 
   .preview-btn {
     align-self: flex-start;
-    background: linear-gradient(135deg, #22c55e, #16a34a);
-    color: white;
+    background: var(--success-color);
+    color: var(--bg-color);
     border: none;
     animation: pulseGlow 2s infinite;
   }
 
   .preview-btn:hover {
-    background: linear-gradient(135deg, #16a34a, #15803d);
-    color: white;
+    opacity: 0.9;
+    color: var(--bg-color);
     border: none;
   }
 
   @keyframes pulseGlow {
     0%,
     100% {
-      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+      box-shadow: 0 0 0 0 rgba(107, 143, 113, 0.4);
     }
     50% {
-      box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+      box-shadow: 0 0 0 8px rgba(107, 143, 113, 0);
     }
   }
 
@@ -1019,8 +1005,8 @@
   .partial-progress-indicator {
     margin-top: 8px;
     padding: 10px 12px;
-    background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(74, 222, 128, 0.05));
-    border: 1px solid rgba(34, 197, 94, 0.3);
+    background: var(--success-bg);
+    border: 1px solid var(--success-color);
     border-radius: 8px;
     display: flex;
     align-items: center;
@@ -1039,13 +1025,13 @@
 
   .partial-progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #22c55e, #4ade80);
+    background: var(--success-color);
     transition: width 0.3s ease;
   }
 
   .partial-progress-text {
     font-size: 0.85rem;
-    color: #16a34a;
+    color: var(--success-color);
     font-weight: 500;
   }
 
@@ -1073,7 +1059,10 @@
     font-size: 0.85rem;
     color: var(--secondary-text);
     cursor: pointer;
-    transition: all 0.2s;
+    transition:
+      background-color 0.2s,
+      color 0.2s,
+      border-color 0.2s;
     width: 100%;
     text-align: left;
   }
@@ -1085,9 +1074,9 @@
   }
 
   .advanced-toggle-btn.has-overrides {
-    background: #eff6ff;
-    border-color: #3b82f6;
-    color: #1e40af;
+    background: var(--selected-bg);
+    border-color: var(--selected-border);
+    color: var(--text-color);
   }
 
   .toggle-icon {
@@ -1101,7 +1090,7 @@
   }
 
   .override-indicator {
-    color: #3b82f6;
+    color: var(--primary-color);
     font-size: 0.6rem;
     animation: pulse 2s infinite;
   }
@@ -1162,7 +1151,9 @@
     color: var(--text-color);
     font-size: 0.9rem;
     cursor: pointer;
-    transition: all 0.2s;
+    transition:
+      border-color 0.2s,
+      box-shadow 0.2s;
   }
 
   .setting-select:hover {
@@ -1171,8 +1162,8 @@
 
   .setting-select:focus {
     outline: none;
-    border-color: var(--primary-color, #3b82f6);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--shadow-color);
   }
 
   .reset-btn {
@@ -1181,20 +1172,22 @@
     justify-content: center;
     gap: 8px;
     padding: 8px 16px;
-    background: #fef2f2;
-    border: 1px solid #fecaca;
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
     border-radius: 6px;
-    color: #b91c1c;
+    color: var(--error-text);
     font-size: 0.85rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition:
+      background-color 0.2s,
+      border-color 0.2s;
     width: 100%;
   }
 
   .reset-btn:hover {
-    background: #fee2e2;
-    border-color: #fca5a5;
+    background: var(--surface-color);
+    border-color: var(--error-color);
   }
 
   @media (max-width: 640px) {

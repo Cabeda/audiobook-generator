@@ -26,7 +26,8 @@ export type ParsedHash =
   | { view: 'reader'; bookId: BookId; chapterId: string }
 
 export function parseHash(hash: string | null | undefined): ParsedHash | null {
-  if (!hash || hash === '#/' || hash === '#') return { view: 'landing' }
+  if (!hash || hash === '#/' || hash === '#' || hash === '#/upload' || hash === '#/library')
+    return { view: 'landing' }
 
   const bookMatch = hash.match(/^#\/book\/([^/]+)(?:\/[^/]+)?$/)
   if (bookMatch) {
