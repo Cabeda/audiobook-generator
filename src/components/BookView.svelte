@@ -354,57 +354,27 @@
     </div>
 
     <!-- Toolbar -->
-    <div class="toolbar glass-panel">
+    <div class="toolbar">
       <div class="toolbar-left">
-        <button class="text-btn" onclick={selectAll}>Select All</button>
-        <button class="text-btn" onclick={deselectAll}>Deselect All</button>
-      </div>
+        <select bind:value={$selectedModelStore} disabled={isGenerating} class="premium-select">
+          {#each TTS_MODELS as model}
+            <option value={model.id}>{model.name}</option>
+          {/each}
+        </select>
 
-      <div class="toolbar-center">
-        <div class="quick-settings">
-          <select bind:value={$selectedModelStore} disabled={isGenerating} class="premium-select">
-            {#each TTS_MODELS as model}
-              <option value={model.id}>{model.name}</option>
-            {/each}
-          </select>
-
-          <select bind:value={$selectedVoice} disabled={isGenerating} class="premium-select">
-            {#each $availableVoices as voice}
-              <option value={voice.id}>{voice.label}</option>
-            {/each}
-          </select>
-
-          {#if $selectedModelStore === 'kokoro'}
-            <select
-              bind:value={$selectedDevice}
-              disabled={isGenerating}
-              class="premium-select"
-              title="Execution Device"
-            >
-              <option value="auto">Auto (Best)</option>
-              <option value="webgpu">WebGPU (Fast)</option>
-              <option value="wasm">WASM (CPU)</option>
-            </select>
-          {/if}
-        </div>
+        <select bind:value={$selectedVoice} disabled={isGenerating} class="premium-select">
+          {#each $availableVoices as voice}
+            <option value={voice.id}>{voice.label}</option>
+          {/each}
+        </select>
       </div>
 
       <div class="toolbar-right">
-        <select bind:value={selectedFormat} disabled={isGenerating} class="premium-select">
-          <option value="mp3">MP3</option>
-          <option value="mp4">MP4 (Chapters)</option>
-          <option value="m4b">M4B (Audiobook)</option>
-          <option value="wav">WAV</option>
-          <option value="epub">EPUB (Media Overlays)</option>
-        </select>
-        <button class="text-btn export-btn" onclick={handleExport} disabled={isGenerating}>
-          📥 Export
-        </button>
         {#if isGenerating}
-          <button class="cancel-btn" onclick={handleCancel}> ✕ Cancel </button>
+          <button class="cancel-btn" onclick={handleCancel}>Cancel</button>
         {/if}
         <button
-          class="primary-btn generate-btn"
+          class="primary-btn"
           class:loading={isGenerating}
           disabled={isGenerating}
           onclick={handleGenerate}
@@ -412,26 +382,47 @@
           {#if isGenerating}
             Generating...
           {:else}
-            ✨ Generate Selected
+            Generate Selected
           {/if}
         </button>
       </div>
     </div>
 
-    <!-- Advanced Settings Toggle -->
-    <button class="advanced-toggle" onclick={() => (showAdvanced = !showAdvanced)}>
-      {showAdvanced ? '▼' : '▶'} Advanced Options
-    </button>
+    <!-- Chapter selection + advanced toggle -->
+    <div class="sub-toolbar">
+      <div class="selection-actions">
+        <button class="text-btn" onclick={selectAll}>Select All</button>
+        <button class="text-btn" onclick={deselectAll}>Deselect All</button>
+      </div>
+      <button class="text-btn" onclick={() => (showAdvanced = !showAdvanced)}>
+        {showAdvanced ? '▾' : '▸'} Export & Advanced
+      </button>
+    </div>
 
     {#if showAdvanced}
-      <div class="advanced-panel glass-panel">
+      <div class="advanced-panel">
         <div class="setting-group">
+          <h4 class="setting-group-title">Export</h4>
+          <div class="setting-row">
+            <label for="adv-format">
+              <span class="setting-label">Format</span>
+            </label>
+            <select
+              id="adv-format"
+              bind:value={selectedFormat}
+              disabled={isGenerating}
+              class="premium-select"
+            >
+              <option value="mp3">MP3</option>
+              <option value="mp4">MP4 (Chapters)</option>
+              <option value="m4b">M4B (Audiobook)</option>
+              <option value="wav">WAV</option>
+              <option value="epub">EPUB (Media Overlays)</option>
+            </select>
+          </div>
           <div class="setting-row">
             <label for="adv-bitrate">
               <span class="setting-label">Quality (Bitrate)</span>
-              <small class="setting-desc"
-                >Higher bitrate means better audio quality but larger file size.</small
-              >
             </label>
             <select id="adv-bitrate" bind:value={selectedBitrate} class="premium-select">
               <option value={128}>128 kbps</option>
@@ -440,7 +431,29 @@
               <option value={320}>320 kbps</option>
             </select>
           </div>
+          <button class="text-btn export-btn" onclick={handleExport} disabled={isGenerating}>
+            Export
+          </button>
+        </div>
+
+        <div class="setting-group">
+          <h4 class="setting-group-title">Device & Precision</h4>
           {#if $selectedModelStore === 'kokoro'}
+            <div class="setting-row">
+              <label for="adv-device">
+                <span class="setting-label">Execution Device</span>
+              </label>
+              <select
+                id="adv-device"
+                bind:value={$selectedDevice}
+                disabled={isGenerating}
+                class="premium-select"
+              >
+                <option value="auto">Auto (Best)</option>
+                <option value="webgpu">WebGPU (Fast)</option>
+                <option value="wasm">WASM (CPU)</option>
+              </select>
+            </div>
             <div class="setting-row">
               <label for="adv-quant">
                 <span class="setting-label">Quantization</span>
@@ -453,6 +466,10 @@
                 <option value="q4">Q4 (Fastest)</option>
               </select>
             </div>
+          {:else}
+            <p class="setting-desc">
+              Device and quantization options are only available for the Kokoro model.
+            </p>
           {/if}
         </div>
 
@@ -637,7 +654,6 @@
 
   .badge {
     background: rgba(255, 255, 255, 0.2);
-    backdrop-filter: blur(10px);
     padding: 6px 12px;
     border-radius: 20px;
     font-size: 0.9rem;
@@ -649,9 +665,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 24px;
+    padding: 12px 16px;
     border-radius: 12px;
-    gap: 20px;
+    gap: 12px;
     flex-wrap: wrap;
     background: var(--surface-color);
     border: 1px solid var(--border-color);
@@ -660,9 +676,28 @@
     z-index: 10;
   }
 
-  .quick-settings {
+  .toolbar-left {
     display: flex;
-    gap: 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .toolbar-right {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .sub-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px;
+  }
+
+  .selection-actions {
+    display: flex;
+    gap: 4px;
   }
 
   .premium-select {
@@ -694,7 +729,6 @@
   }
 
   .primary-btn:hover:not(:disabled) {
-    transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(100, 108, 255, 0.4);
   }
 
@@ -820,27 +854,9 @@
       flex-direction: column;
       align-items: stretch;
     }
-    .quick-settings {
+    .toolbar-left {
       flex-direction: column;
     }
-  }
-
-  .advanced-toggle {
-    background: none;
-    border: none;
-    color: var(--secondary-text);
-    cursor: pointer;
-    font-size: 0.85rem;
-    padding: 8px 16px;
-    text-align: left;
-    margin: 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .advanced-toggle:hover {
-    color: var(--primary-color);
   }
 
   .advanced-panel {

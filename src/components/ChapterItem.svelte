@@ -280,22 +280,7 @@
         <span>{numberFormatter.format(wordCount)} words</span>
         <span class="dot" aria-hidden="true">•</span>
         <span>~{formatDurationShort(estimatedDurationSeconds)}</span>
-        {#if chapter.detectedLanguage && chapter.detectedLanguage !== 'und'}
-          <span class="dot" aria-hidden="true">•</span>
-          <span
-            class="language-badge"
-            title={`Detected: ${chapter.detectedLanguage} (confidence: ${Math.round((chapter.languageConfidence || 0) * 100)}%)`}
-          >
-            🌐 {chapter.detectedLanguage.toUpperCase()}
-            {#if chapter.languageConfidence !== undefined}
-              <span class="confidence">{Math.round(chapter.languageConfidence * 100)}%</span>
-            {/if}
-          </span>
-        {/if}
       </div>
-      <p class="chapter-preview">
-        {chapter.content.slice(0, 180)}{chapter.content.length > 180 ? '…' : ''}
-      </p>
     </div>
 
     <div class="card-actions">
@@ -330,15 +315,6 @@
         aria-label={`Read chapter: ${chapter.title}`}
       >
         <span class="icon" aria-hidden="true">📖</span> Read
-      </button>
-
-      <button
-        class="action-btn icon-only"
-        onclick={copy}
-        title="Copy text"
-        aria-label={`Copy text of chapter: ${chapter.title}`}
-      >
-        <span aria-hidden="true">📋</span>
       </button>
     </div>
   </div>
@@ -600,12 +576,13 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    transition: all 0.2s ease;
+    transition:
+      background-color 0.2s,
+      border-color 0.2s;
   }
 
   .chapter-card:hover {
     border-color: var(--secondary-text);
-    box-shadow: 0 2px 8px var(--shadow-color);
   }
 
   .chapter-card.selected {
@@ -646,14 +623,6 @@
     line-height: 1.4;
   }
 
-  .chapter-preview {
-    margin: 0;
-    font-size: 0.9rem;
-    color: var(--secondary-text);
-    line-height: 1.5;
-    padding-left: 30px;
-  }
-
   .chapter-meta {
     display: flex;
     align-items: center;
@@ -666,23 +635,6 @@
 
   .dot {
     color: var(--border-color);
-  }
-
-  .language-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    background: var(--bg-color);
-    border: 1px solid var(--input-border);
-    border-radius: 12px;
-    font-size: 0.8rem;
-    font-weight: 500;
-  }
-
-  .language-badge .confidence {
-    opacity: 0.7;
-    font-size: 0.75rem;
   }
 
   .card-actions {
@@ -725,10 +677,6 @@
     color: var(--secondary-text);
   }
 
-  .action-btn.icon-only {
-    padding: 8px;
-  }
-
   .action-btn.small {
     font-size: 0.8rem;
     padding: 4px 8px;
@@ -753,7 +701,6 @@
   .icon-btn:hover {
     background: var(--bg-color);
     border-color: var(--text-color);
-    transform: scale(1.05);
   }
 
   .generate-chapter-btn {
@@ -764,7 +711,6 @@
 
   .generate-chapter-btn:hover {
     background: linear-gradient(135deg, #5568d3 0%, #6a3f8f 100%);
-    transform: scale(1.1);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   }
 
@@ -779,7 +725,6 @@
     background: var(--error-text, #dc2626);
     color: white;
     border-color: var(--error-text, #dc2626);
-    transform: scale(1.1);
   }
 
   .audio-controls {
@@ -842,16 +787,6 @@
     .card-main {
       flex-direction: column;
       gap: 12px;
-    }
-
-    .chapter-preview {
-      padding-left: 0;
-      margin-top: 8px;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
     }
 
     .card-actions {

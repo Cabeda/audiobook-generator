@@ -138,7 +138,9 @@
     border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition:
+      border-color 0.2s,
+      box-shadow 0.2s;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     position: relative;
     display: flex;
@@ -147,12 +149,11 @@
   }
 
   .book-card:hover {
-    transform: translateY(-4px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   }
 
   .book-card:active {
-    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   }
 
   /* List View Overrides */
@@ -166,7 +167,7 @@
   }
 
   .book-card.list-view:hover {
-    transform: translateX(2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   }
 
   .book-cover {

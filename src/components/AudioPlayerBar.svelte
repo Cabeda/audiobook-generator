@@ -284,11 +284,10 @@
 
 <style>
   .audio-player-bar {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(20px);
+    background: var(--surface-color, rgba(255, 255, 255, 0.98));
     border-top: 1px solid rgba(0, 0, 0, 0.1);
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
-    transition: background 0.2s;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+    transition: background-color 0.2s;
   }
 
   .audio-player-bar.persistent {
