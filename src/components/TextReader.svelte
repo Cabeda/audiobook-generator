@@ -594,6 +594,12 @@
   function handleContentClick(event: MouseEvent) {
     showSettings = false
     const target = event.target as HTMLElement
+
+    // Prevent link navigation inside the reader — links are part of the text content
+    if (target.closest('a')) {
+      event.preventDefault()
+    }
+
     // Check if clicked element is a segment or inside one
     const segmentEl = target.closest('.segment') as HTMLElement | null
     const index = getSegmentIndex(segmentEl)
@@ -1108,6 +1114,15 @@
     font-size: 18px;
     color: var(--text-color);
     transition: color 0.3s;
+  }
+
+  /* Neutralize links inside reader content — they are part of the article text
+     and should not look or behave like interactive links. */
+  .text-content :global(a) {
+    color: inherit;
+    text-decoration: none;
+    pointer-events: none;
+    cursor: inherit;
   }
 
   .loading-indicator {

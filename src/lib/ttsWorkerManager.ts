@@ -42,6 +42,9 @@ type PendingRequest = {
   onChunkProgress?: (current: number, total: number) => void
 }
 
+/** Default timeout for individual TTS requests (2 minutes) */
+const REQUEST_TIMEOUT_MS = 120_000
+
 export class TTSWorkerManager {
   private worker: Worker | null = null
   private pendingRequests = new Map<string, PendingRequest>()
@@ -156,7 +159,7 @@ export class TTSWorkerManager {
     device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
     advancedSettings?: Record<string, any>
   }): Promise<Blob> {
-    // Helper to execute the request
+    // Helper to execute the request with per-request timeout
     const execute = async () => {
       await this.readyPromise
       if (!this.worker) throw new Error('Worker not initialized')
@@ -164,9 +167,23 @@ export class TTSWorkerManager {
       const id = `req_${++this.requestCounter}`
 
       return new Promise<Blob>((resolve, reject) => {
+        // Per-request timeout to prevent indefinite hangs
+        const timer = setTimeout(() => {
+          if (this.pendingRequests.has(id)) {
+            this.pendingRequests.delete(id)
+            reject(new Error(`TTS request timed out after ${REQUEST_TIMEOUT_MS}ms`))
+          }
+        }, REQUEST_TIMEOUT_MS)
+
         this.pendingRequests.set(id, {
-          resolve,
-          reject,
+          resolve: (result) => {
+            clearTimeout(timer)
+            resolve(result)
+          },
+          reject: (err) => {
+            clearTimeout(timer)
+            reject(err)
+          },
           onProgress: options.onProgress,
           onChunkProgress: options.onChunkProgress,
         })
@@ -273,35 +290,122 @@ export class TTSWorkerManager {
     model?: string
     device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
   }): Promise<{ text: string; blob: Blob }[]> {
-    await this.readyPromise
-    if (!this.worker) throw new Error('Worker not initialized')
+    // Helper to execute the request with per-request timeout
+    const execute = async () => {
+      await this.readyPromise
+      if (!this.worker) throw new Error('Worker not initialized')
 
-    const id = `req_${++this.requestCounter}`
+      const id = `req_${++this.requestCounter}`
 
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, {
-        resolve,
-        reject,
-        onProgress: options.onProgress,
-        onChunkProgress: options.onChunkProgress,
+      return new Promise<{ text: string; blob: Blob }[]>((resolve, reject) => {
+        // Per-request timeout to prevent indefinite hangs
+        const timer = setTimeout(() => {
+          if (this.pendingRequests.has(id)) {
+            this.pendingRequests.delete(id)
+            reject(new Error(`TTS segment request timed out after ${REQUEST_TIMEOUT_MS}ms`))
+          }
+        }, REQUEST_TIMEOUT_MS)
+
+        this.pendingRequests.set(id, {
+          resolve: (result) => {
+            clearTimeout(timer)
+            resolve(result)
+          },
+          reject: (err) => {
+            clearTimeout(timer)
+            reject(err)
+          },
+          onProgress: options.onProgress,
+          onChunkProgress: options.onChunkProgress,
+        })
+        const modelType = options.modelType
+
+        const request: WorkerRequest = {
+          id,
+          type: 'generate-segments',
+          text: options.text,
+          modelType: modelType,
+          voice: options.voice,
+          speed: options.speed,
+          pitch: options.pitch,
+          language: options.language,
+          dtype: options.dtype,
+          model: options.model,
+          device: options.device,
+        }
+
+        this.worker!.postMessage(request)
       })
-      const modelType = options.modelType
+    }
 
-      const request: WorkerRequest = {
-        id,
-        type: 'generate-segments',
-        text: options.text,
-        modelType: modelType,
-        voice: options.voice,
-        speed: options.speed,
-        pitch: options.pitch,
-        language: options.language,
-        dtype: options.dtype,
-        model: options.model,
-        device: options.device,
+    // Use retry with backoff for segment generation (same as generateVoice)
+    return retryWithBackoff(execute, {
+      maxRetries: 3,
+      initialDelay: 1000,
+      maxDelay: 5000,
+      shouldRetry: (error: Error) => {
+        const errorMsg = error.message
+        const isMemoryError =
+          errorMsg.includes('failed to allocate') ||
+          errorMsg.includes("Can't create a session") ||
+          errorMsg.includes('Out of memory') ||
+          errorMsg.includes('Aborted()')
+
+        if (isMemoryError) {
+          logger.warn(
+            '[TTSWorkerManager] Memory error in generateSegments, will retry with worker restart'
+          )
+          return true
+        }
+
+        return isRetryableError(error)
+      },
+      onRetry: async (attempt, maxRetries, error) => {
+        logger.warn(
+          `[TTSWorkerManager] generateSegments retry ${attempt}/${maxRetries}:`,
+          error.message
+        )
+        const errorMsg = error.message
+        const isMemoryError =
+          errorMsg.includes('failed to allocate') ||
+          errorMsg.includes("Can't create a session") ||
+          errorMsg.includes('Out of memory') ||
+          errorMsg.includes('Aborted()')
+        if (isMemoryError) {
+          logger.warn(
+            '[TTSWorkerManager] Restarting worker due to memory error in generateSegments'
+          )
+          if (!this.isRestarting) {
+            this.isRestarting = true
+            this.terminate()
+            try {
+              this.readyPromise = this.initWorker()
+              await this.readyPromise
+            } catch (err) {
+              logger.error('[TTSWorkerManager] Worker restart failed:', err)
+              throw err
+            } finally {
+              this.isRestarting = false
+            }
+          } else {
+            try {
+              await this.readyPromise
+            } catch (err) {
+              logger.error('[TTSWorkerManager] Worker restart failed during wait:', err)
+              throw err
+            }
+          }
+        }
+        if (options.onProgress) {
+          options.onProgress(`Retrying... (attempt ${attempt}/${maxRetries})`)
+        }
+      },
+    }).catch((error) => {
+      const normalized = normalizeError(error, 'TTS segment generation')
+      if (options.onProgress) {
+        options.onProgress(normalized.getUserMessage())
       }
-
-      this.worker!.postMessage(request)
+      throw normalized
     })
   }
 
@@ -322,11 +426,15 @@ export class TTSWorkerManager {
   }
 
   terminate() {
+    // Reject all pending requests so callers don't hang indefinitely
+    const terminationError = new Error('TTS worker terminated')
+    this.pendingRequests.forEach((p) => p.reject(terminationError))
+    this.pendingRequests.clear()
+
     if (this.worker) {
       this.worker.terminate()
       this.worker = null
     }
-    this.pendingRequests.clear()
     this.ready = false
   }
 }

@@ -1,3 +1,4 @@
+import { get } from 'svelte/store'
 import { getTTSWorker } from './ttsWorkerManager'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
@@ -7,6 +8,7 @@ import { segmentHtmlContent } from './services/generationService'
 import type { AudioSegment } from './types/audio'
 import { selectPiperVoiceForLanguage, normalizeLanguageCode } from './utils/voiceSelector'
 import { PiperClient } from './piper/piperClient'
+import { getGeneratedSegment } from '../stores/segmentProgressStore'
 
 interface TextSegment {
   index: number
@@ -364,9 +366,9 @@ class AudioPlaybackService {
       if (lastSeg.startTime !== undefined && lastSeg.duration !== undefined) {
         totalDuration = (lastSeg.startTime || 0) + (lastSeg.duration || 0)
       } else if (dbSegments.length > 0) {
-        // Fallback duration calculation
+        // Fallback duration calculation — assume 24kHz 16-bit mono (48000 bytes/sec)
         totalDuration = dbSegments.reduce((acc, seg) => {
-          const est = (seg.audioBlob.size - 44) / (24000 * 4) // Estimate
+          const est = (seg.audioBlob.size - 44) / (24000 * 2)
           return acc + Math.max(est, 0)
         }, 0)
       }
@@ -544,7 +546,22 @@ class AudioPlaybackService {
       audioPlayerStore.pause()
     }
 
-    // Ensure generated
+    // Ensure generated — check progressive store first to avoid redundant generation
+    if (!this.audioSegments.has(index)) {
+      // Check if the segment is already available in the progressive generation store
+      const storeState = get(audioPlayerStore)
+      const chapterId = storeState.chapterId ?? ''
+      if (chapterId) {
+        const progressSegment = getGeneratedSegment(chapterId, index)
+        if (progressSegment) {
+          logger.info(
+            `[playFromSegment] Using progressive segment ${index} instead of regenerating`
+          )
+          this.injectProgressiveSegment(progressSegment)
+        }
+      }
+    }
+
     if (!this.audioSegments.has(index)) {
       if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(true)
       try {
@@ -935,6 +952,9 @@ class AudioPlaybackService {
    * This is used for progressive playback during generation, allowing
    * users to listen to segments as they are generated without waiting
    * for the entire chapter to complete.
+   *
+   * When a segment finishes, it automatically chains to the next available
+   * segment (from progressively generated audio) for continuous playback.
    */
   async playSingleSegment(segment: AudioSegment): Promise<void> {
     // Stop any current playback
@@ -1026,12 +1046,35 @@ class AudioPlaybackService {
       if (this.audio) this.currentTime = this.audio.currentTime
     }
 
+    // Chain to next available segment when current one ends
     this.audio.onended = () => {
-      this.isPlaying = false
-      audioPlayerStore.pause()
-      URL.revokeObjectURL(url)
-      this.audioSegments.delete(segment.index)
-      this.audio = null
+      const nextIndex = segment.index + 1
+      const chapterId = segment.chapterId
+
+      // Try to find the next segment from the progressive generation store
+      const nextSegment = getGeneratedSegment(chapterId, nextIndex)
+      if (nextSegment && this.isPlaying) {
+        logger.info(`[Progressive] Chaining to next segment ${nextIndex}`)
+        // Clean up current segment URL
+        URL.revokeObjectURL(url)
+        this.audioSegments.delete(segment.index)
+        this.audio = null
+        // Play next segment (recursive chain)
+        this.playSingleSegment(nextSegment).catch((err) => {
+          logger.warn('[Progressive] Failed to chain to next segment:', err)
+          this.isPlaying = false
+          audioPlayerStore.pause()
+        })
+      } else {
+        // No next segment available yet — stop and let auto-play re-trigger
+        // when the next segment is generated
+        logger.info(`[Progressive] No next segment available at index ${nextIndex}, pausing`)
+        this.isPlaying = false
+        audioPlayerStore.pause()
+        URL.revokeObjectURL(url)
+        this.audioSegments.delete(segment.index)
+        this.audio = null
+      }
     }
 
     this.audio.onerror = (event) => {

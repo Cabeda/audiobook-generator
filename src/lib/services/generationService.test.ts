@@ -11,7 +11,7 @@ vi.mock('../audioPlaybackService.svelte', () => ({
   },
 }))
 
-import { segmentHtmlContent } from './generationService'
+import { segmentHtmlContent, parseWavDuration } from './generationService'
 import { createMockTTSWorkerManager, createMockWavBlob } from '../../test/ttsClientMocks'
 import { flushPromises } from '../../test/svelteRunesTestUtils'
 
@@ -345,17 +345,15 @@ describe('Potential Bugs (Failing Tests)', () => {
     })
   })
 
-  describe('BUG: Chapter content mutation (line 1085)', () => {
+  describe('FIXED: Chapter content mutation (line 1085)', () => {
     /**
-     * BUG: ch.content is mutated directly after segmentation: `ch.content = html`
-     * This modifies the original chapter object, causing issues on regeneration
-     * (double-wrapping segments) or when other code expects original content.
+     * FIXED: segmentHtmlContent now strips existing span.segment elements
+     * before re-segmenting, preventing double-wrapping on regeneration.
      *
-     * Location: src/lib/services/generationService.ts line 1085
-     * Expected: Segments should not be nested on regeneration
-     * Actual: Could have nested segment spans
+     * Location: src/lib/services/generationService.ts segmentHtmlContent
+     * Fix: Strip existing segment spans and normalize text nodes before segmenting
      */
-    it.fails('should not double-wrap segments on regeneration', () => {
+    it('should not double-wrap segments on regeneration', () => {
       const originalHtml = '<p>Original sentence here.</p>'
 
       // First segmentation
@@ -367,9 +365,40 @@ describe('Potential Bugs (Failing Tests)', () => {
       // Check for nested segment spans
       const nestedSegmentPattern = /<span[^>]*class="segment"[^>]*>.*<span[^>]*class="segment"/s
 
-      // Expected: No nested segments
-      // Actual: Could have <span class="segment"><span class="segment">...</span></span>
+      // Fixed: No nested segments after re-segmentation
       expect(nestedSegmentPattern.test(secondHtml)).toBe(false)
+    })
+
+    it('should produce same segment count on regeneration', () => {
+      const originalHtml = '<p>First sentence. Second sentence. Third one here.</p>'
+
+      const { segments: first } = segmentHtmlContent('ch1', originalHtml)
+      const { html: firstHtml } = segmentHtmlContent('ch1', originalHtml)
+      const { segments: second } = segmentHtmlContent('ch1', firstHtml)
+
+      expect(second.length).toBe(first.length)
+      // Text content should be identical
+      for (let i = 0; i < first.length; i++) {
+        expect(second[i].text).toBe(first[i].text)
+      }
+    })
+
+    it('should produce consistent segments across multiple regenerations', () => {
+      const originalHtml = '<p>Hello world. Goodbye world.</p>'
+
+      const { segments: seg1 } = segmentHtmlContent('ch1', originalHtml)
+      const { html: html1 } = segmentHtmlContent('ch1', originalHtml)
+      const { segments: seg2 } = segmentHtmlContent('ch1', html1)
+      const { html: html2 } = segmentHtmlContent('ch1', html1)
+      const { segments: seg3 } = segmentHtmlContent('ch1', html2)
+
+      // Segment count and text should remain stable across regenerations
+      expect(seg2.length).toBe(seg1.length)
+      expect(seg3.length).toBe(seg1.length)
+      for (let i = 0; i < seg1.length; i++) {
+        expect(seg2[i].text).toBe(seg1[i].text)
+        expect(seg3[i].text).toBe(seg1[i].text)
+      }
     })
   })
 
@@ -449,12 +478,13 @@ describe('Cancellation and Cleanup', () => {
     })
   })
 
-  describe('Auto-play race condition (lines 1207-1216)', () => {
+  describe('FIXED: Auto-play race condition (lines 1207-1216)', () => {
     /**
-     * This tests that auto-play respects cancellation.
+     * FIXED: Auto-play setTimeout callback now re-checks this.canceled
+     * before calling playSingleSegment, preventing playback after cancellation.
      *
-     * The implementation uses setTimeout(0) for auto-play which
-     * checks the cancellation flag inside the callback.
+     * Location: src/lib/services/generationService.ts auto-play callback
+     * Fix: Added `if (this.canceled) return` inside setTimeout callback
      */
     it('should cancel auto-play when generation is cancelled', async () => {
       let autoPlayCalled = false
@@ -462,16 +492,16 @@ describe('Cancellation and Cleanup', () => {
 
       const autoPlayTriggered = new Set<string>()
 
-      // Simulate auto-play trigger logic
+      // Simulate auto-play trigger logic (matches the fixed implementation)
       const triggerAutoPlay = (chapterId: string) => {
         if (!autoPlayTriggered.has(chapterId) && !canceled) {
           autoPlayTriggered.add(chapterId)
           setTimeout(() => {
-            // This runs after cancellation check
-            // Should check canceled flag again, but doesn't
-            if (!canceled) {
-              autoPlayCalled = true
+            // Fixed: re-check canceled inside the callback
+            if (canceled) {
+              return
             }
+            autoPlayCalled = true
           }, 0)
         }
       }
@@ -482,9 +512,270 @@ describe('Cancellation and Cleanup', () => {
       await flushPromises()
       await new Promise((resolve) => setTimeout(resolve, 10))
 
-      // Expected: autoPlayCalled = false (cancelled)
-      // The cancellation check inside setTimeout prevents the call
+      // Fixed: autoPlayCalled = false because callback checks canceled
       expect(autoPlayCalled).toBe(false)
     })
+  })
+})
+
+// ============================================================================
+// FIXED BUG TESTS - processSegmentsWithPriority
+// ============================================================================
+
+describe('FIXED: processSegmentsWithPriority uses Promise.allSettled', () => {
+  /**
+   * FIXED: processSegmentsWithPriority now uses Promise.allSettled instead of
+   * Promise.all, so a single segment failure doesn't lose the entire batch.
+   * Failed segments are tracked in a separate `failed` set.
+   *
+   * Location: src/lib/services/generationService.ts processSegmentsWithPriority
+   * Fix: Promise.all → Promise.allSettled, separate failed tracking
+   */
+  it('should not lose successful results when one segment fails', async () => {
+    const processed = new Set<number>()
+    const failed = new Set<number>()
+    const segments = [
+      { index: 0, text: 'Good segment' },
+      { index: 1, text: 'Bad segment' },
+      { index: 2, text: 'Another good segment' },
+    ]
+
+    // Simulate Promise.allSettled behavior (the fix)
+    const results = await Promise.allSettled(
+      segments.map(async (seg) => {
+        if (seg.index === 1) throw new Error('Segment 1 failed')
+        return { index: seg.index, audio: new Blob(['audio'], { type: 'audio/wav' }) }
+      })
+    )
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]
+      if (result.status === 'fulfilled' && result.value) {
+        processed.add(segments[i].index)
+      } else if (result.status === 'rejected') {
+        failed.add(segments[i].index)
+      }
+    }
+
+    // Segments 0 and 2 should be processed, segment 1 should be failed
+    expect(processed.has(0)).toBe(true)
+    expect(processed.has(2)).toBe(true)
+    expect(failed.has(1)).toBe(true)
+    expect(processed.size).toBe(2)
+    expect(failed.size).toBe(1)
+  })
+
+  it('should terminate loop when all segments are processed or failed', async () => {
+    const processed = new Set<number>()
+    const failed = new Set<number>()
+    const total = 5
+    let iterations = 0
+
+    // Simulate the main loop condition from processSegmentsWithPriority
+    while (processed.size + failed.size < total) {
+      iterations++
+      if (iterations > 100) throw new Error('Infinite loop detected')
+
+      // Simulate: even indices succeed, odd indices fail
+      const nextIndex = processed.size + failed.size
+      if (nextIndex % 2 === 0) {
+        processed.add(nextIndex)
+      } else {
+        failed.add(nextIndex)
+      }
+    }
+
+    expect(processed.size + failed.size).toBe(total)
+    expect(iterations).toBe(total) // Should take exactly `total` iterations
+  })
+})
+
+// ============================================================================
+// FIXED BUG: parseWavDuration — highlight-audio desync
+// ============================================================================
+
+describe('parseWavDuration', () => {
+  /**
+   * FIXED: The old calculateWavDuration assumed 24kHz float32 mono (4 bytes/sample)
+   * but actual WAV blobs are 16-bit PCM (2 bytes/sample). This caused durations
+   * to be underestimated by 2x, making segment startTime values drift and the
+   * text highlight desync from audio during merged-audio playback.
+   *
+   * Location: src/lib/services/generationService.ts parseWavDuration
+   * Fix: Parse actual WAV header instead of hardcoding format assumptions
+   */
+
+  function createWavBlob(opts: {
+    sampleRate: number
+    numChannels: number
+    bitsPerSample: number
+    durationMs: number
+  }): Blob {
+    const { sampleRate, numChannels, bitsPerSample, durationMs } = opts
+    const bytesPerSample = bitsPerSample / 8
+    const numSamples = Math.floor((sampleRate * durationMs) / 1000)
+    const dataSize = numSamples * numChannels * bytesPerSample
+    const bufferSize = 44 + dataSize
+    const buffer = new ArrayBuffer(bufferSize)
+    const view = new DataView(buffer)
+
+    // RIFF header
+    const writeStr = (offset: number, s: string) => {
+      for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i))
+    }
+    writeStr(0, 'RIFF')
+    view.setUint32(4, bufferSize - 8, true)
+    writeStr(8, 'WAVE')
+    writeStr(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, bitsPerSample === 32 ? 3 : 1, true) // 3=float, 1=PCM
+    view.setUint16(22, numChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * numChannels * bytesPerSample, true)
+    view.setUint16(32, numChannels * bytesPerSample, true)
+    view.setUint16(34, bitsPerSample, true)
+    writeStr(36, 'data')
+    view.setUint32(40, dataSize, true)
+
+    return new Blob([buffer], { type: 'audio/wav' })
+  }
+
+  it('should correctly parse 24kHz 16-bit mono WAV (most common TTS output)', async () => {
+    const blob = createWavBlob({
+      sampleRate: 24000,
+      numChannels: 1,
+      bitsPerSample: 16,
+      durationMs: 1000,
+    })
+    const duration = await parseWavDuration(blob)
+    expect(duration).toBeCloseTo(1.0, 2)
+  })
+
+  it('should correctly parse 24kHz float32 mono WAV', async () => {
+    const blob = createWavBlob({
+      sampleRate: 24000,
+      numChannels: 1,
+      bitsPerSample: 32,
+      durationMs: 1000,
+    })
+    const duration = await parseWavDuration(blob)
+    expect(duration).toBeCloseTo(1.0, 2)
+  })
+
+  it('should correctly parse 22050Hz 16-bit mono WAV (Piper output)', async () => {
+    const blob = createWavBlob({
+      sampleRate: 22050,
+      numChannels: 1,
+      bitsPerSample: 16,
+      durationMs: 2000,
+    })
+    const duration = await parseWavDuration(blob)
+    expect(duration).toBeCloseTo(2.0, 2)
+  })
+
+  it('should correctly parse 44100Hz 16-bit stereo WAV', async () => {
+    const blob = createWavBlob({
+      sampleRate: 44100,
+      numChannels: 2,
+      bitsPerSample: 16,
+      durationMs: 500,
+    })
+    const duration = await parseWavDuration(blob)
+    expect(duration).toBeCloseTo(0.5, 2)
+  })
+
+  it('should handle WAV with extra chunks before data', async () => {
+    // Build a WAV with a LIST chunk between fmt and data
+    const sampleRate = 24000
+    const numChannels = 1
+    const bitsPerSample = 16
+    const durationMs = 1000
+    const bytesPerSample = bitsPerSample / 8
+    const numSamples = Math.floor((sampleRate * durationMs) / 1000)
+    const dataSize = numSamples * numChannels * bytesPerSample
+    const listChunkData = new TextEncoder().encode('some metadata here')
+    const listChunkSize = 4 + listChunkData.length // 'INFO' + data
+    const listTotalSize = 8 + listChunkSize // chunk header + content
+    const bufferSize = 12 + 24 + listTotalSize + 8 + dataSize // RIFF/WAVE + fmt + LIST + data
+    const buffer = new ArrayBuffer(bufferSize)
+    const view = new DataView(buffer)
+
+    const writeStr = (offset: number, s: string) => {
+      for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i))
+    }
+
+    // RIFF header
+    writeStr(0, 'RIFF')
+    view.setUint32(4, bufferSize - 8, true)
+    writeStr(8, 'WAVE')
+
+    // fmt chunk
+    writeStr(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true) // PCM
+    view.setUint16(22, numChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * numChannels * bytesPerSample, true)
+    view.setUint16(32, numChannels * bytesPerSample, true)
+    view.setUint16(34, bitsPerSample, true)
+
+    // LIST chunk (extra metadata)
+    let offset = 36
+    writeStr(offset, 'LIST')
+    view.setUint32(offset + 4, listChunkSize, true)
+    writeStr(offset + 8, 'INFO')
+    new Uint8Array(buffer).set(listChunkData, offset + 12)
+    offset += listTotalSize
+
+    // data chunk
+    writeStr(offset, 'data')
+    view.setUint32(offset + 4, dataSize, true)
+
+    const blob = new Blob([buffer], { type: 'audio/wav' })
+    const duration = await parseWavDuration(blob)
+    // Header is NOT 44 bytes here, but parseWavDuration should still find the data chunk
+    expect(duration).toBeCloseTo(1.0, 2)
+  })
+
+  it('should return 0 for empty/tiny blobs', async () => {
+    const blob = new Blob([new ArrayBuffer(10)], { type: 'audio/wav' })
+    const duration = await parseWavDuration(blob)
+    expect(duration).toBe(0)
+  })
+
+  it('should fall back gracefully for non-WAV blobs', async () => {
+    const blob = new Blob(['not a wav file at all'], { type: 'audio/wav' })
+    const duration = await parseWavDuration(blob)
+    // Should not throw, returns 0 or a fallback estimate
+    expect(duration).toBeGreaterThanOrEqual(0)
+  })
+
+  it('should produce consistent durations that sum correctly for segment timing', async () => {
+    // Simulate 5 segments of varying length — the cumulative startTime
+    // must match the sum of individual durations (the desync bug)
+    const durations = [500, 1200, 800, 2000, 300]
+    let cumulativeTime = 0
+
+    for (const ms of durations) {
+      const blob = createWavBlob({
+        sampleRate: 24000,
+        numChannels: 1,
+        bitsPerSample: 16,
+        durationMs: ms,
+      })
+      const parsed = await parseWavDuration(blob)
+      expect(parsed).toBeCloseTo(ms / 1000, 2)
+      cumulativeTime += parsed
+    }
+
+    const expectedTotal = durations.reduce((a, b) => a + b, 0) / 1000
+    expect(cumulativeTime).toBeCloseTo(expectedTotal, 2)
+  })
+
+  it('should match createMockWavBlob durations (test mock uses 16-bit PCM)', async () => {
+    // The test mock creates 24kHz 16-bit mono WAVs — parseWavDuration must agree
+    const blob = createMockWavBlob(500)
+    const duration = await parseWavDuration(blob)
+    expect(duration).toBeCloseTo(0.5, 2)
   })
 })

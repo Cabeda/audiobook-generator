@@ -155,6 +155,91 @@ export interface SegmentOptions {
   ignoreLinks?: boolean
 }
 
+/**
+ * Read a Blob (or a slice of it) as a Uint8Array.
+ * Works in both browser and jsdom test environments where
+ * Blob.arrayBuffer() or Blob.slice().arrayBuffer() may be missing.
+ */
+async function readBlobAsUint8Array(blob: Blob, maxBytes?: number): Promise<Uint8Array> {
+  const target = maxBytes != null && maxBytes < blob.size ? blob.slice(0, maxBytes) : blob
+
+  // Try the modern API first
+  if (typeof target.arrayBuffer === 'function') {
+    try {
+      return new Uint8Array(await target.arrayBuffer())
+    } catch {
+      // fall through
+    }
+  }
+
+  // Fallback: FileReader (works in jsdom)
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(new Uint8Array(reader.result))
+      } else {
+        reject(new Error('FileReader did not return ArrayBuffer'))
+      }
+    }
+    reader.onerror = () => reject(reader.error || new Error('FileReader error'))
+    reader.readAsArrayBuffer(target)
+  })
+}
+
+/**
+ * Parse a WAV blob header and return the accurate duration in seconds.
+ * Handles arbitrary chunk layouts (extra LIST/fact/etc. chunks before data).
+ *
+ * This replaces the old hardcoded `(blob.size - 44) / (24000 * 4)` estimate
+ * which assumed 24 kHz float32 mono and caused highlight-audio desync when
+ * the actual format differed (e.g. 16-bit PCM, different sample rates).
+ */
+export async function parseWavDuration(blob: Blob): Promise<number> {
+  const headerBytes = await readBlobAsUint8Array(blob, 1024)
+  const view = new DataView(headerBytes.buffer)
+
+  // Validate RIFF/WAVE
+  const riff = String.fromCharCode(...headerBytes.slice(0, 4))
+  const wave = String.fromCharCode(...headerBytes.slice(8, 12))
+  if (riff !== 'RIFF' || wave !== 'WAVE') {
+    // Not a valid WAV — fall back to blob-size estimate (24kHz 16-bit mono)
+    const fallback = (blob.size - 44) / (24000 * 2)
+    return fallback > 0 ? fallback : 0
+  }
+
+  let offset = 12
+  let sampleRate = 24000
+  let numChannels = 1
+  let bitsPerSample = 16
+  let dataLength = -1
+
+  while (offset + 8 <= headerBytes.length) {
+    const chunkId = String.fromCharCode(...headerBytes.slice(offset, offset + 4))
+    const chunkSize = view.getUint32(offset + 4, true)
+
+    if (chunkId === 'fmt ') {
+      numChannels = view.getUint16(offset + 10, true)
+      sampleRate = view.getUint32(offset + 12, true)
+      bitsPerSample = view.getUint16(offset + 22, true)
+    } else if (chunkId === 'data') {
+      dataLength = chunkSize
+      break
+    }
+
+    offset += 8 + chunkSize
+  }
+
+  if (dataLength <= 0) {
+    // Could not find data chunk — fall back using parsed fmt values
+    const fallback = (blob.size - 44) / (sampleRate * (bitsPerSample / 8) * numChannels)
+    return fallback > 0 ? fallback : 0
+  }
+
+  const bytesPerSec = sampleRate * (bitsPerSample / 8) * numChannels
+  return bytesPerSec > 0 ? dataLength / bytesPerSec : 0
+}
+
 export function segmentHtmlContent(
   chapterId: string,
   htmlContent: string,
@@ -172,6 +257,21 @@ export function segmentHtmlContent(
   // Use DOMParser to parse and modify the HTML
   const parser = new DOMParser()
   const doc = parser.parseFromString(htmlContent, 'text/html')
+
+  // Strip existing segment spans to prevent double-wrapping on regeneration.
+  // This handles the case where ch.content was mutated in a previous generation run.
+  doc.querySelectorAll('span.segment').forEach((span) => {
+    const parent = span.parentNode
+    if (parent) {
+      // Move all children out of the span, then remove the empty span
+      while (span.firstChild) {
+        parent.insertBefore(span.firstChild, span)
+      }
+      parent.removeChild(span)
+    }
+  })
+  // Normalize adjacent text nodes that were split by span removal
+  doc.body.normalize()
 
   // Remove elements we want to skip
   if (options.ignoreCodeBlocks) {
@@ -408,6 +508,7 @@ export function segmentHtmlContent(
 class GenerationService {
   private running = false
   private canceled = false
+  private canceledChapters = new Set<string>()
 
   private wakeLock: WakeLockSentinel | null = null
   private priorityOverrides = new Map<string, number>()
@@ -539,12 +640,27 @@ class GenerationService {
     }
   }
 
-  // Helper to calculate duration of a WAV blob
-  // WAV header is 44 bytes, Kokoro outputs 24kHz float32 mono
+  /**
+   * Calculate duration of a WAV blob by parsing its header.
+   *
+   * Previous implementation hardcoded 24 kHz / float32 / mono which caused
+   * duration mis-estimates (and therefore highlight desync) whenever the
+   * actual WAV format differed — e.g. 16-bit PCM from Kokoro's toBlob(),
+   * Piper at 22050 Hz, or the audioBufferToWav helper which writes 16-bit.
+   *
+   * The async variant reads the first 1 KB of the blob to locate the "fmt "
+   * and "data" chunks so it works regardless of extra chunks (LIST, fact, …).
+   * A synchronous fast-path is kept for callers that only have blob.size.
+   */
   private calculateWavDuration(blob: Blob): number {
+    // Synchronous fallback: use the most common output format (24 kHz 16-bit mono)
+    // This is only used as the return value; the async path below is preferred
+    // when the caller can await, but both call-sites currently use the sync return.
+    // We parse the header synchronously via the blob size heuristic but with the
+    // correct default bytes-per-sample for PCM-16.
     const headerSize = 44
     const sampleRate = 24000
-    const bytesPerSample = 4 // float32
+    const bytesPerSample = 2 // 16-bit PCM (most common output)
     const channels = 1
 
     const pcmDataSize = blob.size - headerSize
@@ -796,103 +912,112 @@ class GenerationService {
   ) {
     const total = segments.length
     const processed = new Set<number>()
+    const failed = new Set<number>()
     let cursor = 0 // Start at beginning
 
-    // To ensure O(1) access if T has an index property matching array index,
-    // we assume segments is sorted by index 0..N-1.
-    // If not, we might need a map, but for now we assume array index = segment index.
-
     // Main loop: Continue until all segments are processed or canceled
-    while (processed.size < total && !this.canceled) {
+    while (processed.size + failed.size < total && !this.canceled) {
       const batch: T[] = []
       const batchIndices = new Set<number>()
 
       // Fill batch with next available segments
-      while (batch.length < parallelism && processed.size + batch.length < total) {
+      while (batch.length < parallelism && processed.size + failed.size + batch.length < total) {
         let nextIndex: number | undefined
 
         // 1. Check for priority override
         if (this.priorityOverrides.has(chapterId)) {
           const priority = this.priorityOverrides.get(chapterId)!
-          // Only use if not already processed or in current batch
-          // We assume priority is a valid index
           if (
             priority >= 0 &&
             priority < total &&
             !processed.has(priority) &&
+            !failed.has(priority) &&
             !batchIndices.has(priority)
           ) {
             nextIndex = priority
-            // Move cursor to follow priority for subsequent items
-            // This ensures "proceed from there" behavior
             cursor = (priority + 1) % total
-            // Consume the override
             this.priorityOverrides.delete(chapterId)
           } else {
-            // Priority already done or invalid, discard
             this.priorityOverrides.delete(chapterId)
           }
         }
 
         // 2. Fallback to cursor logic if no valid priority
         if (nextIndex === undefined) {
-          // Advance cursor continuously until we find an available item
-          // We limit the search to 'total' to prevent infinite loops (though processed check guards this)
           let checked = 0
-          while ((processed.has(cursor) || batchIndices.has(cursor)) && checked < total) {
+          while (
+            (processed.has(cursor) || failed.has(cursor) || batchIndices.has(cursor)) &&
+            checked < total
+          ) {
             cursor = (cursor + 1) % total
             checked++
           }
 
           if (checked < total) {
             nextIndex = cursor
-            // Prepare cursor for next iteration
             cursor = (cursor + 1) % total
           }
         }
 
         if (nextIndex !== undefined) {
-          // Add to batch
-          // We assume segments array maps index->segment directly
           const seg = segments[nextIndex]
           if (seg) {
             batch.push(seg)
             batchIndices.add(nextIndex)
           } else {
             logger.warn(`Segment at index ${nextIndex} not found`)
-            // Skip this index
-            processed.add(nextIndex) // Mark as "processed" to avoid stuck loop
+            failed.add(nextIndex)
           }
         } else {
-          // No more items found?
           break
         }
       }
 
       if (batch.length === 0) break
 
-      // Process batch
-      const results = await Promise.all(
+      // Process batch — handle individual failures without losing the whole batch
+      const results = await Promise.allSettled(
         batch.map(async (seg) => {
-          if (this.canceled) return null
+          if (this.canceled) throw new Error('Generation canceled')
           return await processor(seg)
         })
       )
 
       if (this.canceled) break
 
-      // Handle results and update state
-      for (const result of results) {
-        if (result) {
-          await onResult(result)
+      // Handle results: successful ones go to onResult, failed ones are tracked
+      const batchIndexArray = Array.from(batchIndices)
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i]
+        const idx = batchIndexArray[i]
+
+        if (result.status === 'fulfilled' && result.value) {
+          try {
+            await onResult(result.value)
+            processed.add(idx)
+          } catch (err) {
+            logger.error(`Failed to handle result for segment ${idx}:`, err)
+            failed.add(idx)
+          }
+        } else if (result.status === 'rejected') {
+          logger.error(`Segment ${idx} generation failed:`, result.reason)
+          failed.add(idx)
+        } else {
+          // fulfilled with null (e.g. empty segment) — mark as processed
+          processed.add(idx)
         }
       }
 
-      // Mark as processed (even if failed? No, only successful ones, but we assume success if no throw)
-      // Ideally processor throws on fail.
-      batchIndices.forEach((idx) => processed.add(idx))
-
       onProgress(processed.size, total)
+    }
+
+    if (failed.size > 0) {
+      logger.warn(
+        `[processSegments] ${failed.size}/${total} segments failed for chapter ${chapterId}`,
+        {
+          failedIndices: Array.from(failed),
+        }
+      )
     }
   }
 
@@ -982,6 +1107,7 @@ class GenerationService {
 
     this.running = true
     this.canceled = false // Reset canceled state
+    this.canceledChapters.clear() // Reset per-chapter cancellation
     this.autoPlayTriggered.clear() // Reset auto-play triggers for new generation
     isGenerating.set(true)
 
@@ -1000,6 +1126,13 @@ class GenerationService {
         if (this.canceled) break
 
         const ch = chapters[i]
+
+        // Skip chapters that were individually canceled
+        if (this.canceledChapters.has(ch.id)) {
+          logger.info(`[generateChapters] Skipping canceled chapter ${ch.id}`)
+          continue
+        }
+
         const currentBook = get(book)
 
         // Resolve the effective language for this chapter (with auto-detection support)
@@ -1041,9 +1174,20 @@ class GenerationService {
         // We determine if we need to auto-select a voice.
         // Auto-select if:
         // 1. Current voice is invalid/missing (!currentVoice)
-        // 2. OR we fell back to a different model (meaning ch.voice or global voice might be invalid for new model)
-        // Note: We do NOT auto-switch if a global voice is selected (!ch.voice is NOT enough reason to ignore global preference)
-        const shouldAutoSelectVoice = !currentVoice || isFallbackModel
+        // 2. OR we fell back to a different model AND the user's voice is not valid for the fallback model
+        // Note: If the user explicitly set a chapter voice that's valid for the fallback model, respect it
+        let shouldAutoSelectVoice = !currentVoice
+        if (!shouldAutoSelectVoice && isFallbackModel) {
+          // Only auto-select if the user's voice isn't valid for the fallback model
+          if (effectiveModel === 'piper') {
+            const piperClient = PiperClient.getInstance()
+            const voices = await piperClient.getVoices()
+            const isValidForPiper = voices.some((v) => v.key === currentVoice)
+            shouldAutoSelectVoice = !isValidForPiper
+          } else {
+            shouldAutoSelectVoice = true
+          }
+        }
 
         if (shouldAutoSelectVoice) {
           // Auto-select voice based on language
@@ -1080,8 +1224,10 @@ class GenerationService {
           logger.info(`Using chapter-specific voice: ${effectiveVoice}`)
         }
 
-        // If a specific Piper voice is selected but doesn't match the detected language, switch to a matching one
-        if (effectiveModel === 'piper' && !shouldAutoSelectVoice) {
+        // If a specific Piper voice is selected from the GLOBAL default (not a chapter override)
+        // but doesn't match the detected language, switch to a matching one.
+        // We skip this check when the user explicitly set a chapter voice — respect their choice.
+        if (effectiveModel === 'piper' && !shouldAutoSelectVoice && !ch.voice) {
           const piperClient = PiperClient.getInstance()
           const availableVoices = await piperClient.getVoices()
           const selectedVoiceInfo = availableVoices.find((v) => v.key === effectiveVoice)
@@ -1168,7 +1314,8 @@ class GenerationService {
               textSegments,
               parallelChunks,
               async (segment) => {
-                if (this.canceled) throw new Error('Generation canceled')
+                if (this.canceled || this.canceledChapters.has(ch.id))
+                  throw new Error('Generation canceled')
 
                 // Skip empty segments
                 if (!segment.text.trim()) return null
@@ -1183,10 +1330,12 @@ class GenerationService {
                   advancedSettings: currentAdvancedSettings,
                 })
 
+                const duration = await parseWavDuration(blob)
+
                 return {
                   segment,
                   blob,
-                  duration: this.calculateWavDuration(blob),
+                  duration,
                 }
               },
               async (result) => {
@@ -1205,14 +1354,24 @@ class GenerationService {
 
                 // Auto-play first segment for seamless mobile experience
                 // Only triggers once per chapter, on the first completed segment
-                if (this.autoPlayEnabled && !this.autoPlayTriggered.has(ch.id) && !this.canceled) {
+                if (
+                  this.autoPlayEnabled &&
+                  !this.autoPlayTriggered.has(ch.id) &&
+                  !this.canceled &&
+                  !this.canceledChapters.has(ch.id)
+                ) {
                   this.autoPlayTriggered.add(ch.id)
                   logger.info(`[AutoPlay] Starting playback of first available segment`, {
                     chapterId: ch.id,
                     segmentIndex: segment.index,
                   })
                   // Use setTimeout to avoid blocking the generation loop
+                  // Re-check canceled inside callback to prevent playing after cancellation
                   setTimeout(() => {
+                    if (this.canceled || this.canceledChapters.has(ch.id)) {
+                      logger.info('[AutoPlay] Skipped — generation was canceled')
+                      return
+                    }
                     audioService.playSingleSegment(segment).catch((err) => {
                       logger.warn('[AutoPlay] Failed to auto-play first segment:', err)
                     })
@@ -1240,7 +1399,7 @@ class GenerationService {
               cumulativeTime += s.duration || 0
             }
 
-            if (this.canceled) break
+            if (this.canceled || this.canceledChapters.has(ch.id)) break
 
             // Mark chapter generation as complete
             markChapterGenerationComplete(ch.id)
@@ -1331,7 +1490,8 @@ class GenerationService {
               textSegments,
               parallelChunks,
               async (segment) => {
-                if (this.canceled) throw new Error('Generation canceled')
+                if (this.canceled || this.canceledChapters.has(ch.id))
+                  throw new Error('Generation canceled')
 
                 // Skip empty segments
                 if (!segment.text.trim()) return null
@@ -1346,10 +1506,12 @@ class GenerationService {
                   // No dtype for Piper
                 })
 
+                const duration = await parseWavDuration(blob)
+
                 return {
                   segment,
                   blob,
-                  duration: this.calculateWavDuration(blob),
+                  duration,
                 }
               },
               async (result) => {
@@ -1387,7 +1549,7 @@ class GenerationService {
               cumulativeTime += s.duration || 0
             }
 
-            if (this.canceled) break
+            if (this.canceled || this.canceledChapters.has(ch.id)) break
 
             // Mark chapter generation as complete
             markChapterGenerationComplete(ch.id)
@@ -1433,6 +1595,7 @@ class GenerationService {
           })
         } catch (err: unknown) {
           if (this.canceled) break
+          if (this.canceledChapters.has(ch.id)) continue
           const errorMsg = err instanceof Error ? err.message : 'Unknown error'
           logger.error(`Generation failed for chapter ${ch.title}:`, err)
           chapterStatus.update((m) => new Map(m).set(ch.id, 'error'))
@@ -1475,9 +1638,31 @@ class GenerationService {
 
     // Clear auto-play state for canceled chapters
     this.autoPlayTriggered.clear()
+    this.canceledChapters.clear()
 
     this.running = false
     isGenerating.set(false)
+  }
+
+  /**
+   * Cancel generation for a single chapter without stopping the entire batch.
+   * The generation loop will skip this chapter and continue with the next one.
+   */
+  cancelChapter(chapterId: string) {
+    this.canceledChapters.add(chapterId)
+    logger.info(`[CancelChapter] Marked chapter ${chapterId} for cancellation`)
+
+    // Reset chapter status to pending
+    chapterStatus.update((m) => {
+      const newMap = new Map(m)
+      if (newMap.get(chapterId) === 'processing') {
+        newMap.set(chapterId, 'pending')
+      }
+      return newMap
+    })
+
+    // Mark generation as no longer in progress for this chapter
+    markChapterGenerationComplete(chapterId)
   }
 
   isRunning() {
@@ -1710,8 +1895,13 @@ class GenerationService {
           // Calculate duration from blob if stored duration is missing/invalid
           let duration = s.duration
           if (!duration || duration <= 0) {
-            // Fallback: estimate from WAV blob size (24kHz float32 mono = 96000 bytes/sec)
-            duration = (s.audioBlob.size - 44) / (24000 * 4)
+            // Fallback: parse WAV header for accurate duration
+            try {
+              duration = await parseWavDuration(s.audioBlob)
+            } catch {
+              // Last resort: estimate assuming 24kHz 16-bit mono (48000 bytes/sec)
+              duration = (s.audioBlob.size - 44) / (24000 * 2)
+            }
             if (duration < 0) duration = 1 // Minimum fallback
           }
 

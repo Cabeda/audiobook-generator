@@ -67,8 +67,8 @@
       typeof book.id === 'number' &&
       typeof book.title === 'string' &&
       typeof book.author === 'string' &&
-      typeof book.dateAdded === 'string' &&
-      typeof book.lastAccessed === 'string' &&
+      typeof book.dateAdded === 'number' &&
+      typeof book.lastAccessed === 'number' &&
       Array.isArray(book.chapters)
     )
   }
@@ -231,6 +231,10 @@
   function handleCancel() {
     generationService.cancel()
     isGenerating = false
+  }
+
+  function handleCancelChapter(id: string) {
+    generationService.cancelChapter(id)
   }
 
   function handleRetry(id: string) {
@@ -545,6 +549,7 @@
             onToggle={toggleChapter}
             onRead={handleRead}
             onRetry={handleRetry}
+            onCancel={handleCancelChapter}
             onDownload={handleDownload}
             onModelChange={handleModelChange}
             onVoiceChange={handleVoiceChange}

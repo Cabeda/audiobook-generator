@@ -41,6 +41,7 @@
     status,
     error,
     onRetry,
+    onCancel,
     progress,
     onModelChange,
     onVoiceChange,
@@ -57,6 +58,7 @@
     onRead: (chapter: Chapter) => void
     onDownload: (id: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') => void
     onRetry?: (id: string) => void
+    onCancel?: (id: string) => void
     progress?: { current: number; total: number; message?: string }
     onModelChange?: (chapterId: string, model: string | undefined) => void
     onVoiceChange?: (chapterId: string, voice: string | undefined) => void
@@ -307,7 +309,16 @@
           ⚡
         </button>
       {/if}
-      {#if status === 'processing'}
+      {#if status === 'processing' && onCancel}
+        <button
+          class="icon-btn cancel-chapter-btn"
+          onclick={() => onCancel(chapter.id)}
+          title="Cancel generation for this chapter"
+          aria-label="Cancel this chapter"
+        >
+          ✕
+        </button>
+      {:else if status === 'processing'}
         <div class="spinner-container">
           <span class="spinner" aria-hidden="true"></span>
         </div>
@@ -755,6 +766,20 @@
     background: linear-gradient(135deg, #5568d3 0%, #6a3f8f 100%);
     transform: scale(1.1);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  }
+
+  .cancel-chapter-btn {
+    background: var(--error-bg, #fee2e2);
+    border: 1px solid var(--error-border, #fecaca);
+    color: var(--error-text, #dc2626);
+    font-size: 1rem;
+  }
+
+  .cancel-chapter-btn:hover {
+    background: var(--error-text, #dc2626);
+    color: white;
+    border-color: var(--error-text, #dc2626);
+    transform: scale(1.1);
   }
 
   .audio-controls {
