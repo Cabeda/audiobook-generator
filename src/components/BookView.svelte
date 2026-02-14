@@ -988,6 +988,11 @@
   @media (max-width: 768px) {
     .book-view {
       padding-bottom: 50px; /* Reduced padding for mobile player bar */
+      gap: 12px; /* Reduce gap between sections on mobile */
+    }
+
+    .content-area {
+      padding: 0 4px; /* Reduce horizontal padding on mobile */
     }
 
     .export-primary-btn {
