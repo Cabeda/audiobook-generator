@@ -1191,12 +1191,63 @@
   }
 
   @media (max-width: 640px) {
+    .chapter-card {
+      padding: 10px;
+      gap: 8px;
+    }
+
+    .card-main {
+      gap: 10px;
+    }
+
+    .chapter-header {
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .chapter-title {
+      font-size: 0.95rem;
+      line-height: 1.3;
+    }
+
+    .chapter-meta {
+      font-size: 0.8rem;
+      padding-left: 26px;
+      margin: 2px 0;
+      gap: 6px;
+    }
+
+    .card-actions {
+      gap: 6px;
+    }
+
+    .action-btn {
+      padding: 6px 10px;
+      font-size: 0.85rem;
+      gap: 4px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      font-size: 1rem;
+    }
+
     .advanced-panel {
       padding: 12px;
     }
 
     .setting-row {
       gap: 6px;
+    }
+
+    .audio-controls audio {
+      height: 36px;
+    }
+
+    .download-select {
+      font-size: 0.85rem;
+      padding: 4px 8px;
     }
   }
 </style>
