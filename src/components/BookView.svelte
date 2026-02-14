@@ -87,6 +87,10 @@
   let showFormatPicker = $state(false)
   let selectedBitrate = $state(192)
 
+  // Responsive item height for VirtualList
+  let isMobile = $state(false)
+  let chapterItemHeight = $derived(isMobile ? 70 : 100)
+
   let selectedModel = $derived($selectedModelStore)
   let currentBook = $derived($book)
   let statusMap = $derived($chapterStatus)
@@ -104,6 +108,16 @@
   )
 
   // Actions
+  onMount(() => {
+    // Detect mobile screen size
+    const checkMobile = () => {
+      isMobile = window.innerWidth <= 768
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  })
+
   function toggleChapter(id: string) {
     selectedChapters.update((m) => {
       const newMap = new Map(m)
@@ -595,7 +609,7 @@
 
     <!-- Chapter List -->
     <div class="content-area">
-      <VirtualList items={currentBook.chapters} itemHeight={100} buffer={3}>
+      <VirtualList items={currentBook.chapters} itemHeight={chapterItemHeight} buffer={3}>
         {#snippet children(visibleItems: { item: Chapter; index: number }[])}
           <div class="chapter-list">
             {#each visibleItems as { item: chapter } (chapter.id)}
@@ -975,6 +989,19 @@
     .book-view {
       padding-bottom: 50px; /* Reduced padding for mobile player bar */
     }
+
+    .export-primary-btn {
+      font-size: 0.9rem;
+    }
+
+    .export-main {
+      padding: 8px 14px;
+    }
+
+    .export-toggle {
+      padding: 8px 8px;
+    }
+
     .hero-header {
       padding: 16px;
       min-height: auto;
