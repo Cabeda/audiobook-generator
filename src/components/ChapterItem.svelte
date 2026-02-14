@@ -1235,10 +1235,29 @@
 
     .advanced-panel {
       padding: 12px;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+
+    .advanced-content {
+      gap: 12px;
     }
 
     .setting-row {
       gap: 6px;
+    }
+
+    .setting-label {
+      font-size: 0.8rem;
+    }
+
+    .setting-help {
+      font-size: 0.7rem;
+    }
+
+    .setting-select {
+      padding: 6px 10px;
+      font-size: 0.85rem;
     }
 
     .audio-controls audio {
