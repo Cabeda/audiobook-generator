@@ -368,9 +368,11 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 0;
-    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh; /* Dynamic viewport height for mobile browsers */
     display: flex;
     flex-direction: column;
+    overflow: hidden;
     /* Safe Area Insets for Mobile */
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
@@ -384,6 +386,8 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+    min-height: 0; /* Allow flex children to shrink below content size */
+    overflow: hidden; /* Prevent wrapper from growing — let VirtualList scroll */
   }
 
   .view-wrapper.full-height {
@@ -421,5 +425,12 @@
 
   .skip-link:focus {
     top: 0;
+  }
+
+  @media (max-width: 768px) {
+    .view-wrapper {
+      padding: 12px;
+      gap: 8px;
+    }
   }
 </style>
