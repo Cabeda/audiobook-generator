@@ -972,6 +972,9 @@
   }
 
   @media (max-width: 768px) {
+    .book-view {
+      padding-bottom: 50px; /* Reduced padding for mobile player bar */
+    }
     .hero-header {
       padding: 16px;
       min-height: auto;
