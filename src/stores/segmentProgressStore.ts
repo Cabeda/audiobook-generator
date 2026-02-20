@@ -18,6 +18,8 @@ export interface ChapterSegmentProgress {
   isGenerating: boolean
   /** Index of the segment currently being processed (-1 if none) */
   processingIndex: number
+  /** Map of segment index to its current quality tier */
+  segmentQuality: Map<number, number>
 }
 
 /**
@@ -45,6 +47,7 @@ export function initChapterSegments(
       generatedSegments: new Map(),
       isGenerating: true,
       processingIndex: -1,
+      segmentQuality: new Map(),
     }
     newMap.set(chapterId, chapterProgress)
     return newMap
@@ -146,6 +149,21 @@ export function getGeneratedSegment(
 }
 
 /**
+ * Update the quality tier for a specific segment
+ */
+export function updateSegmentQuality(chapterId: string, index: number, tier: number) {
+  segmentProgress.update((map) => {
+    const progress = map.get(chapterId)
+    if (!progress) return map
+    const newMap = new Map(map)
+    const newQuality = new Map(progress.segmentQuality)
+    newQuality.set(index, tier)
+    newMap.set(chapterId, { ...progress, segmentQuality: newQuality })
+    return newMap
+  })
+}
+
+/**
  * Derived store: percentage complete for each chapter
  */
 export const segmentProgressPercentage = derived(segmentProgress, ($progress) => {
@@ -195,6 +213,7 @@ export async function loadChapterSegmentProgress(bookId: number, chapterId: stri
           generatedSegments,
           isGenerating: false,
           processingIndex: -1,
+          segmentQuality: new Map(segments.map((s) => [s.index, s.qualityTier ?? 0])),
         })
         return newMap
       })

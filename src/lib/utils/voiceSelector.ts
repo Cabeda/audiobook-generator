@@ -250,3 +250,36 @@ export function getPiperVoicesForLanguage(
     return voiceLang === normalizedLang
   })
 }
+
+/**
+ * Get the best Piper voice for a given quality tier and language.
+ * Tier mapping: 1→low, 2→medium, 3→high
+ * Falls back to the nearest available quality if the exact tier doesn't exist.
+ */
+export function getBestPiperVoiceForTier(
+  language: string,
+  tier: number,
+  availableVoices: PiperVoice[]
+): string | null {
+  const langVoices = getPiperVoicesForLanguage(language, availableVoices)
+  if (langVoices.length === 0) return null
+
+  const qualityOrder: Array<PiperVoice['quality']> = ['low', 'medium', 'high']
+  // tier 1→index 0 (low), tier 2→index 1 (medium), tier 3→index 2 (high)
+  const targetIndex = Math.max(0, Math.min(2, tier - 1))
+
+  // Try exact tier first, then fall back downward
+  for (let i = targetIndex; i >= 0; i--) {
+    const quality = qualityOrder[i]
+    const match = langVoices.find((v) => v.quality === quality)
+    if (match) return match.key
+  }
+  // If nothing below, try above
+  for (let i = targetIndex + 1; i < qualityOrder.length; i++) {
+    const quality = qualityOrder[i]
+    const match = langVoices.find((v) => v.quality === quality)
+    if (match) return match.key
+  }
+
+  return langVoices[0].key
+}

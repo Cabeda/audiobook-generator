@@ -226,6 +226,67 @@
   </section>
 
   <section class="settings-section">
+    <h3>Adaptive Quality</h3>
+    <p class="section-desc">
+      On weaker devices, audio starts immediately at a lower quality tier and is silently upgraded
+      in the background while you listen.
+    </p>
+
+    <div class="toggle-row">
+      <label for="aq-enabled">Enable adaptive quality</label>
+      <input
+        id="aq-enabled"
+        type="checkbox"
+        checked={settings.adaptiveQuality.enabled}
+        onchange={(e) =>
+          appSettings.update((s) => ({
+            ...s,
+            adaptiveQuality: {
+              ...s.adaptiveQuality,
+              enabled: (e.target as HTMLInputElement).checked,
+            },
+          }))}
+      />
+    </div>
+
+    <div class="toggle-row" class:disabled={!settings.adaptiveQuality.enabled}>
+      <label for="aq-skip-web-speech">Skip Web Speech (start at Tier 1)</label>
+      <input
+        id="aq-skip-web-speech"
+        type="checkbox"
+        disabled={!settings.adaptiveQuality.enabled}
+        checked={settings.adaptiveQuality.skipWebSpeech}
+        onchange={(e) =>
+          appSettings.update((s) => ({
+            ...s,
+            adaptiveQuality: {
+              ...s.adaptiveQuality,
+              skipWebSpeech: (e.target as HTMLInputElement).checked,
+            },
+          }))}
+      />
+    </div>
+
+    <div class="toggle-row" class:disabled={!settings.adaptiveQuality.enabled}>
+      <label for="aq-upgrade-played">Upgrade already-played segments</label>
+      <input
+        id="aq-upgrade-played"
+        type="checkbox"
+        disabled={!settings.adaptiveQuality.enabled}
+        checked={settings.adaptiveQuality.upgradePlayedSegments}
+        onchange={(e) =>
+          appSettings.update((s) => ({
+            ...s,
+            adaptiveQuality: {
+              ...s.adaptiveQuality,
+              upgradePlayedSegments: (e.target as HTMLInputElement).checked,
+            },
+          }))}
+      />
+    </div>
+  </section>
+
+  <section class="settings-section">
     <h3>Storage Management</h3>
     <p class="section-desc">
       Manage cached data, models, and library storage. Free up space by deleting unused items.
@@ -426,6 +487,25 @@
     background: var(--bg-color);
     color: var(--text-color);
     font-size: 0.85rem;
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+    gap: 12px;
+  }
+
+  .toggle-row label {
+    font-size: 0.9rem;
+    color: var(--primary-text);
+    flex: 1;
+  }
+
+  .toggle-row.disabled label {
+    opacity: 0.5;
   }
 
   .add-btn {

@@ -13,6 +13,8 @@
   import logger from '../lib/utils/logger'
   import { saveProgress, loadProgress } from '../lib/progressStore'
   import { loadChapterSegmentProgress } from '../stores/segmentProgressStore'
+  import { appSettings } from '../stores/appSettingsStore'
+  import { scheduleUpgradePass, cancelUpgrade } from '../lib/services/adaptiveQualityService'
 
   let {
     chapter,
@@ -225,6 +227,28 @@
               // Mark loading complete AFTER segments are populated
               isLoading = false
               segmentsLoaded = true
+
+              // Schedule background quality upgrade if enabled
+              const aqSettings = get(appSettings).adaptiveQuality
+              if (aqSettings.enabled && bookId) {
+                const lang = chapter.detectedLanguage || chapter.language || 'en'
+                const piperVoiceList = piperVoices.map((v) => ({
+                  key: v.key,
+                  name: v.name,
+                  language: v.language,
+                  quality: 'medium' as const,
+                }))
+                scheduleUpgradePass(
+                  cId,
+                  bookId,
+                  lang,
+                  piperVoiceList,
+                  () => audioService.currentSegmentIndex,
+                  (upgraded) =>
+                    audioService.replaceSegmentAudio(upgraded.index, upgraded.audioBlob),
+                  aqSettings.upgradePlayedSegments
+                )
+              }
 
               const store = get(audioPlayerStore)
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
@@ -1019,6 +1043,7 @@
   }
 
   onDestroy(() => {
+    if (chapter?.id) cancelUpgrade(chapter.id)
     audioService.stop()
   })
 </script>

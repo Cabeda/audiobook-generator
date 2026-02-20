@@ -698,6 +698,33 @@ class AudioPlaybackService {
     }
   }
 
+  /**
+   * Replace a segment's audio blob with a higher-quality version.
+   * - If the segment is not currently playing: revoke old URL, create new one silently.
+   * - If the segment IS currently playing: store as pendingUpgradeBlob and swap on onended.
+   */
+  replaceSegmentAudio(index: number, newBlob: Blob): void {
+    if (index === this.currentSegmentIndex && this.isPlayingSegment) {
+      // Defer swap until current segment finishes
+      this.pendingUpgradeBlob = { index, blob: newBlob }
+      logger.debug('[AdaptiveQuality] Deferred upgrade for currently-playing segment', { index })
+      return
+    }
+
+    const oldUrl = this.audioSegments.get(index)
+    if (oldUrl) URL.revokeObjectURL(oldUrl)
+
+    try {
+      const newUrl = URL.createObjectURL(newBlob)
+      this.audioSegments.set(index, newUrl)
+      logger.debug('[AdaptiveQuality] Replaced segment audio', { index })
+    } catch (err) {
+      logger.error('[AdaptiveQuality] Failed to replace segment audio', { index, err })
+    }
+  }
+
+  private pendingUpgradeBlob: { index: number; blob: Blob } | null = null
+
   private disposeAudio() {
     if (this.audio) {
       this.audio.pause()
@@ -766,6 +793,20 @@ class AudioPlaybackService {
 
       this.audio.onended = () => {
         this.isPlayingSegment = false
+
+        // Apply any pending quality upgrade for the segment that just finished
+        if (this.pendingUpgradeBlob && this.pendingUpgradeBlob.index === index) {
+          const { blob } = this.pendingUpgradeBlob
+          this.pendingUpgradeBlob = null
+          const oldUrl = this.audioSegments.get(index)
+          if (oldUrl) URL.revokeObjectURL(oldUrl)
+          try {
+            this.audioSegments.set(index, URL.createObjectURL(blob))
+          } catch {
+            // non-critical
+          }
+        }
+
         const nextIndex = this.currentSegmentIndex + 1
         if (nextIndex < this.segments.length && this.isPlaying) {
           this.currentSegmentIndex = nextIndex
