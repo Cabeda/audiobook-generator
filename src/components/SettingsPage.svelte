@@ -16,6 +16,7 @@
     clearLibraryData,
     clearModelCache,
     clearAllData,
+    deleteCachedModel,
     formatBytes,
     type StorageInfo,
   } from '../lib/storageManager'
@@ -32,6 +33,7 @@
   let newLangCode = $state('')
   let storageInfo = $state<StorageInfo | null>(null)
   let loadingStorage = $state(false)
+  let deletingModel = $state<string | null>(null)
 
   // Load piper voices via shared store (once across app)
   loadPiperVoices()
@@ -130,6 +132,20 @@
       setTimeout(() => window.location.reload(), 1000)
     } catch (e) {
       toastStore.show('Failed to clear all data', 'error')
+    }
+  }
+
+  async function handleDeleteModel(cacheName: string, cacheKey: string, modelName: string) {
+    if (!confirm(`Delete "${modelName}"? It will be re-downloaded when needed.`)) return
+    deletingModel = cacheKey
+    try {
+      await deleteCachedModel(cacheName, cacheKey)
+      toastStore.show(`Deleted ${modelName}`, 'success')
+      await loadStorageInfo()
+    } catch {
+      toastStore.show(`Failed to delete ${modelName}`, 'error')
+    } finally {
+      deletingModel = null
     }
   }
 </script>
@@ -316,10 +332,22 @@
 
       {#if storageInfo.models.length > 0}
         <div class="models-list">
-          <h4>Cached Models</h4>
-          {#each storageInfo.models as model}
+          <h4>Cached Models ({storageInfo.models.length})</h4>
+          {#each storageInfo.models as model (model.cacheKey)}
             <div class="model-item">
-              <span>{model.name}</span>
+              <div class="model-info">
+                <span class="model-name">{model.name}</span>
+                <span class="model-size">{formatBytes(model.size)}</span>
+              </div>
+              <button
+                class="model-delete-btn"
+                onclick={() => handleDeleteModel(model.cacheName, model.cacheKey, model.name)}
+                disabled={deletingModel === model.cacheKey}
+                title="Delete this cached file"
+                aria-label={`Delete ${model.name}`}
+              >
+                {deletingModel === model.cacheKey ? '...' : '✕'}
+              </button>
             </div>
           {/each}
         </div>
@@ -599,6 +627,9 @@
   }
 
   .model-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     padding: 8px 0;
     color: var(--secondary-text);
     font-size: 0.85rem;
@@ -607,6 +638,51 @@
 
   .model-item:last-child {
     border-bottom: none;
+  }
+
+  .model-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .model-name {
+    word-break: break-all;
+    line-height: 1.3;
+  }
+
+  .model-size {
+    font-size: 0.75rem;
+    color: var(--secondary-text);
+    opacity: 0.7;
+  }
+
+  .model-delete-btn {
+    background: none;
+    border: none;
+    color: var(--secondary-text);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    min-height: 32px;
+    min-width: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .model-delete-btn:hover {
+    color: var(--error-color, #dc2626);
+    background: rgba(220, 38, 38, 0.1);
+  }
+
+  .model-delete-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .storage-actions {
