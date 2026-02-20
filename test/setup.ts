@@ -1,5 +1,17 @@
 import { vi } from 'vitest'
 
+// Polyfill Blob.arrayBuffer() for jsdom environment
+if (typeof Blob !== 'undefined' && !Blob.prototype.arrayBuffer) {
+  Blob.prototype.arrayBuffer = async function () {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as ArrayBuffer)
+      reader.onerror = () => reject(reader.error)
+      reader.readAsArrayBuffer(this)
+    })
+  }
+}
+
 // Global tests setup to prevent loading heavy WASM modules (e.g., phonemizer via kokoro-js)
 // across parallel test workers. We provide a minimal, deterministic mock of `kokoro-js`
 // that is used by many tests (kokoroClient, integration tests) and removes the

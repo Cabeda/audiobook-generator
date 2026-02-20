@@ -42,7 +42,7 @@ class AudioPlaybackService {
   private voice = ''
   private quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   private device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
-  private selectedModel: 'kokoro' | 'piper' = 'kokoro'
+  private selectedModel: 'kokoro' | 'piper' | 'web_speech' = 'kokoro'
   playbackSpeed = $state(1.0)
 
   constructor() {
@@ -275,7 +275,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper'
+      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -301,7 +301,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper'
+      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -653,6 +653,18 @@ class AudioPlaybackService {
     audioPlayerStore.setChapterDuration(0)
   }
 
+  getCurrentModel(): 'kokoro' | 'piper' | 'web_speech' {
+    return this.selectedModel
+  }
+
+  setVoice(voice: string) {
+    this.voice = voice
+  }
+
+  getVoice(): string {
+    return this.voice
+  }
+
   /**
    * Inject a segment from progressive generation store into audioSegments map
    * This allows playback of progressively generated audio without regeneration
@@ -683,6 +695,13 @@ class AudioPlaybackService {
     }
 
     const index = this.currentSegmentIndex
+    const segment = this.segments[index]
+
+    // Use Web Speech API if selected
+    if (this.selectedModel === 'web_speech' && segment) {
+      this.playWebSpeech(segment.text)
+      return
+    }
 
     let url = this.audioSegments.get(index)
 
@@ -807,18 +826,38 @@ class AudioPlaybackService {
 
   private playWebSpeech(text: string) {
     this.cancelWebSpeech()
-    this.isPlaying = true // Ensure state is playing
+    this.isPlaying = true
+    this.isPlayingSegment = true
+    audioPlayerStore.play()
 
     const utterance = new SpeechSynthesisUtterance(text)
+
+    // Set language if available
+    const segment = this.segments[this.currentSegmentIndex]
+    if (segment && 'language' in segment && segment.language) {
+      utterance.lang = segment.language
+    }
+
+    // Set voice
     if (this.voice) {
       const voices = window.speechSynthesis.getVoices()
       // Try to match by name or URI
       const voice = voices.find((v) => v.name === this.voice || v.voiceURI === this.voice)
-      if (voice) utterance.voice = voice
+      if (voice) {
+        utterance.voice = voice
+      } else {
+        // If no exact match, try to find a voice for the language
+        if (utterance.lang) {
+          const langVoice = voices.find((v) => v.lang.startsWith(utterance.lang.split('-')[0]))
+          if (langVoice) utterance.voice = langVoice
+        }
+      }
     }
+
     utterance.rate = this.playbackSpeed
 
     utterance.onend = () => {
+      this.isPlayingSegment = false
       const nextIndex = this.currentSegmentIndex + 1
       if (nextIndex < this.segments.length && this.isPlaying) {
         this.currentSegmentIndex = nextIndex
@@ -830,6 +869,7 @@ class AudioPlaybackService {
     }
 
     utterance.onerror = (e) => {
+      this.isPlayingSegment = false
       logger.error('Web Speech API error:', e)
       this.isPlaying = false
       audioPlayerStore.pause()
@@ -846,6 +886,7 @@ class AudioPlaybackService {
       this.speechUtterance = null
     }
     window.speechSynthesis.cancel()
+    this.isPlayingSegment = false
   }
 
   private async generateSegment(index: number): Promise<void> {
@@ -854,6 +895,9 @@ class AudioPlaybackService {
 
     const segment = this.segments[index]
     if (!segment) return
+
+    // Web Speech doesn't need pre-generation
+    if (this.selectedModel === 'web_speech') return
 
     const promise = (async () => {
       const MAX_RETRIES = 3

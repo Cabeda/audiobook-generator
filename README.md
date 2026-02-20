@@ -123,11 +123,15 @@ pnpm run build        # Build for production
 pnpm run preview      # Preview production build
 
 # Testing
-pnpm test             # Run unit tests
+pnpm test             # Run unit tests (532 tests)
 pnpm run test:ui      # Run tests with UI
 pnpm run test:e2e     # Run E2E tests
 pnpm run test:e2e:ui  # Run E2E tests with UI
 pnpm run test:e2e:headed  # Run E2E with visible browser
+
+# Matrix Testing (New!)
+pnpm test test/matrix/        # Run matrix validation tests
+pnpm test test/utils/         # Run audio validation utilities
 ```
 
 ### Project Structure
@@ -148,6 +152,11 @@ audiobook-generator/
 │   │   ├── kokoro/          # TTS integration
 │   │   │   └── kokoroClient.ts
 │   │   └── onnx/            # ONNX runtime
+├── test/
+│   ├── utils/               # Test utilities
+│   │   └── audio-validation.ts  # Audio format validation
+│   └── matrix/              # Matrix testing framework
+│       └── audiobook-matrix.test.ts
 │   ├── stores/              # Svelte stores
 │   │   ├── libraryStore.ts  # Library state
 │   │   ├── bookStore.ts     # Book state
