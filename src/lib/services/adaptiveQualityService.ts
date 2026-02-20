@@ -11,7 +11,11 @@ import type { AudioSegment } from '../types/audio'
 import type { PiperVoice } from '../piper/piperClient'
 import { isKokoroLanguageSupported, normalizeLanguageCode } from '../utils/voiceSelector'
 import { getStartingTier, getTargetTier, canRunUpgrade } from '../utils/resourceMonitor'
-import { updateSegmentQuality, getChapterSegmentProgress } from '../../stores/segmentProgressStore'
+import {
+  updateSegmentQuality,
+  getChapterSegmentProgress,
+  markSegmentGenerated,
+} from '../../stores/segmentProgressStore'
 import logger from '../utils/logger'
 
 // ---------------------------------------------------------------------------
@@ -114,13 +118,14 @@ export async function startFastPass(
   segments: Array<{ index: number; text: string; id: string; chapterId: string }>,
   language: string,
   piperVoices: PiperVoice[],
-  onSegmentReady: (segment: AudioSegment) => void
+  onSegmentReady: (segment: AudioSegment) => void,
+  skipWebSpeech = false
 ): Promise<void> {
   const startingTier = getStartingTier()
   const ladder = resolveTierLadder(language, piperVoices)
 
-  // If skipWebSpeech is handled by the caller, we still respect the ladder
-  let effectiveTier = startingTier
+  // If skipWebSpeech, bump starting tier to at least 1
+  let effectiveTier = skipWebSpeech ? Math.max(1, startingTier) : startingTier
   // Walk down to find the first available tier
   while (effectiveTier > 0 && !ladder.tiers[effectiveTier]) {
     effectiveTier--
@@ -159,6 +164,7 @@ export async function startFastPass(
       }
 
       updateSegmentQuality(seg.chapterId, seg.index, effectiveTier)
+      markSegmentGenerated(seg.chapterId, audioSegment)
       onSegmentReady(audioSegment)
     } catch (err) {
       logger.error(`[AdaptiveQuality] Fast pass failed for segment ${seg.index}`, err)

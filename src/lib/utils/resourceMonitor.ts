@@ -22,12 +22,14 @@ export function getDeviceTier(): DeviceTier {
   return 'medium'
 }
 
-/** Starting quality tier index for the current device. */
-export function getStartingTier(): 0 | 1 | 2 {
-  const tier = getDeviceTier()
-  if (tier === 'weak') return 0
-  if (tier === 'medium') return 1
-  return 2
+/**
+ * Starting quality tier index.
+ * Always returns 0 so every device benefits from fast-start (instant Web Speech audio
+ * while higher-quality audio is generated in the background).
+ * The device tier only affects the upgrade ceiling via getTargetTier().
+ */
+export function getStartingTier(): 0 {
+  return 0
 }
 
 /** Target (maximum) quality tier index for the current device. */

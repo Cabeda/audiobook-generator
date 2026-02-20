@@ -45,19 +45,19 @@ describe('getDeviceTier', () => {
 })
 
 describe('getStartingTier', () => {
-  it('returns 0 for weak device', () => {
+  it('always returns 0 regardless of device tier (fast-start for all devices)', () => {
     mockMobile.mockReturnValue(true)
     expect(getStartingTier()).toBe(0)
   })
 
-  it('returns 1 for medium device', () => {
+  it('returns 0 for medium device', () => {
     mockMemory.mockReturnValue(6)
-    expect(getStartingTier()).toBe(1)
+    expect(getStartingTier()).toBe(0)
   })
 
-  it('returns 2 for strong device', () => {
+  it('returns 0 for strong device', () => {
     mockMemory.mockReturnValue(16)
-    expect(getStartingTier()).toBe(2)
+    expect(getStartingTier()).toBe(0)
   })
 })
 

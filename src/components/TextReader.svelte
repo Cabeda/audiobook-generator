@@ -6,7 +6,12 @@
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
-  import { segmentProgress, getGeneratedSegment } from '../stores/segmentProgressStore'
+  import {
+    segmentProgress,
+    getGeneratedSegment,
+    initChapterSegments,
+    markSegmentGenerated,
+  } from '../stores/segmentProgressStore'
   import { segmentHtmlContent, generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
@@ -14,7 +19,11 @@
   import { saveProgress, loadProgress } from '../lib/progressStore'
   import { loadChapterSegmentProgress } from '../stores/segmentProgressStore'
   import { appSettings } from '../stores/appSettingsStore'
-  import { scheduleUpgradePass, cancelUpgrade } from '../lib/services/adaptiveQualityService'
+  import {
+    scheduleUpgradePass,
+    cancelUpgrade,
+    startFastPass,
+  } from '../lib/services/adaptiveQualityService'
 
   let {
     chapter,
@@ -263,6 +272,11 @@
                 audioService.playFromSegment(startSeg, !hasSavedProgress).catch((err) => {
                   console.error('Initial seek failed:', err)
                 })
+              } else {
+                // No pre-generated audio — start fast pass so audio begins immediately
+                triggerFastPass(cId, bId, aqSettings.enabled).catch((err) => {
+                  logger.warn('[TextReader] Fast pass failed:', err)
+                })
               }
             } else {
               // Check if we have partial audio from progressive generation
@@ -296,10 +310,15 @@
                 isLoading = false
                 segmentsLoaded = true
               } else {
-                // Audio not available initially, but we still load the text for reading
-                // User can click segments to generate audio on-demand
+                // Audio not available initially — start fast pass so audio begins immediately
                 isLoading = false
                 segmentsLoaded = true
+                const aqSettings2 = get(appSettings).adaptiveQuality
+                if (aqSettings2.enabled) {
+                  triggerFastPass(cId, bId, true).catch((err) => {
+                    logger.warn('[TextReader] Fast pass failed:', err)
+                  })
+                }
               }
             }
           })
@@ -348,6 +367,69 @@
     })
     segs.sort((a, b) => a.index - b.index)
     audioService.segments = segs
+  }
+
+  /**
+   * Run the fast pass for a chapter that has no pre-generated audio.
+   * Generates all segments at the cheapest available tier so playback starts
+   * immediately, then optionally schedules the background upgrade pass.
+   */
+  async function triggerFastPass(
+    cId: string,
+    bId: number,
+    scheduleUpgrade: boolean
+  ): Promise<void> {
+    const aqSettings = get(appSettings).adaptiveQuality
+    if (!aqSettings.enabled) return
+
+    const segs = audioService.segments
+    if (segs.length === 0) return
+
+    const lang = chapter.detectedLanguage || chapter.language || 'en'
+    const piperVoiceList = piperVoices.map((v) => ({
+      key: v.key,
+      name: v.name,
+      language: v.language,
+      quality: v.quality as 'low' | 'medium' | 'high',
+    }))
+
+    const segInput = segs.map((s) => ({
+      index: s.index,
+      text: s.text,
+      id: `${cId}-${s.index}`,
+      chapterId: cId,
+    }))
+
+    // Initialize segment store so upgrade pass can track quality tiers
+    initChapterSegments(cId, segInput)
+
+    let firstSegmentPlayed = false
+
+    await startFastPass(
+      segInput,
+      lang,
+      piperVoiceList,
+      (segment) => {
+        audioService.injectProgressiveSegment(segment)
+        if (!firstSegmentPlayed) {
+          firstSegmentPlayed = true
+          audioService.playFromSegment(segment.index)
+        }
+      },
+      aqSettings.skipWebSpeech
+    )
+
+    if (scheduleUpgrade) {
+      scheduleUpgradePass(
+        cId,
+        bId,
+        lang,
+        piperVoiceList,
+        () => audioService.currentSegmentIndex,
+        (upgraded) => audioService.replaceSegmentAudio(upgraded.index, upgraded.audioBlob),
+        aqSettings.upgradePlayedSegments
+      )
+    }
   }
 
   // Update playback speed when changed
