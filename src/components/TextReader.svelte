@@ -22,6 +22,7 @@
     quantization,
     device = 'auto',
     selectedModel = 'kokoro',
+    chapters = [],
     onBack,
     onChapterChange,
   } = $props<{
@@ -32,6 +33,7 @@
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
     selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+    chapters?: Chapter[]
     onBack: () => void
     onChapterChange?: (chapter: Chapter) => void
   }>()
@@ -69,6 +71,28 @@
   // Local model state for text reader
   let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(initialModel)
   let localVoice = $state(initialVoice)
+
+  // Chapter progress
+  let chapterIndex = $derived(chapters.findIndex((c) => c.id === chapter.id))
+  let chapterTotal = $derived(chapters.length)
+
+  // Font size
+  const FONT_SIZE_KEY = 'text_reader_font_size'
+  let fontSize = $state(18)
+  try {
+    const savedFs = localStorage.getItem(FONT_SIZE_KEY)
+    if (savedFs) fontSize = parseInt(savedFs, 10)
+  } catch (e) {
+    // ignore
+  }
+  function changeFontSize(delta: number) {
+    fontSize = Math.min(32, Math.max(12, fontSize + delta))
+    try {
+      localStorage.setItem(FONT_SIZE_KEY, String(fontSize))
+    } catch (e) {
+      /* ignore */
+    }
+  }
 
   // Settings menu state
   let showSettings = $state(false)
@@ -1012,14 +1036,14 @@
           <div class="main-title" aria-label="Chapter title">{chapter.title}</div>
         </div>
         <div class="header-actions">
-          <button
-            class="theme-toggle"
-            onclick={cycleTheme}
-            aria-label={`Switch theme (current ${themeLabels[currentTheme]})`}
-          >
-            <span class="theme-icon">{themeIcons[currentTheme]}</span>
-            <span class="theme-label">{themeLabels[currentTheme]}</span>
-          </button>
+          {#if chapterTotal > 0}
+            <span
+              class="chapter-progress"
+              aria-label="Chapter {chapterIndex + 1} of {chapterTotal}"
+            >
+              {chapterIndex + 1} / {chapterTotal}
+            </span>
+          {/if}
         </div>
       </div>
     </div>
@@ -1029,6 +1053,7 @@
     <div
       class="text-content"
       role="main"
+      style="font-size: {fontSize}px"
       onclick={handleContentClick}
       onkeydown={handleContentKeyDown}
       bind:this={textContentEl}
@@ -1156,6 +1181,23 @@
         </div>
 
         <div class="setting-item">
+          <label>Font Size</label>
+          <div class="font-size-selector">
+            <button
+              class="font-size-btn"
+              onclick={() => changeFontSize(-2)}
+              aria-label="Decrease font size">A−</button
+            >
+            <span class="font-size-value">{fontSize}px</span>
+            <button
+              class="font-size-btn"
+              onclick={() => changeFontSize(2)}
+              aria-label="Increase font size">A+</button
+            >
+          </div>
+        </div>
+
+        <div class="setting-item">
           <label for="theme-select">Theme</label>
           <div class="theme-selector">
             <button
@@ -1249,9 +1291,9 @@
     --header-bg: rgba(30, 30, 30, 0.95);
     --border-color: rgba(255, 255, 255, 0.1);
     --surface-color: #2a2a2a;
-    --highlight-bg: rgba(255, 255, 0, 0.2);
+    --highlight-bg: rgba(250, 204, 21, 0.35);
     --highlight-text: inherit;
-    --highlight-border: #ffd700;
+    --highlight-border: #fbbf24;
     --buffered-text: #d0d0d0;
     --unprocessed-text: #808080;
     --hover-bg: rgba(255, 255, 255, 0.05);
@@ -1592,9 +1634,12 @@
   }
 
   :global(.segment.active) {
-    background-color: var(--selected-bg);
-    color: var(--text-color);
-    box-shadow: 0 0 0 2px var(--primary-color);
+    background-color: var(--highlight-bg);
+    color: var(--highlight-text);
+    border-radius: 3px;
+    box-shadow: none;
+    outline: 2px solid var(--highlight-border);
+    outline-offset: 1px;
   }
 
   /* Progressive Generation Segment States */
@@ -1726,6 +1771,45 @@
 
   .speed-btn:hover {
     background: var(--surface-color);
+  }
+
+  .font-size-selector {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .font-size-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-color);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .font-size-btn:hover {
+    background: var(--surface-color);
+  }
+
+  .font-size-value {
+    min-width: 40px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--secondary-text);
+  }
+
+  .chapter-progress {
+    font-size: 0.8rem;
+    color: var(--secondary-text);
+    white-space: nowrap;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
   }
 
   /* Subtle indicator for buffered segments */

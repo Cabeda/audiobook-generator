@@ -359,6 +359,7 @@
         quantization={$selectedQuantization}
         device={$selectedDevice}
         selectedModel={readerModel}
+        chapters={$book?.chapters ?? []}
         onBack={handleBackFromReader}
       />
     </div>
