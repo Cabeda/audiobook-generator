@@ -516,6 +516,19 @@
     }
   })
 
+  // Auto-play segment when it becomes available after user clicked it
+  $effect(() => {
+    if (pendingPlaySegment === null || !chapter?.id) return
+
+    const segmentData = getGeneratedSegment(chapter.id, pendingPlaySegment)
+    if (segmentData) {
+      logger.info(`Auto-playing segment ${pendingPlaySegment} after generation`)
+      audioService.injectProgressiveSegment(segmentData)
+      audioService.playFromSegment(pendingPlaySegment)
+      pendingPlaySegment = null // Clear pending state
+    }
+  })
+
   // Scroll to current segment
   $effect(() => {
     const index = audioService.currentSegmentIndex
