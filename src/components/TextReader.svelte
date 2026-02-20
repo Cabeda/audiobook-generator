@@ -103,7 +103,9 @@
   let showResumePrompt = $state(false)
   let savedProgress: { chapterId: string; segmentIndex: number } | null = null
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
-  let piperVoices = $state<Array<{ key: string; name: string; language: string }>>([])
+  let piperVoices = $state<Array<{ key: string; name: string; language: string; quality: string }>>(
+    []
+  )
   let pendingPlaySegment: number | null = null // Track segment waiting for generation to auto-play
 
   // Sort voices to show detected language first
@@ -236,7 +238,7 @@
                   key: v.key,
                   name: v.name,
                   language: v.language,
-                  quality: 'medium' as const,
+                  quality: v.quality as 'low' | 'medium' | 'high',
                 }))
                 scheduleUpgradePass(
                   cId,
