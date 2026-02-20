@@ -27,9 +27,26 @@ export default defineConfig({
         ],
       },
       workbox: {
-        maximumFileSizeToCacheInBytes: 40 * 1024 * 1024, // 40 MB
+        // Raised to cover large WASM chunks (Kokoro/Piper can be 50-200 MB each)
+        maximumFileSizeToCacheInBytes: 250 * 1024 * 1024,
         clientsClaim: true,
         skipWaiting: false,
+        // Cache FFmpeg WASM core from CDN so export works offline after first use
+        runtimeCaching: [
+          {
+            urlPattern: /cdn\.jsdelivr\.net\/npm\/@ffmpeg/,
+            handler: 'CacheFirst' as const,
+            options: {
+              cacheName: 'ffmpeg-core',
+              expiration: {
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+        ],
       },
     }),
   ],
