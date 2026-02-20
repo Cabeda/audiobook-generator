@@ -216,7 +216,11 @@
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
 
               if (result.hasAudio) {
-                audioService.playFromSegment(startSeg, false).catch((err) => {
+                // Auto-play from beginning if no saved progress; resume prompt handles the other case
+                const savedProg = bookId ? loadProgress(String(bookId)) : null
+                const hasSavedProgress =
+                  savedProg && savedProg.chapterId === chapter.id && savedProg.segmentIndex > 0
+                audioService.playFromSegment(startSeg, !hasSavedProgress).catch((err) => {
                   console.error('Initial seek failed:', err)
                 })
               }
@@ -293,7 +297,10 @@
         isLoading = false
         const store = get(audioPlayerStore)
         const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
-        audioService.playFromSegment(startSeg, false).catch((err) => {
+        const savedProg2 = bookId ? loadProgress(String(bookId)) : null
+        const hasSavedProgress2 =
+          savedProg2 && savedProg2.chapterId === chapter.id && savedProg2.segmentIndex > 0
+        audioService.playFromSegment(startSeg, !hasSavedProgress2).catch((err) => {
           console.error('Initial seek failed:', err)
         })
       }
@@ -511,6 +518,10 @@
   // Auto-play segment when it becomes available after user clicked it
   $effect(() => {
     if (pendingPlaySegment === null || !chapter?.id) return
+
+    // Subscribe to segmentProgress so this effect re-runs whenever a new segment is generated
+    const progress = $segmentProgress.get(chapter.id)
+    if (!progress) return
 
     const segmentData = getGeneratedSegment(chapter.id, pendingPlaySegment)
     if (segmentData) {
