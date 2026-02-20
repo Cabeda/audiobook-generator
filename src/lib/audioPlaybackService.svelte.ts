@@ -1,5 +1,6 @@
 import { get } from 'svelte/store'
 import { getTTSWorker } from './ttsWorkerManager'
+import type { TTSModelType } from './tts/ttsModels'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import { toastStore } from '../stores/toastStore'
@@ -43,7 +44,7 @@ class AudioPlaybackService {
   private voice = ''
   private quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   private device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
-  private selectedModel: 'kokoro' | 'piper' | 'web_speech' = 'kokoro'
+  private selectedModel: 'kokoro' | 'piper' | 'web_speech' | 'kitten' = 'kokoro'
   playbackSpeed = $state(1.0)
 
   constructor() {
@@ -75,7 +76,7 @@ class AudioPlaybackService {
       voice: string
       quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper'
+      selectedModel?: 'kokoro' | 'piper' | 'web_speech' | 'kitten'
       playbackSpeed?: number
     },
     options?: {
@@ -277,7 +278,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+      selectedModel?: 'kokoro' | 'piper' | 'web_speech' | 'kitten'
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -303,7 +304,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+      selectedModel?: 'kokoro' | 'piper' | 'web_speech' | 'kitten'
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -655,7 +656,7 @@ class AudioPlaybackService {
     audioPlayerStore.setChapterDuration(0)
   }
 
-  getCurrentModel(): 'kokoro' | 'piper' | 'web_speech' {
+  getCurrentModel(): 'kokoro' | 'piper' | 'web_speech' | 'kitten' {
     return this.selectedModel
   }
 
@@ -851,6 +852,13 @@ class AudioPlaybackService {
 
   private playWebSpeech(text: string) {
     this.cancelWebSpeech()
+
+    // Chrome workaround: ensure speech synthesis is ready
+    // Chrome sometimes needs a "warm-up" call
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume()
+    }
+
     this.isPlaying = true
     this.isPlayingSegment = true
     audioPlayerStore.play()
@@ -863,9 +871,9 @@ class AudioPlaybackService {
       utterance.lang = segment.language
     }
 
-    // Set voice
-    if (this.voice) {
-      const voices = window.speechSynthesis.getVoices()
+    // Set voice - ensure voices are loaded
+    const voices = window.speechSynthesis.getVoices()
+    if (this.voice && voices.length > 0) {
       // Try to match by name or URI
       const voice = voices.find((v) => v.name === this.voice || v.voiceURI === this.voice)
       if (voice) {
@@ -921,7 +929,7 @@ class AudioPlaybackService {
     const segment = this.segments[index]
     if (!segment) return
 
-    // Web Speech doesn't need pre-generation
+    // Web Speech doesn't need generation
     if (this.selectedModel === 'web_speech') return
 
     const promise = (async () => {
@@ -931,7 +939,7 @@ class AudioPlaybackService {
           const worker = getTTSWorker()
           const blob = await worker.generateVoice({
             text: segment.text,
-            modelType: this.selectedModel,
+            modelType: this.selectedModel as TTSModelType,
             voice: this.voice,
             dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
             device: this.device,
