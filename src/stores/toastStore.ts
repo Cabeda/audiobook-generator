@@ -26,6 +26,18 @@ function createToastStore() {
 
       return id
     },
+    success(message: string, duration?: number) {
+      return this.show(message, 'success', duration)
+    },
+    error(message: string, duration?: number) {
+      return this.show(message, 'error', duration)
+    },
+    info(message: string, duration?: number) {
+      return this.show(message, 'info', duration)
+    },
+    warning(message: string, duration?: number) {
+      return this.show(message, 'warning', duration)
+    },
     dismiss(id: string) {
       update((toasts) => toasts.filter((t) => t.id !== id))
     },

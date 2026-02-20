@@ -176,7 +176,8 @@ async function ffReadFile(ffmpeg: FFmpeg, filename: string): Promise<Uint8Array>
   } catch (err) {
     logger.error(`[FFmpeg] Error reading file '${filename}':`, err)
     throw new Error(
-      `Failed to read file '${filename}' from FFmpeg: ${err instanceof Error ? err.message : String(err)}`
+      `Failed to read file '${filename}' from FFmpeg: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
     )
   }
 }
@@ -543,7 +544,8 @@ export async function concatenateAudioChapters(
       } catch (wavErr) {
         logger.error('[audioConcat] WAV-only concatenation fallback failed:', wavErr)
         throw new Error(
-          'Web Audio API not available and FFmpeg fallback failed; cannot concatenate audio'
+          'Web Audio API not available and FFmpeg fallback failed; cannot concatenate audio',
+          { cause: wavErr }
         )
       }
     }
@@ -756,7 +758,10 @@ export async function audioBufferToMp3(
     const mimeType = isM4B ? 'audio/m4b' : isMP4 ? 'audio/mp4' : 'audio/mpeg'
     return new Blob([new Uint8Array(data)], { type: mimeType })
   } catch (err) {
-    throw new Error(`Failed to convert audio buffer to ${options.format || 'mp3'}: ${String(err)}`)
+    throw new Error(
+      `Failed to convert audio buffer to ${options.format || 'mp3'}: ${String(err)}`,
+      { cause: err }
+    )
   } finally {
     // Best-effort cleanup
     try {
@@ -1218,7 +1223,7 @@ export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Pro
 
     return mp3Blob
   } catch (err) {
-    throw new Error(`Failed to convert WAV to MP3: ${String(err)}`)
+    throw new Error(`Failed to convert WAV to MP3: ${String(err)}`, { cause: err })
   } finally {
     try {
       await ffDeleteFile(ffmpeg, 'input.wav')

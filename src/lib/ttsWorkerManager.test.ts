@@ -44,11 +44,10 @@ const createMockWorker = () => {
 describe('TTSWorkerManager Initialization', () => {
   it('should track worker state', () => {
     const worker = createMockWorker()
-    let isInitialized = false
 
     // Simulate init flow
     worker._simulateMessage({ type: 'init-complete' })
-    isInitialized = true
+    const isInitialized = true
 
     expect(isInitialized).toBe(true)
   })

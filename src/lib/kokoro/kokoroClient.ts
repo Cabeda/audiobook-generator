@@ -599,7 +599,8 @@ export async function* generateVoiceStream(params: GenerateParams): AsyncGenerat
   } catch (error) {
     logger.error('[Kokoro]', 'TTS streaming failed:', error)
     throw new Error(
-      `Failed to stream speech: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to stream speech: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     )
   }
 }

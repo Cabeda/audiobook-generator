@@ -1,335 +1,177 @@
-# 🎙️ Audiobook Generator
+# Audiobook Generator
 
-A modern, browser-based audiobook generator that converts EPUB books into high-quality audio files using AI-powered text-to-speech. Powered by [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) TTS model running 100% in your browser.
+A browser-based audiobook generator that converts EPUB, PDF, HTML, and TXT files into audio using AI-powered text-to-speech — running 100% in your browser, no server required.
 
-> ⚠️ **Important**: This tool works with **DRM-free files only**. It cannot process files with digital rights management (DRM) protections, such as those purchased from Apple Books, Google Play Books, or Amazon Kindle with DRM enabled.
+> **Note**: Works with DRM-free files only. Files purchased from Apple Books, Google Play Books, or Amazon Kindle with DRM enabled are not supported.
 
 [![Tests](https://github.com/Cabeda/audiobook-generator/actions/workflows/test.yml/badge.svg)](https://github.com/Cabeda/audiobook-generator/actions/workflows/test.yml)
 
-## ✨ Features
+## Features
 
-### 🎯 Core Functionality
+### TTS Models
 
-- 📚 **Multi-Format Support** - Upload EPUB, PDF, HTML, or TXT files
-- 🔗 **URL to Audiobook** - Paste any article URL to convert it to audio
-- 📖 **EPUB3 Export** - Generate EPUBs with Media Overlays (synchronized text highlighting)
-- 🎤 **High-Quality TTS** - 27 voices (Kokoro-82M) + Edge TTS integration
-- 🎵 **Multiple Formats** - Export as MP3, M4B, WAV, or EPUB3
-- 🎚️ **Quality Control** - Choose bitrate (128-320 kbps) for compressed formats
-- 🔄 **Audio Concatenation** - Automatically combine chapters into single file
-- 💾 **Smart Caching** - Model loads once, instant generation after
-- 🌐 **100% Browser-Based** - No server required, works offline after first load
-- 📖 **Local Library** - Books automatically saved and accessible across sessions
+- **Kokoro-82M** — 27 high-quality English voices, runs via ONNX (WASM or WebGPU)
+- **Piper TTS** — multilingual support, auto-selects voice based on detected language
+- **Web Speech API** — browser built-in, no model download required
 
-### 🎨 User Experience
+### Reading & Playback
 
-- ⚡ **Fast Generation** - ~0.5-1.0s per sentence
-- 📊 **Real-Time Progress** - Track generation and encoding status
-- 🎯 **Chapter Preview** - See content before generating
-- 🎭 **Voice Selection** - Choose from 27 high-quality voices
-- 📱 **Responsive Design** - Works on desktop and mobile
-- 🚫 **Cancellation** - Stop generation at any time
-- 🗂️ **Library Management** - Search, sort, and organize your saved books
-- 💾 **Storage Tracking** - Monitor browser storage usage
+- **Text Reader** — read and listen simultaneously with sentence-level highlighting
+- **Progressive playback** — audio starts playing as segments are generated, no waiting for the full chapter
+- **Click-to-play** — click any sentence to start generation and playback from that point
+- **Resume progress** — saves your position per book across sessions
+- **Keyboard shortcuts** — Space, arrow keys, F for fullscreen, ? for help
+- **Themes** — light, dark, and sepia reader themes
+- **Playback speed** — 0.75×–2.0×
 
-### 🧪 Quality Assurance
+### Export
 
-- ✅ **27 Tests** - Comprehensive unit and E2E test coverage
-- 🎭 **Playwright E2E** - Real browser testing with actual TTS
-- 🔄 **CI/CD** - Automated testing on every commit
-- 📊 **Type Safety** - Full TypeScript support
+- **MP3** — universal compatibility, recommended
+- **M4B** — audiobook format with chapter markers
+- **WAV** — lossless, for archival or further processing
+- **EPUB3** — with Media Overlays (synchronized text highlighting in compatible readers)
 
-## 🚀 Quick Start
+### Library
 
-### Prerequisites
+- Books saved automatically to IndexedDB, persist across sessions
+- Search, sort, and manage your library
+- Storage usage indicator
 
-- Node.js 20.x or higher
-- pnpm (install globally: `npm install -g pnpm`)
+### Input
 
-### Installation
+- Upload EPUB, PDF, HTML, or TXT files
+- Paste a URL to fetch and convert any article
+
+## Quick Start
+
+**Prerequisites**: Node.js 20+, pnpm
 
 ```bash
-# Clone the repository
 git clone https://github.com/Cabeda/audiobook-generator.git
 cd audiobook-generator
-
-# Install dependencies
 pnpm install
-
-# Start development server
-pnpm run dev
+pnpm dev
 ```
 
-Open http://localhost:5173 to use the app.
+Open http://localhost:5173.
 
-## 📖 Usage
+## Usage
 
-### Basic Workflow
+1. **Import** — upload a file or paste a URL
+2. **Select chapters** — choose which to convert
+3. **Pick a model and voice** — Kokoro, Piper, or Web Speech
+4. **Generate** — click a chapter to start; audio plays as it generates
+5. **Export** — download as MP3, M4B, WAV, or EPUB3 when done
 
-1. **Import Content**:
-   - **Upload**: Drag & drop EPUB, PDF, HTML, or TXT files
-   - **URL**: Paste an article URL to fetch content automatically
-   - **Library**: Access previously uploaded books from "My Library" tab
-2. **Select Chapters**: Choose which chapters to convert (or select all)
-3. **Choose Format**: Select output format (MP3, M4B, WAV, or EPUB3)
-4. **Select Quality**: Pick bitrate for MP3/M4B (128-320 kbps)
-5. **Generate**: Click "Generate & Download"
-6. **Download**: Your file downloads automatically
-
-### Library Management
-
-All uploaded books are automatically saved to your local library using IndexedDB:
-
-- **Access Library**: Click the "📚 My Library" tab on the landing page
-- **Search Books**: Use the search bar to filter by title or author
-- **Sort Options**: Recently accessed, title A-Z, or author A-Z
-- **Delete Books**: Hover over a book card and click the 🗑️ icon
-- **Storage Info**: Check usage indicator in the top-right of library view
-- **Reload Books**: Click any book card to instantly load it
-
-**Storage:**
-
-- Books persist across browser sessions
-- Typical storage limit: 50MB-1GB (browser-dependent)
-- Clear browser data to reset library
-
-### Format Comparison
-
-| Format    | File Size (1hr)  | Quality     | Best For                                       |
-| --------- | ---------------- | ----------- | ---------------------------------------------- |
-| **MP3**   | ~90 MB @ 192kbps | Very Good   | ⭐ **Recommended** - Universal compatibility   |
-| **M4B**   | ~90 MB @ 192kbps | Very Good   | Audiobook apps, chapter markers                |
-| **EPUB3** | ~90 MB + Text    | Interactive | **Read Aloud** - Syncs text & audio in readers |
-| **WAV**   | ~600 MB          | Lossless    | Archival, further processing                   |
-
-### Voice Selection
-
-**Top Voices:**
-
-- `af_heart` ⭐ - Female American (Grade A)
-- `af_bella` 🔥 - Female American (Grade A-)
-- `bf_emma` ⭐ - Female British (Grade A)
-
-See [docs/KOKORO_INTEGRATION.md](docs/KOKORO_INTEGRATION.md) for all 27 voices.
-
-## 🛠️ Development
-
-### Available Scripts
+## Development
 
 ```bash
-# Development
-pnpm run dev          # Start dev server
-pnpm run build        # Build for production
-pnpm run preview      # Preview production build
+pnpm dev           # dev server
+pnpm build         # production build
+pnpm preview       # preview build
 
-# Testing
-pnpm test             # Run unit tests (532 tests)
-pnpm run test:ui      # Run tests with UI
-pnpm run test:e2e     # Run E2E tests
-pnpm run test:e2e:ui  # Run E2E tests with UI
-pnpm run test:e2e:headed  # Run E2E with visible browser
-
-# Matrix Testing (New!)
-pnpm test test/matrix/        # Run matrix validation tests
-pnpm test test/utils/         # Run audio validation utilities
+pnpm test          # unit tests (vitest)
+pnpm test:e2e      # E2E tests (Playwright)
+pnpm lint          # ESLint + Prettier
+pnpm type-check    # TypeScript check
 ```
 
-### Project Structure
+## Project Structure
 
 ```
-audiobook-generator/
-├── src/
-│   ├── components/          # Svelte components
-│   │   ├── LandingPage.svelte
-│   │   ├── LibraryView.svelte
-│   │   ├── BookCard.svelte
-│   │   ├── BookInspector.svelte
-│   │   └── GeneratePanel.svelte
-│   ├── lib/
-│   │   ├── libraryDB.ts     # IndexedDB storage
-│   │   ├── epubParser.ts    # EPUB parsing logic
-│   │   ├── audioConcat.ts   # Audio concatenation
-│   │   ├── kokoro/          # TTS integration
-│   │   │   └── kokoroClient.ts
-│   │   └── onnx/            # ONNX runtime
-├── test/
-│   ├── utils/               # Test utilities
-│   │   └── audio-validation.ts  # Audio format validation
-│   └── matrix/              # Matrix testing framework
-│       └── audiobook-matrix.test.ts
-│   ├── stores/              # Svelte stores
-│   │   ├── libraryStore.ts  # Library state
-│   │   ├── bookStore.ts     # Book state
-│   │   └── ttsStore.ts      # TTS settings
-│   └── App.svelte           # Main app
-├── e2e/                     # E2E tests
-├── docs/                    # Documentation
-├── example/                 # Sample EPUB file
-└── playwright.config.ts     # E2E test config
+src/
+├── components/
+│   ├── TextReader.svelte        # Reader with sentence highlighting & playback
+│   ├── AudioPlayerBar.svelte    # Persistent playback controls
+│   ├── BookView.svelte          # Chapter list and generation controls
+│   ├── LibraryView.svelte       # Library management
+│   ├── LandingPage.svelte       # Entry point
+│   ├── SettingsPage.svelte      # App-wide TTS settings
+│   └── UnifiedInput.svelte      # File/URL input
+├── lib/
+│   ├── audioPlaybackService.svelte.ts  # Playback engine (Svelte 5 runes)
+│   ├── audioConcat.ts                  # WAV/MP3/M4B concatenation
+│   ├── services/
+│   │   └── generationService.ts        # TTS orchestration, segment batching
+│   ├── kokoro/                         # Kokoro TTS client
+│   ├── piper/                          # Piper TTS client
+│   ├── parsers/                        # EPUB, PDF, HTML, TXT parsers
+│   ├── epub/                           # EPUB3 + Media Overlay export
+│   └── utils/                          # Voice selection, language detection
+├── stores/
+│   ├── segmentProgressStore.ts  # Per-segment generation state
+│   ├── audioPlayerStore.ts      # Playback state
+│   ├── bookStore.ts             # Book and chapter state
+│   └── ttsStore.ts              # TTS settings
+e2e/                             # Playwright E2E tests
 ```
 
-## 📚 Documentation
+## Architecture
 
-- **[Kokoro Integration](docs/KOKORO_INTEGRATION.md)** - TTS model details, API reference, voice catalog
-- **[Audio Formats](docs/AUDIO_FORMATS.md)** - Format comparison, quality settings, use cases
-- **[Audio Concatenation](docs/AUDIO_CONCATENATION.md)** - Concatenation API, chapter markers, usage
-- **[E2E Testing](docs/E2E_TESTING.md)** - Test coverage, running tests, debugging
-- **[Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md)** - Technical overview, architecture
-- **[Troubleshooting Guide](docs/CHUNKING_AND_CONCATENATION.md)** - Chunking behavior, environment requirements, debugging tips
+**Stack**: Svelte 5 (runes) + TypeScript, Vite, ONNX Runtime Web, Web Audio API, IndexedDB
 
-## 🧪 Testing
-
-### Unit Tests (27 tests)
-
-```bash
-pnpm test
-```
-
-**Coverage:**
-
-- ✅ EPUB parsing (8 tests)
-- ✅ Kokoro TTS client (9 tests)
-- ✅ Audio concatenation (10 tests)
-
-### E2E Tests (9 tests)
-
-```bash
-pnpm run test:e2e
-```
-
-**Coverage:**
-
-- ✅ Application loading and EPUB upload
-- ✅ Single chapter generation (MP3, M4B)
-- ✅ Multiple chapter generation
-- ✅ Format and bitrate selection
-- ✅ Progress tracking
-- ✅ Cancellation support
-
-## 🏗️ Architecture
-
-### Technology Stack
-
-- **Frontend**: Svelte 4 + TypeScript
-- **Build Tool**: Vite 5
-- **TTS Models**: Kokoro-82M (ONNX)
-- **Runtime**: ONNX Runtime Web (WASM/WebGPU)
-- **Audio Processing**: Web Audio API + ffmpeg.wasm
-- **Document Parsing**: pdfjs-dist (PDF), readability (HTML), jszip (EPUB)
-- **Storage**: IndexedDB (local library)
-- **Testing**: Vitest + Playwright
-
-### Data Flow
+**Generation flow**:
 
 ```
-EPUB File
-  ↓ JSZip extraction
-  ↓ XML parsing (DOMParser)
-  ↓ Chapter extraction
-Chapters
-  ↓ Text normalization
-  ↓ Kokoro TTS (espeak-ng → IPA phonemes)
-  ↓ StyleTTS2 inference (ONNX)
-  ↓ 24kHz audio output
-Audio Buffers
-  ↓ Web Audio API concatenation
-  ↓ Format encoding (WAV/MP3/M4B)
-Audiobook File
+Content (EPUB/PDF/HTML/TXT)
+  → parse into chapters
+  → segment HTML into sentences (DOM-based, preserves inline markup)
+  → generate audio per segment (Kokoro / Piper / Web Speech)
+  → stream segments to playback as they complete
+  → batch-save to IndexedDB
+  → concatenate into final audio file on export
 ```
 
-## 🎯 Performance
+**Playback modes**:
 
-### Model Loading
+- _Merged audio_ — single file with time-based segment tracking (smooth seeking)
+- _Progressive_ — per-segment blobs chained as generation completes
+- _On-demand_ — generate segment on click, buffer ahead
 
-- **First load**: 5-10 seconds (downloads ~82MB model)
-- **Subsequent loads**: Instant (cached in IndexedDB)
+## Performance
 
-### Generation Speed
+| Mode          | Generation speed         |
+| ------------- | ------------------------ |
+| Kokoro WASM   | ~0.5–1.0s per sentence   |
+| Kokoro WebGPU | ~0.2–0.5s per sentence   |
+| Piper         | ~0.3–0.8s per sentence   |
+| Web Speech    | instant (browser native) |
 
-- **WASM**: 0.5-1.0s per sentence
-- **WebGPU**: 0.2-0.5s per sentence (if available)
+Model first load: ~5–10s (downloads ~82MB, cached in IndexedDB after).
 
-### Memory Usage
+## Troubleshooting
 
-- **Model**: ~200-400MB RAM
-- **Per chapter**: ~10-20MB
+- **Out of memory** — use `q8` quantization instead of `fp32`, generate fewer chapters at once
+- **Slow generation** — enable WebGPU in Chrome 113+, close other tabs
+- **Wrong language voice** — Piper auto-selects by detected language; override in Settings
+- **MP3 encoding fails** — try WAV format; check browser console for FFmpeg errors
 
-## 🤝 Contributing
+## Roadmap
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Development Setup
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests (`pnpm test && pnpm run test:e2e`)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-### Third-Party Licenses
-
-- **Kokoro-82M**: Apache 2.0 (commercial use allowed)
-- **lamejs**: LGPL
-- **Svelte**: MIT
-- **ONNX Runtime**: MIT
-
-## 🙏 Acknowledgments
-
-- [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad - Excellent open-source TTS model
-- [kokoro-js](https://www.npmjs.com/package/kokoro-js) - JavaScript/TypeScript implementation
-- [espeak-ng](https://github.com/espeak-ng/espeak-ng) - Phonemization engine
-- [lamejs](https://github.com/zhuker/lamejs) - JavaScript MP3 encoder
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-Having problems? Check our comprehensive troubleshooting guide:
-
-👉 **[Troubleshooting Guide](docs/CHUNKING_AND_CONCATENATION.md)**
-
-**Quick fixes:**
-
-- **Out of memory**: Use q8 model instead of fp32, generate fewer chapters at once
-- **Slow generation**: Enable WebGPU (Chrome 113+), close other tabs
-- **Audio clicks/pops**: Ensure consistent voice settings across all chapters
-- **MP3 encoding fails**: Try WAV format, check browser console for FFmpeg errors
-- **Wrong chapter order**: Generate sequentially, not in parallel
-
-For detailed solutions and debugging tips, see the [full troubleshooting guide](docs/CHUNKING_AND_CONCATENATION.md).
-
-## 🐛 Known Issues
-
-- MP3/M4B encoding tests skipped in CI (work in browser only)
-- Large EPUBs (100+ chapters) may require chunking
-- WebGPU support varies by browser
-
-## 🗺️ Roadmap
-
-- [x] Voice selection UI dropdown
-- [x] Chapter markers in M4B files
-- [x] Cover art embedding (via EPUB export)
-- [x] PDF, HTML, and TXT support
-- [x] URL to Audiobook conversion
+- [x] Sentence-level highlighting in Text Reader
+- [x] Progressive playback (listen while generating)
+- [x] Piper TTS multilingual support
+- [x] EPUB3 Media Overlay export
 - [x] Local library with persistent storage
+- [x] Resume reading progress
+- [ ] Adaptive quality (mobile vs desktop)
 - [ ] Export/import library backup
-- [ ] Reading progress tracking
 - [ ] Batch processing multiple files
-- [ ] Cloud storage integration
-- [ ] Mobile app (React Native)
 
-## 📧 Contact
+## License
 
-- **Author**: José Cabeda
-- **GitHub**: [@Cabeda](https://github.com/Cabeda)
-- **Issues**: [GitHub Issues](https://github.com/Cabeda/audiobook-generator/issues)
+MIT — see [LICENSE](LICENSE).
+
+**Third-party licenses**: Kokoro-82M (Apache 2.0), Piper (MIT), lamejs (LGPL), Svelte (MIT), ONNX Runtime (MIT).
+
+## Acknowledgments
+
+- [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad
+- [kokoro-js](https://www.npmjs.com/package/kokoro-js)
+- [Piper TTS](https://github.com/rhasspy/piper)
+- [espeak-ng](https://github.com/espeak-ng/espeak-ng)
+- [lamejs](https://github.com/zhuker/lamejs)
 
 ---
 
-Made with ❤️ using Svelte, TypeScript, and Kokoro-82M
+**Author**: José Cabeda · [GitHub Issues](https://github.com/Cabeda/audiobook-generator/issues)

@@ -194,18 +194,8 @@
               }
 
               // Populate audioService.segments from progressive store if not already set
-              if (
-                progressiveAudio &&
-                progressStore &&
-                progressStore.segmentTexts.size > 0 &&
-                audioService.segments.length === 0
-              ) {
-                const segs: Array<{ index: number; text: string }> = []
-                progressStore.segmentTexts.forEach((text, index) => {
-                  segs.push({ index, text })
-                })
-                segs.sort((a, b) => a.index - b.index)
-                audioService.segments = segs
+              if (progressiveAudio && progressStore) {
+                populateSegmentsFromStore(progressStore)
               }
 
               // Mark loading complete AFTER segments are populated
@@ -216,7 +206,11 @@
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
 
               if (result.hasAudio) {
-                audioService.playFromSegment(startSeg, false).catch((err) => {
+                // Auto-play from beginning if no saved progress; resume prompt handles the other case
+                const savedProg = bookId ? loadProgress(String(bookId)) : null
+                const hasSavedProgress =
+                  savedProg && savedProg.chapterId === chapter.id && savedProg.segmentIndex > 0
+                audioService.playFromSegment(startSeg, !hasSavedProgress).catch((err) => {
                   console.error('Initial seek failed:', err)
                 })
               }
@@ -230,14 +224,7 @@
                 hasStaticAudio = false
                 // audioAvailable will be true because of hasPartialAudio
                 // Populate audioService.segments from progressive store so injection works
-                if (progressStore.segmentTexts.size > 0 && audioService.segments.length === 0) {
-                  const segs: Array<{ index: number; text: string }> = []
-                  progressStore.segmentTexts.forEach((text, index) => {
-                    segs.push({ index, text })
-                  })
-                  segs.sort((a, b) => a.index - b.index)
-                  audioService.segments = segs
-                }
+                populateSegmentsFromStore(progressStore)
 
                 // Compute wrapped content even when audio is missing so highlights render on first load
                 if (chapter?.content) {
@@ -293,12 +280,25 @@
         isLoading = false
         const store = get(audioPlayerStore)
         const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
-        audioService.playFromSegment(startSeg, false).catch((err) => {
+        const savedProg2 = bookId ? loadProgress(String(bookId)) : null
+        const hasSavedProgress2 =
+          savedProg2 && savedProg2.chapterId === chapter.id && savedProg2.segmentIndex > 0
+        audioService.playFromSegment(startSeg, !hasSavedProgress2).catch((err) => {
           console.error('Initial seek failed:', err)
         })
       }
     }
   })
+
+  function populateSegmentsFromStore(progressStore: NonNullable<typeof chapterSegmentProgress>) {
+    if (progressStore.segmentTexts.size === 0 || audioService.segments.length > 0) return
+    const segs: Array<{ index: number; text: string }> = []
+    progressStore.segmentTexts.forEach((text, index) => {
+      segs.push({ index, text })
+    })
+    segs.sort((a, b) => a.index - b.index)
+    audioService.segments = segs
+  }
 
   // Update playback speed when changed
   function updateSpeed(speed: number) {
@@ -323,7 +323,8 @@
       localModel !== 'web_speech' &&
       chapter &&
       bookId &&
-      isLibraryBook({ ...chapter, id: bookId } as any)
+      bookId !== null &&
+      typeof bookId === 'number'
     ) {
       const { updateChapterModel } = await import('../lib/libraryDB')
       try {
@@ -492,19 +493,26 @@
   }
 
   // Keep audioService.segments in sync with segmentProgressStore during generation
-  // This ensures segments are available for injection even when navigating during generation
   $effect(() => {
     const progress = $segmentProgress.get(chapter?.id ?? '')
     if (!progress || !chapter?.id) return
+    populateSegmentsFromStore(progress)
+  })
 
-    // Only update if we have segment texts and audioService needs them
-    if (progress.segmentTexts.size > 0 && audioService.segments.length === 0) {
-      const segs: Array<{ index: number; text: string }> = []
-      progress.segmentTexts.forEach((text, index) => {
-        segs.push({ index, text })
-      })
-      segs.sort((a, b) => a.index - b.index)
-      audioService.segments = segs
+  // Auto-play segment when it becomes available after user clicked it
+  $effect(() => {
+    if (pendingPlaySegment === null || !chapter?.id) return
+
+    // Subscribe to segmentProgress so this effect re-runs whenever a new segment is generated
+    const progress = $segmentProgress.get(chapter.id)
+    if (!progress) return
+
+    const segmentData = getGeneratedSegment(chapter.id, pendingPlaySegment)
+    if (segmentData) {
+      logger.info(`Auto-playing segment ${pendingPlaySegment} after generation`)
+      audioService.injectProgressiveSegment(segmentData)
+      audioService.playFromSegment(pendingPlaySegment)
+      pendingPlaySegment = null // Clear pending state
     }
   })
 
@@ -559,26 +567,30 @@
         segmentsLoaded = true
       }
 
-      // Auto-scroll to current segment
-      $effect(() => {
-        if (!autoScrollEnabled || !audioService.isPlaying) return
-
-        const currentIndex = audioService.currentSegmentIndex
-        if (currentIndex < 0) return
-
-        const segmentEl = document.getElementById(`seg-${currentIndex}`)
-        if (!segmentEl) return
-
-        const rect = segmentEl.getBoundingClientRect()
-        const isOutsideViewport = rect.top < 100 || rect.bottom > window.innerHeight - 100
-
-        if (isOutsideViewport) {
-          segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-      })
+      // Auto-scroll to current segment — registered as top-level effect below
     }
+  })
 
-    // Segments are now pre-wrapped in the HTML, just ensure they have the segment class
+  // Auto-scroll to current segment when playing (top-level effect, not nested)
+  $effect(() => {
+    if (!autoScrollEnabled || !audioService.isPlaying) return
+
+    const currentIndex = audioService.currentSegmentIndex
+    if (currentIndex < 0) return
+
+    const segmentEl = document.getElementById(`seg-${currentIndex}`)
+    if (!segmentEl) return
+
+    const rect = segmentEl.getBoundingClientRect()
+    const isOutsideViewport = rect.top < 100 || rect.bottom > window.innerHeight - 100
+
+    if (isOutsideViewport) {
+      segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  })
+
+  // Segments are now pre-wrapped in the HTML, just ensure they have the segment class
+  $effect(() => {
     if (audioService.segments.length > 0 && textContentEl) {
       const existingSegments = textContentEl.querySelectorAll('span[id^="seg-"]')
       existingSegments.forEach((el) => el.classList.add('segment'))
@@ -716,6 +728,66 @@
     return isNaN(index) ? null : index
   }
 
+  function activateSegment(index: number) {
+    // Check if model has changed - if so, reload chapter with new settings
+    const currentModel = audioService.getCurrentModel()
+    if (currentModel !== localModel) {
+      audioService.stop()
+      if (chapter && bookId) {
+        isLoading = true
+        audioService
+          .loadChapter(bookId, bookTitle, chapter, {
+            voice: localVoice,
+            quantization,
+            device,
+            selectedModel: localModel,
+            playbackSpeed: audioService.playbackSpeed,
+          })
+          .then(() => {
+            isLoading = false
+            audioService.playFromSegment(index)
+          })
+          .catch((err) => {
+            logger.error('Failed to reload chapter with new model:', err)
+            isLoading = false
+          })
+        return
+      }
+    }
+
+    if (isGenerating) {
+      generationService.setGenerationPriority(chapter.id, index)
+    }
+
+    const segmentData = getGeneratedSegment(chapter.id, index)
+
+    if (localModel === 'web_speech') {
+      audioService.playFromSegment(index)
+      return
+    }
+
+    if (segmentData) {
+      audioService.injectProgressiveSegment(segmentData)
+      audioService.playFromSegment(index)
+      return
+    }
+
+    if (isGenerating) {
+      audioService.playFromSegment(index)
+      return
+    }
+
+    // No audio and not generating - start generation from this segment
+    const totalSegments = audioService.segments.length
+    pendingPlaySegment = index
+    generationService
+      .generateSingleChapterFromSegment(chapter, index, totalSegments, bookId ?? undefined)
+      .catch((err) => {
+        logger.error('Failed to start generation from segment', err)
+        pendingPlaySegment = null
+      })
+  }
+
   function handleContentClick(event: MouseEvent) {
     showSettings = false
     const target = event.target as HTMLElement
@@ -725,122 +797,21 @@
       event.preventDefault()
     }
 
-    // Check if clicked element is a segment or inside one
     const segmentEl = target.closest('.segment') as HTMLElement | null
     const index = getSegmentIndex(segmentEl)
     if (index !== null) {
-      // Check if model has changed - if so, reload chapter with new settings
-      const currentModel = audioService.getCurrentModel()
-      if (currentModel !== localModel) {
-        // Stop current playback
-        audioService.stop()
-
-        // Reload chapter with new model
-        if (chapter && bookId) {
-          isLoading = true
-          audioService
-            .loadChapter(bookId, bookTitle, chapter, {
-              voice: localVoice,
-              quantization,
-              device,
-              selectedModel: localModel,
-              playbackSpeed: audioService.playbackSpeed,
-            })
-            .then(() => {
-              isLoading = false
-              // Now play from the clicked segment
-              audioService.playFromSegment(index)
-            })
-            .catch((err) => {
-              logger.error('Failed to reload chapter with new model:', err)
-              isLoading = false
-            })
-          return
-        }
-      }
-
-      if (isGenerating) {
-        generationService.setGenerationPriority(chapter.id, index)
-      }
-
-      // Check if segment has audio already generated
-      const segmentData = getGeneratedSegment(chapter.id, index)
-      const hasAudio = !!segmentData
-
-      // For Web Speech, skip generation and play directly
-      if (localModel === 'web_speech') {
-        audioService.playFromSegment(index)
-        return
-      }
-
-      // If we have audio, inject it and play
-      if (hasAudio && segmentData) {
-        audioService.injectProgressiveSegment(segmentData)
-        audioService.playFromSegment(index)
-        return
-      }
-
-      // If generating, set priority and play if available
-      if (isGenerating) {
-        generationService.setGenerationPriority(chapter.id, index)
-        if (segmentData) {
-          audioService.injectProgressiveSegment(segmentData)
-        }
-        audioService.playFromSegment(index)
-        return
-      }
-
-      // No audio and not generating - start generation from this segment
-      const totalSegments = audioService.segments.length
-      pendingPlaySegment = index // Mark this segment for auto-play when ready
-      generationService
-        .generateSingleChapterFromSegment(chapter, index, totalSegments, bookId ?? undefined)
-        .catch((err) => {
-          logger.error('Failed to start generation from segment', err)
-          pendingPlaySegment = null // Clear on error
-        })
+      activateSegment(index)
     }
   }
 
   function handleContentKeyDown(event: KeyboardEvent) {
     const target = event.target as HTMLElement
-    // Check if the focused element is a segment
     if (target.classList.contains('segment') && target.id.startsWith('seg-')) {
-      // Handle Enter or Space key
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
         const index = getSegmentIndex(target)
         if (index !== null) {
-          // Check if segment has audio already generated
-          const segmentData = getGeneratedSegment(chapter.id, index)
-          const hasAudio = !!segmentData
-
-          // If we have audio, inject it and play
-          if (hasAudio && segmentData) {
-            audioService.injectProgressiveSegment(segmentData)
-            audioService.playFromSegment(index)
-            return
-          }
-
-          // If generating, set priority and play if available
-          if (isGenerating) {
-            generationService.setGenerationPriority(chapter.id, index)
-            if (segmentData) {
-              audioService.injectProgressiveSegment(segmentData)
-            }
-            audioService.playFromSegment(index)
-            return
-          }
-
-          // No audio and not generating - start generation from this segment
-          const totalSegments = audioService.segments.length
-          pendingPlaySegment = index // Mark this segment for auto-play when ready
-          generationService
-            .generateSingleChapterFromSegment(chapter, index, totalSegments, bookId ?? undefined)
-            .catch((err) => {
-              logger.error('Failed to start generation from segment', err)
-              pendingPlaySegment = null // Clear on error
-            })
+          activateSegment(index)
         }
       }
     }
