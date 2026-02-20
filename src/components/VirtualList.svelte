@@ -55,7 +55,7 @@
 </script>
 
 <div class="virtual-list" bind:this={container} onscroll={handleScroll}>
-  <div class="virtual-list-spacer" style="height: {totalHeight}px">
+  <div class="virtual-list-spacer" style="min-height: {totalHeight}px">
     <div class="virtual-list-content" style="transform: translateY({offsetY}px)">
       {@render children(visibleItems)}
     </div>
