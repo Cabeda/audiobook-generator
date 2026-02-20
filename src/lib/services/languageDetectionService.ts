@@ -4,33 +4,33 @@ import type { Book } from '../types/book'
 import logger from '../utils/logger'
 
 /**
- * Detect language for all chapters in a book
- * This runs detection for each chapter and updates the book object in-place
+ * Detect language for all chapters in a book.
+ * Yields to the event loop between chapters to avoid blocking the main thread
+ * when processing books with many chapters.
  *
  * @param book The book with chapters to analyze
  * @returns The book with detected languages populated
  */
 export async function detectLanguagesForBook(book: Book): Promise<Book> {
-  const updatedChapters = await Promise.all(
-    book.chapters.map(async (chapter) => {
-      try {
-        const result = detectChapterLanguage(chapter.content)
-        return {
-          ...chapter,
-          detectedLanguage: result.languageCode,
-          languageConfidence: result.confidence,
-        }
-      } catch (error) {
-        logger.warn(`Failed to detect language for chapter ${chapter.id}:`, error)
-        return chapter // Return unchanged if detection fails
-      }
-    })
-  )
+  const updatedChapters: typeof book.chapters = []
 
-  return {
-    ...book,
-    chapters: updatedChapters,
+  for (const chapter of book.chapters) {
+    // Yield to the event loop between chapters so the UI stays responsive
+    await new Promise<void>((r) => setTimeout(r, 0))
+    try {
+      const result = detectChapterLanguage(chapter.content)
+      updatedChapters.push({
+        ...chapter,
+        detectedLanguage: result.languageCode,
+        languageConfidence: result.confidence,
+      })
+    } catch (error) {
+      logger.warn(`Failed to detect language for chapter ${chapter.id}:`, error)
+      updatedChapters.push(chapter)
+    }
   }
+
+  return { ...book, chapters: updatedChapters }
 }
 
 /**
