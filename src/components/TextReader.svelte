@@ -73,7 +73,7 @@
   let localVoice = $state(initialVoice)
 
   // Chapter progress
-  let chapterIndex = $derived(chapters.findIndex((c) => c.id === chapter.id))
+  let chapterIndex = $derived(chapters.findIndex((c: Chapter) => c.id === chapter.id))
   let chapterTotal = $derived(chapters.length)
 
   // Font size
@@ -1877,10 +1877,42 @@
   }
 
   @media (max-width: 640px) {
+    .reader-header {
+      padding: 8px 12px;
+      gap: 6px;
+    }
+
+    .header-title .eyebrow {
+      display: none;
+    }
+
+    .header-title .main-title {
+      font-size: 15px;
+    }
+
+    .back-button {
+      padding: 6px 10px;
+      font-size: 0.85rem;
+    }
+
+    .header-actions {
+      min-width: auto;
+    }
+
+    .chapter-progress {
+      font-size: 0.75rem;
+      padding: 2px 6px;
+    }
+
     .text-content {
       padding: 16px 16px 100px 16px;
       font-size: 17px;
       line-height: 1.7;
+    }
+
+    .info-banner {
+      padding: 8px 12px;
+      font-size: 0.82rem;
     }
 
     .settings-menu {

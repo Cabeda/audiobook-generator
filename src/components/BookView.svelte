@@ -1072,9 +1072,30 @@
     .toolbar {
       flex-direction: column;
       align-items: stretch;
+      padding: 8px 12px;
+      gap: 8px;
+      border-radius: 0;
     }
     .toolbar-left {
-      flex-direction: column;
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+    .toolbar-left .premium-select {
+      flex: 1;
+      min-width: 0;
+    }
+    .toolbar-right {
+      flex-wrap: wrap;
+    }
+    .toolbar-right .primary-btn,
+    .toolbar-right .cancel-btn {
+      flex: 1;
+    }
+    .export-split-btn {
+      flex: 1;
+    }
+    .export-main {
+      flex: 1;
     }
   }
 
