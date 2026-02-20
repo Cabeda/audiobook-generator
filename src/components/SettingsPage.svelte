@@ -342,6 +342,7 @@
     max-width: 640px;
     margin: 0 auto;
     padding: 24px;
+    flex-shrink: 0; /* Don't compress in flex parent — let wrapper scroll */
   }
 
   .settings-header {

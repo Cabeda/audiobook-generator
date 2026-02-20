@@ -395,6 +395,7 @@
 
   .view-wrapper.scrollable {
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .view-wrapper.full-height {
