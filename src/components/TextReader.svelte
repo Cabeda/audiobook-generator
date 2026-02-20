@@ -29,25 +29,69 @@
     voice: string
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper'
+    selectedModel?: 'kokoro' | 'piper' | 'web_speech'
     onBack: () => void
     onChapterChange?: (chapter: Chapter) => void
   }>()
 
   const SPEED_KEY = 'text_reader_speed'
+  const MODEL_KEY = 'text_reader_model'
+  const VOICE_KEY = 'text_reader_voice'
 
   // Initialize from localStorage if available
   let initialSpeed = 1.0
+  let initialModel: 'kokoro' | 'piper' | 'web_speech' = selectedModel
+  let initialVoice = voice
   try {
     const saved = localStorage.getItem(SPEED_KEY)
     if (saved) initialSpeed = parseFloat(saved)
+
+    // Load saved model preference
+    const savedModel = localStorage.getItem(MODEL_KEY)
+    if (
+      savedModel &&
+      (savedModel === 'kokoro' || savedModel === 'piper' || savedModel === 'web_speech')
+    ) {
+      initialModel = savedModel
+    }
+
+    // Load saved voice preference
+    const savedVoice = localStorage.getItem(VOICE_KEY)
+    if (savedVoice) {
+      initialVoice = savedVoice
+    }
   } catch (e) {
     // ignore
   }
 
+  // Local model state for text reader
+  let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(initialModel)
+  let localVoice = $state(initialVoice)
+
   // Settings menu state
   let showSettings = $state(false)
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
+  let piperVoices = $state<Array<{ key: string; name: string; language: string }>>([])
+
+  // Sort voices to show detected language first
+  let sortedWebSpeechVoices = $derived(() => {
+    if (!chapter?.detectedLanguage && !chapter?.language) return webSpeechVoices
+
+    const detectedLang = (chapter.detectedLanguage || chapter.language || '')
+      .split('-')[0]
+      .toLowerCase()
+
+    return [...webSpeechVoices].sort((a, b) => {
+      const aLang = a.lang.split('-')[0].toLowerCase()
+      const bLang = b.lang.split('-')[0].toLowerCase()
+      const aMatch = aLang === detectedLang
+      const bMatch = bLang === detectedLang
+
+      if (aMatch && !bMatch) return -1
+      if (!aMatch && bMatch) return 1
+      return a.name.localeCompare(b.name)
+    })
+  })
 
   // Track the current model and voice from the store to detect changes
   // Will be initialized after first initialization to avoid false change detection
@@ -93,13 +137,16 @@
         // Load chapter from DB using pure playback method
         audioService
           .loadChapter(bId, bookTitle, chapter, {
-            voice,
+            voice: localVoice,
             quantization,
             device,
-            selectedModel,
+            selectedModel: localModel,
             playbackSpeed: initialSpeed,
           })
           .then((result) => {
+            // Sync voice after loading (Piper may have auto-selected)
+            localVoice = audioService.getVoice()
+
             if (result.success) {
               // Check if we have partial audio from progressive generation
               const progressStore = untrack(() => get(segmentProgress).get(cId))
@@ -241,6 +288,43 @@
       localStorage.setItem(SPEED_KEY, speed.toString())
     } catch (e) {
       // ignore
+    }
+  }
+
+  async function handleModelChange() {
+    // Save to localStorage for persistence
+    try {
+      localStorage.setItem(MODEL_KEY, localModel)
+    } catch (e) {
+      console.error('Failed to save model to localStorage:', e)
+    }
+
+    // For kokoro/piper, sync with chapter settings and store
+    if (
+      localModel !== 'web_speech' &&
+      chapter &&
+      bookId &&
+      isLibraryBook({ ...chapter, id: bookId } as any)
+    ) {
+      const { updateChapterModel } = await import('../lib/libraryDB')
+      try {
+        await updateChapterModel(bookId, chapter.id, localModel)
+        modelStore.set(localModel)
+      } catch (error) {
+        console.error('Failed to update chapter model:', error)
+      }
+    }
+  }
+
+  async function handleVoiceChange() {
+    // Update voice in audio service immediately
+    audioService.setVoice(localVoice)
+
+    // Persist to localStorage
+    try {
+      localStorage.setItem(VOICE_KEY, localVoice)
+    } catch (e) {
+      console.error('Failed to save voice to localStorage:', e)
     }
   }
 
@@ -595,6 +679,36 @@
     const segmentEl = target.closest('.segment') as HTMLElement | null
     const index = getSegmentIndex(segmentEl)
     if (index !== null) {
+      // Check if model has changed - if so, reload chapter with new settings
+      const currentModel = audioService.getCurrentModel()
+      if (currentModel !== localModel) {
+        // Stop current playback
+        audioService.stop()
+
+        // Reload chapter with new model
+        if (chapter && bookId) {
+          isLoading = true
+          audioService
+            .loadChapter(bookId, bookTitle, chapter, {
+              voice: localVoice,
+              quantization,
+              device,
+              selectedModel: localModel,
+              playbackSpeed: audioService.playbackSpeed,
+            })
+            .then(() => {
+              isLoading = false
+              // Now play from the clicked segment
+              audioService.playFromSegment(index)
+            })
+            .catch((err) => {
+              logger.error('Failed to reload chapter with new model:', err)
+              isLoading = false
+            })
+          return
+        }
+      }
+
       if (isGenerating) {
         generationService.setGenerationPriority(chapter.id, index)
       }
@@ -602,6 +716,12 @@
       // Check if segment has audio already generated
       const segmentData = getGeneratedSegment(chapter.id, index)
       const hasAudio = !!segmentData
+
+      // For Web Speech, skip generation and play directly
+      if (localModel === 'web_speech') {
+        audioService.playFromSegment(index)
+        return
+      }
 
       if (!hasAudio && !isGenerating) {
         // No audio and not generating - start generation from this segment
@@ -694,7 +814,35 @@
     if (window.speechSynthesis.onvoiceschanged !== undefined) {
       window.speechSynthesis.onvoiceschanged = loadVoices
     }
+
+    // Load Piper voices
+    loadPiperVoices()
   })
+
+  async function loadPiperVoices() {
+    try {
+      const { piperClient } = await import('../lib/piper/piperClient')
+      const voices = await piperClient.getVoices()
+
+      // Sort by detected language first
+      const detectedLang = (chapter?.detectedLanguage || chapter?.language || '')
+        .split('-')[0]
+        .toLowerCase()
+
+      piperVoices = voices.sort((a: any, b: any) => {
+        const aLang = a.language.split('-')[0].toLowerCase()
+        const bLang = b.language.split('-')[0].toLowerCase()
+        const aMatch = aLang === detectedLang
+        const bMatch = bLang === detectedLang
+
+        if (aMatch && !bMatch) return -1
+        if (!aMatch && bMatch) return 1
+        return a.name.localeCompare(b.name)
+      })
+    } catch (e) {
+      console.error('Failed to load Piper voices:', e)
+    }
+  }
 
   function changeTheme(theme: Theme) {
     currentTheme = theme
@@ -844,16 +992,52 @@
 
         <div class="setting-item">
           <label for="model-select">Model</label>
-          <div class="info-row">
-            <span class="value">{selectedModel === 'kokoro' ? 'Kokoro' : 'Piper'}</span>
-            <span class="hint">(set in Chapter Settings)</span>
-          </div>
+          <select
+            id="model-select"
+            bind:value={localModel}
+            onchange={handleModelChange}
+            class="model-select"
+          >
+            <option value="web_speech">Web Speech API</option>
+            <option value="kokoro">Kokoro TTS</option>
+            <option value="piper">Piper TTS</option>
+          </select>
+          {#if localModel !== 'web_speech'}
+            <span class="hint">Changes sync with chapter settings</span>
+          {/if}
+        </div>
+
+        <div class="setting-item">
+          <label for="voice-select">Voice</label>
+          <select
+            id="voice-select"
+            bind:value={localVoice}
+            onchange={handleVoiceChange}
+            class="model-select"
+          >
+            {#if localModel === 'kokoro'}
+              <option value="af_heart">af_heart (Female American)</option>
+              <option value="af_bella">af_bella (Female American)</option>
+              <option value="bf_emma">bf_emma (Female British)</option>
+              <option value="am_adam">am_adam (Male American)</option>
+              <option value="bm_george">bm_george (Male British)</option>
+            {:else if localModel === 'piper'}
+              {#each piperVoices as piperVoice}
+                <option value={piperVoice.key}>{piperVoice.name} ({piperVoice.language})</option>
+              {/each}
+            {:else}
+              {#each sortedWebSpeechVoices() as wsVoice}
+                <option value={wsVoice.name}>{wsVoice.name} ({wsVoice.lang})</option>
+              {/each}
+            {/if}
+          </select>
+          <span class="hint">Applied on next segment click</span>
         </div>
 
         <div class="setting-item info">
           <div class="info-row">
-            <span class="label">Voice:</span>
-            <span class="value">{voice}</span>
+            <span class="label">Current:</span>
+            <span class="value">{localModel} / {voice}</span>
           </div>
         </div>
       </div>
@@ -1393,6 +1577,22 @@
     color: var(--secondary-text);
     font-style: italic;
     margin-left: 8px;
+  }
+
+  .model-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-color);
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: 4px;
+  }
+
+  .model-select:hover {
+    background: var(--surface-color);
   }
 
   .info-row .value {
