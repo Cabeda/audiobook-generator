@@ -6,6 +6,7 @@
   import LandingPage from './components/LandingPage.svelte'
   import BookView from './components/BookView.svelte'
   import TextReader from './components/TextReader.svelte'
+  import ContinuousReader from './components/ContinuousReader.svelte'
   import SettingsPage from './components/SettingsPage.svelte'
   import Toast from './components/Toast.svelte'
   import ToastContainer from './components/ToastContainer.svelte'
@@ -47,6 +48,15 @@
   type ViewType = 'landing' | 'book' | 'reader' | 'settings'
   let currentView = $state<ViewType>('landing')
   let currentChapter = $state<Chapter | null>(null) // For Reader
+  let readerMode = $state<'single' | 'continuous'>('single')
+
+  // Persist reader mode preference
+  try {
+    const saved = localStorage.getItem('reader_mode')
+    if (saved === 'continuous') readerMode = 'continuous'
+  } catch {
+    // localStorage unavailable
+  }
 
   // Computed Reader Settings (Respect Chapter Overrides + Language Fallback)
   // This logic mirrors ChapterItem.svelte's effectiveModel/effectiveVoice computation
@@ -351,17 +361,62 @@
     </div>
   {:else if currentView === 'reader' && currentChapter}
     <div in:fade class="view-wrapper full-height">
-      <TextReader
-        chapter={currentChapter}
-        bookId={$currentLibraryBookId}
-        bookTitle={$book?.title ?? ''}
-        voice={readerVoice}
-        quantization={$selectedQuantization}
-        device={$selectedDevice}
-        selectedModel={readerModel}
-        chapters={$book?.chapters ?? []}
-        onBack={handleBackFromReader}
-      />
+      <!-- Reader mode toggle -->
+      <div class="reader-mode-toggle">
+        <button
+          class="mode-btn"
+          class:active={readerMode === 'single'}
+          onclick={() => {
+            readerMode = 'single'
+            try {
+              localStorage.setItem('reader_mode', 'single')
+            } catch {
+              // localStorage unavailable
+            }
+          }}
+          aria-label="Single chapter view">Chapter</button
+        >
+        <button
+          class="mode-btn"
+          class:active={readerMode === 'continuous'}
+          onclick={() => {
+            readerMode = 'continuous'
+            try {
+              localStorage.setItem('reader_mode', 'continuous')
+            } catch {
+              // localStorage unavailable
+            }
+          }}
+          aria-label="Continuous scroll view">Scroll</button
+        >
+      </div>
+
+      {#if readerMode === 'continuous' && $book}
+        <ContinuousReader
+          chapters={$book.chapters}
+          bookId={$currentLibraryBookId}
+          bookTitle={$book.title}
+          book={$book}
+          voice={readerVoice}
+          quantization={$selectedQuantization}
+          device={$selectedDevice}
+          selectedModel={readerModel}
+          initialChapterId={currentChapter.id}
+          onBack={handleBackFromReader}
+        />
+      {:else}
+        <TextReader
+          chapter={currentChapter}
+          bookId={$currentLibraryBookId}
+          bookTitle={$book?.title ?? ''}
+          voice={readerVoice}
+          quantization={$selectedQuantization}
+          device={$selectedDevice}
+          selectedModel={readerModel}
+          chapters={$book?.chapters ?? []}
+          onBack={handleBackFromReader}
+        />
+      {/if}
     </div>
   {/if}
 </main>
@@ -440,5 +495,38 @@
       padding: 12px;
       gap: 8px;
     }
+  }
+
+  .reader-mode-toggle {
+    position: absolute;
+    top: 10px;
+    right: 16px;
+    z-index: 20;
+    display: flex;
+    gap: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  }
+
+  .mode-btn {
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    border: none;
+    background: var(--surface-color, #2a2a2a);
+    color: var(--secondary-text, #a0a0a0);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+
+  .mode-btn.active {
+    background: var(--active-bg, rgba(59, 130, 246, 0.2));
+    color: var(--text-color, #e0e0e0);
+    font-weight: 600;
+  }
+
+  .mode-btn:hover:not(.active) {
+    background: var(--hover-bg, rgba(255, 255, 255, 0.05));
   }
 </style>
