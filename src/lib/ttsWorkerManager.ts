@@ -42,8 +42,35 @@ type PendingRequest = {
   onChunkProgress?: (current: number, total: number) => void
 }
 
+type GenerateOptions = {
+  text: string
+  modelType?: TTSModelType
+  voice?: string
+  speed?: number
+  pitch?: number
+  language?: string
+  onProgress?: (message: string) => void
+  onChunkProgress?: (current: number, total: number) => void
+  dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+  model?: string
+  device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
+  advancedSettings?: Record<string, any>
+}
+
 /** Default timeout for individual TTS requests (2 minutes) */
 const REQUEST_TIMEOUT_MS = 120_000
+
+/** Maximum number of queued requests before rejecting new ones */
+const MAX_QUEUE_DEPTH = 50
+
+function isMemoryError(msg: string): boolean {
+  return (
+    msg.includes('failed to allocate') ||
+    msg.includes("Can't create a session") ||
+    msg.includes('Out of memory') ||
+    msg.includes('Aborted()')
+  )
+}
 
 export class TTSWorkerManager {
   private worker: Worker | null = null
@@ -145,277 +172,164 @@ export class TTSWorkerManager {
     })
   }
 
-  async generateVoice(options: {
-    text: string
-    modelType?: TTSModelType
-    voice?: string
-    speed?: number
-    pitch?: number
-    language?: string
-    onProgress?: (message: string) => void
-    onChunkProgress?: (current: number, total: number) => void
-    dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-    model?: string
-    device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
-    advancedSettings?: Record<string, any>
-  }): Promise<Blob> {
-    // Helper to execute the request with per-request timeout
-    const execute = async () => {
-      await this.readyPromise
-      if (!this.worker) throw new Error('Worker not initialized')
+  /** Restart the worker on memory errors, waiting if a restart is already in progress. */
+  private async restartWorkerIfNeeded(): Promise<void> {
+    if (!this.isRestarting) {
+      this.isRestarting = true
+      this.terminate()
+      try {
+        this.readyPromise = this.initWorker()
+        await this.readyPromise
+      } catch (err) {
+        logger.error('[TTSWorkerManager] Worker restart failed:', err)
+        throw err
+      } finally {
+        this.isRestarting = false
+      }
+    } else {
+      // Another restart is already in progress — just wait for it
+      try {
+        await this.readyPromise
+      } catch (err) {
+        logger.error('[TTSWorkerManager] Worker restart failed during wait:', err)
+        throw err
+      }
+    }
+  }
 
-      const id = `req_${++this.requestCounter}`
-
-      return new Promise<Blob>((resolve, reject) => {
-        // Per-request timeout to prevent indefinite hangs
-        const timer = setTimeout(() => {
-          if (this.pendingRequests.has(id)) {
-            this.pendingRequests.delete(id)
-            reject(new Error(`TTS request timed out after ${REQUEST_TIMEOUT_MS}ms`))
-          }
-        }, REQUEST_TIMEOUT_MS)
-
-        this.pendingRequests.set(id, {
-          resolve: (result) => {
-            clearTimeout(timer)
-            resolve(result)
-          },
-          reject: (err) => {
-            clearTimeout(timer)
-            reject(err)
-          },
-          onProgress: options.onProgress,
-          onChunkProgress: options.onChunkProgress,
-        })
-        const modelType = options.modelType
-
-        const request: WorkerRequest = {
-          id,
-          type: 'generate',
-          text: options.text,
-          modelType: modelType,
-          voice: options.voice,
-          speed: options.speed,
-          pitch: options.pitch,
-          language: options.language,
-          dtype: options.dtype,
-          model: options.model,
-          device: options.device,
-          advancedSettings: options.advancedSettings,
-        }
-
-        this.worker!.postMessage(request)
-      })
+  /**
+   * Dispatch a request to the worker and return a promise that resolves with the result.
+   * Enforces queue depth limit and per-request timeout.
+   */
+  private dispatch<T>(
+    request: Omit<WorkerRequest, 'id'>,
+    options: Pick<GenerateOptions, 'onProgress' | 'onChunkProgress'>
+  ): Promise<T> {
+    if (this.pendingRequests.size >= MAX_QUEUE_DEPTH) {
+      return Promise.reject(
+        new Error(`TTS worker queue full (max ${MAX_QUEUE_DEPTH} concurrent requests)`)
+      )
     }
 
-    // Use retry with backoff for generation
+    const id = `req_${++this.requestCounter}`
+
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.pendingRequests.has(id)) {
+          this.pendingRequests.delete(id)
+          reject(new Error(`TTS request timed out after ${REQUEST_TIMEOUT_MS}ms`))
+        }
+      }, REQUEST_TIMEOUT_MS)
+
+      this.pendingRequests.set(id, {
+        resolve: (result) => {
+          clearTimeout(timer)
+          resolve(result)
+        },
+        reject: (err) => {
+          clearTimeout(timer)
+          reject(err)
+        },
+        onProgress: options.onProgress,
+        onChunkProgress: options.onChunkProgress,
+      })
+
+      this.worker!.postMessage({ id, ...request })
+    })
+  }
+
+  /** Shared retry wrapper used by both generateVoice and generateSegments. */
+  private withRetry<T>(
+    label: string,
+    execute: () => Promise<T>,
+    onProgress?: (msg: string) => void
+  ): Promise<T> {
     return retryWithBackoff(execute, {
       maxRetries: 3,
       initialDelay: 1000,
       maxDelay: 5000,
       shouldRetry: (error: Error) => {
-        const errorMsg = error.message
-        // Check for memory allocation errors, session creation errors, or WASM aborts
-        const isMemoryError =
-          errorMsg.includes('failed to allocate') ||
-          errorMsg.includes("Can't create a session") ||
-          errorMsg.includes('Out of memory') ||
-          errorMsg.includes('Aborted()')
-
-        // Only indicate whether we should retry; actual restart is handled in onRetry
-        if (isMemoryError) {
-          logger.warn('[TTSWorkerManager] Memory error detected, will retry with worker restart')
+        if (isMemoryError(error.message)) {
+          logger.warn(`[TTSWorkerManager] Memory error in ${label}, will retry with worker restart`)
           return true
         }
-
-        // Use standard retry logic for other errors
         return isRetryableError(error)
       },
       onRetry: async (attempt, maxRetries, error) => {
-        logger.warn(`[TTSWorkerManager] Retry attempt ${attempt}/${maxRetries}:`, error.message)
-        const errorMsg = error.message
-        const isMemoryError =
-          errorMsg.includes('failed to allocate') ||
-          errorMsg.includes("Can't create a session") ||
-          errorMsg.includes('Out of memory') ||
-          errorMsg.includes('Aborted()')
-        if (isMemoryError) {
-          logger.warn('[TTSWorkerManager] Restarting worker due to memory error')
-          if (!this.isRestarting) {
-            this.isRestarting = true
-            this.terminate()
-            try {
-              this.readyPromise = this.initWorker()
-              await this.readyPromise
-            } catch (err) {
-              logger.error('[TTSWorkerManager] Worker restart failed:', err)
-              throw err
-            } finally {
-              this.isRestarting = false
-            }
-          } else {
-            // Wait for ongoing restart to finish
-            try {
-              await this.readyPromise
-            } catch (err) {
-              logger.error('[TTSWorkerManager] Worker restart failed during wait:', err)
-              throw err
-            }
-          }
+        logger.warn(`[TTSWorkerManager] ${label} retry ${attempt}/${maxRetries}:`, error.message)
+        if (isMemoryError(error.message)) {
+          logger.warn(`[TTSWorkerManager] Restarting worker due to memory error in ${label}`)
+          await this.restartWorkerIfNeeded()
         }
-        if (options.onProgress) {
-          options.onProgress(`Retrying... (attempt ${attempt}/${maxRetries})`)
-        }
+        if (onProgress) onProgress(`Retrying... (attempt ${attempt}/${maxRetries})`)
       },
     }).catch((error) => {
-      // Convert to structured error
-      const normalized = normalizeError(error, 'TTS generation')
-      if (options.onProgress) {
-        options.onProgress(normalized.getUserMessage())
-      }
+      const normalized = normalizeError(error, label)
+      if (onProgress) onProgress(normalized.getUserMessage())
       throw normalized
     })
   }
 
-  async generateSegments(options: {
-    text: string
-    modelType?: TTSModelType
-    voice?: string
-    speed?: number
-    pitch?: number
-    language?: string
-    onProgress?: (message: string) => void
-    onChunkProgress?: (current: number, total: number) => void
-    dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-    model?: string
-    device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
-  }): Promise<{ text: string; blob: Blob }[]> {
-    // Helper to execute the request with per-request timeout
-    const execute = async () => {
-      await this.readyPromise
-      if (!this.worker) throw new Error('Worker not initialized')
-
-      const id = `req_${++this.requestCounter}`
-
-      return new Promise<{ text: string; blob: Blob }[]>((resolve, reject) => {
-        // Per-request timeout to prevent indefinite hangs
-        const timer = setTimeout(() => {
-          if (this.pendingRequests.has(id)) {
-            this.pendingRequests.delete(id)
-            reject(new Error(`TTS segment request timed out after ${REQUEST_TIMEOUT_MS}ms`))
-          }
-        }, REQUEST_TIMEOUT_MS)
-
-        this.pendingRequests.set(id, {
-          resolve: (result) => {
-            clearTimeout(timer)
-            resolve(result)
+  async generateVoice(options: GenerateOptions): Promise<Blob> {
+    return this.withRetry(
+      'TTS generation',
+      async () => {
+        await this.readyPromise
+        if (!this.worker) throw new Error('Worker not initialized')
+        return this.dispatch<Blob>(
+          {
+            type: 'generate',
+            text: options.text,
+            modelType: options.modelType,
+            voice: options.voice,
+            speed: options.speed,
+            pitch: options.pitch,
+            language: options.language,
+            dtype: options.dtype,
+            model: options.model,
+            device: options.device,
+            advancedSettings: options.advancedSettings,
           },
-          reject: (err) => {
-            clearTimeout(timer)
-            reject(err)
-          },
-          onProgress: options.onProgress,
-          onChunkProgress: options.onChunkProgress,
-        })
-        const modelType = options.modelType
-
-        const request: WorkerRequest = {
-          id,
-          type: 'generate-segments',
-          text: options.text,
-          modelType: modelType,
-          voice: options.voice,
-          speed: options.speed,
-          pitch: options.pitch,
-          language: options.language,
-          dtype: options.dtype,
-          model: options.model,
-          device: options.device,
-        }
-
-        this.worker!.postMessage(request)
-      })
-    }
-
-    // Use retry with backoff for segment generation (same as generateVoice)
-    return retryWithBackoff(execute, {
-      maxRetries: 3,
-      initialDelay: 1000,
-      maxDelay: 5000,
-      shouldRetry: (error: Error) => {
-        const errorMsg = error.message
-        const isMemoryError =
-          errorMsg.includes('failed to allocate') ||
-          errorMsg.includes("Can't create a session") ||
-          errorMsg.includes('Out of memory') ||
-          errorMsg.includes('Aborted()')
-
-        if (isMemoryError) {
-          logger.warn(
-            '[TTSWorkerManager] Memory error in generateSegments, will retry with worker restart'
-          )
-          return true
-        }
-
-        return isRetryableError(error)
-      },
-      onRetry: async (attempt, maxRetries, error) => {
-        logger.warn(
-          `[TTSWorkerManager] generateSegments retry ${attempt}/${maxRetries}:`,
-          error.message
+          { onProgress: options.onProgress, onChunkProgress: options.onChunkProgress }
         )
-        const errorMsg = error.message
-        const isMemoryError =
-          errorMsg.includes('failed to allocate') ||
-          errorMsg.includes("Can't create a session") ||
-          errorMsg.includes('Out of memory') ||
-          errorMsg.includes('Aborted()')
-        if (isMemoryError) {
-          logger.warn(
-            '[TTSWorkerManager] Restarting worker due to memory error in generateSegments'
-          )
-          if (!this.isRestarting) {
-            this.isRestarting = true
-            this.terminate()
-            try {
-              this.readyPromise = this.initWorker()
-              await this.readyPromise
-            } catch (err) {
-              logger.error('[TTSWorkerManager] Worker restart failed:', err)
-              throw err
-            } finally {
-              this.isRestarting = false
-            }
-          } else {
-            try {
-              await this.readyPromise
-            } catch (err) {
-              logger.error('[TTSWorkerManager] Worker restart failed during wait:', err)
-              throw err
-            }
-          }
-        }
-        if (options.onProgress) {
-          options.onProgress(`Retrying... (attempt ${attempt}/${maxRetries})`)
-        }
       },
-    }).catch((error) => {
-      const normalized = normalizeError(error, 'TTS segment generation')
-      if (options.onProgress) {
-        options.onProgress(normalized.getUserMessage())
-      }
-      throw normalized
-    })
+      options.onProgress
+    )
+  }
+
+  async generateSegments(
+    options: Omit<GenerateOptions, 'advancedSettings'>
+  ): Promise<{ text: string; blob: Blob }[]> {
+    return this.withRetry(
+      'TTS segment generation',
+      async () => {
+        await this.readyPromise
+        if (!this.worker) throw new Error('Worker not initialized')
+        return this.dispatch<{ text: string; blob: Blob }[]>(
+          {
+            type: 'generate-segments',
+            text: options.text,
+            modelType: options.modelType,
+            voice: options.voice,
+            speed: options.speed,
+            pitch: options.pitch,
+            language: options.language,
+            dtype: options.dtype,
+            model: options.model,
+            device: options.device,
+          },
+          { onProgress: options.onProgress, onChunkProgress: options.onChunkProgress }
+        )
+      },
+      options.onProgress
+    )
   }
 
   cancelAll() {
-    // Reject pending promises with CancellationError
     const cancellationError = new CancellationError('TTS generation cancelled by user')
     this.pendingRequests.forEach((p) => p.reject(cancellationError))
     this.pendingRequests.clear()
 
-    // Restart the worker to stop in-progress work
     if (this.worker) {
       this.worker.terminate()
       this.worker = null
@@ -426,7 +340,6 @@ export class TTSWorkerManager {
   }
 
   terminate() {
-    // Reject all pending requests so callers don't hang indefinitely
     const terminationError = new Error('TTS worker terminated')
     this.pendingRequests.forEach((p) => p.reject(terminationError))
     this.pendingRequests.clear()
