@@ -1,5 +1,6 @@
 import { writable, derived, get } from 'svelte/store'
 import type { AudioSegment } from '../lib/types/audio'
+import logger from '../lib/utils/logger'
 
 /**
  * Represents the generation state of segments within a chapter
@@ -166,31 +167,40 @@ export const segmentProgressPercentage = derived(segmentProgress, ($progress) =>
  * Load segment progress from DB for chapters that have been partially or fully generated
  */
 export async function loadChapterSegmentProgress(bookId: number, chapterId: string) {
-  const { getChapterSegments } = await import('../lib/libraryDB')
-  const segments = await getChapterSegments(bookId, chapterId)
+  try {
+    logger.info(
+      `[loadChapterSegmentProgress] Loading segments for bookId=${bookId}, chapterId=${chapterId}`
+    )
+    const { getChapterSegments } = await import('../lib/libraryDB')
+    const segments = await getChapterSegments(bookId, chapterId)
+    logger.info(`[loadChapterSegmentProgress] Loaded ${segments.length} segments from DB`)
 
-  if (segments.length > 0) {
-    segmentProgress.update((map) => {
-      const newMap = new Map(map)
-      const segmentTexts = new Map<number, string>()
-      const generatedIndices = new Set<number>()
-      const generatedSegments = new Map<number, AudioSegment>()
+    if (segments.length > 0) {
+      segmentProgress.update((map) => {
+        const newMap = new Map(map)
+        const segmentTexts = new Map<number, string>()
+        const generatedIndices = new Set<number>()
+        const generatedSegments = new Map<number, AudioSegment>()
 
-      segments.forEach((s) => {
-        segmentTexts.set(s.index, s.text)
-        generatedIndices.add(s.index)
-        generatedSegments.set(s.index, s)
+        segments.forEach((s) => {
+          segmentTexts.set(s.index, s.text)
+          generatedIndices.add(s.index)
+          generatedSegments.set(s.index, s)
+        })
+
+        newMap.set(chapterId, {
+          totalSegments: segments.length,
+          generatedIndices,
+          segmentTexts,
+          generatedSegments,
+          isGenerating: false,
+          processingIndex: -1,
+        })
+        return newMap
       })
-
-      newMap.set(chapterId, {
-        totalSegments: segments.length,
-        generatedIndices,
-        segmentTexts,
-        generatedSegments,
-        isGenerating: false,
-        processingIndex: -1,
-      })
-      return newMap
-    })
+    }
+  } catch (error) {
+    logger.error(`[loadChapterSegmentProgress] Failed to load segments:`, error)
+    throw error
   }
 }

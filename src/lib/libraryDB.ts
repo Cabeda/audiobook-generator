@@ -1,5 +1,6 @@
 import type { Book } from './types/book'
 import type { AudioSegment } from './types/audio'
+import logger from './utils/logger'
 
 /**
  * Extended Book interface for library storage
@@ -751,6 +752,9 @@ export async function saveChapterSegments(
   chapterId: string,
   segments: AudioSegment[]
 ): Promise<void> {
+  logger.info(
+    `[saveChapterSegments] Saving ${segments.length} segments for bookId=${bookId}, chapterId=${chapterId}`
+  )
   const db = await openDB()
 
   return new Promise((resolve, reject) => {
@@ -758,19 +762,23 @@ export async function saveChapterSegments(
     const store = transaction.objectStore(SEGMENT_STORE_NAME)
 
     segments.forEach((segment) => {
-      store.put({
+      const record = {
         ...segment,
         bookId,
         chapterId,
-      })
+      }
+      logger.debug(`[saveChapterSegments] Putting segment ${segment.index}`)
+      store.put(record)
     })
 
     transaction.oncomplete = () => {
+      logger.info(`[saveChapterSegments] Successfully saved ${segments.length} segments`)
       db.close()
       resolve()
     }
 
     transaction.onerror = () => {
+      logger.error(`[saveChapterSegments] Transaction error:`, transaction.error)
       db.close()
       reject(new Error('Failed to save chapter segments'))
     }

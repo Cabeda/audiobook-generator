@@ -107,10 +107,16 @@ class SegmentBatchHandler {
    */
   async flush(): Promise<void> {
     if (this.batch.length === 0 || !this.bookId) {
+      logger.debug(
+        `[SegmentBatchHandler] Skipping flush: batch=${this.batch.length}, bookId=${this.bookId}`
+      )
       return
     }
 
     try {
+      logger.info(
+        `[SegmentBatchHandler] Flushing ${this.batch.length} segments for chapter ${this.chapterId}, bookId=${this.bookId}`
+      )
       await saveChapterSegments(this.bookId, this.chapterId, this.batch)
       logger.debug(`Flushed batch of ${this.batch.length} segments for chapter ${this.chapterId}`)
       this.batch = []
@@ -1044,7 +1050,8 @@ class GenerationService {
   async generateSingleChapterFromSegment(
     chapter: Chapter,
     startSegmentIndex: number = 0,
-    totalSegments?: number
+    totalSegments?: number,
+    bookId?: number
   ) {
     if (this.running) {
       logger.warn('Generation already running')
@@ -1082,10 +1089,10 @@ class GenerationService {
     this.priorityOverrides.set(chapter.id, startSegmentIndex)
 
     // Use the existing generateChapters method which handles priorities
-    await this.generateChapters([chapter])
+    await this.generateChapters([chapter], bookId)
   }
 
-  async generateChapters(chapters: Chapter[]) {
+  async generateChapters(chapters: Chapter[], explicitBookId?: number) {
     logger.info('[generateChapters] Starting generation', {
       chapterCount: chapters.length,
       chapters: chapters.map((ch) => ({
@@ -1284,7 +1291,10 @@ class GenerationService {
             ch.content = html
 
             // 2. Update the chapter content in DB with the injected HTML
-            const bookId = getBookId()
+            const bookId = explicitBookId ?? getBookId()
+            logger.info(
+              `[generateChapters] bookId for chapter ${ch.id}: ${bookId} (explicit: ${explicitBookId}, from store: ${getBookId()})`
+            )
 
             if (bookId) {
               const { updateChapterContent } = await import('../libraryDB')
@@ -1470,7 +1480,7 @@ class GenerationService {
             })
 
             // 2. Update Content
-            const bookId = getBookId()
+            const bookId = explicitBookId ?? getBookId()
             if (bookId) {
               const { updateChapterContent } = await import('../libraryDB')
               await updateChapterContent(bookId, ch.id, html)

@@ -13,6 +13,7 @@
     ensureChapterAudio,
     ensureChaptersAudio,
   } from '../stores/bookStore'
+  import { currentLibraryBookId } from '../stores/libraryStore'
   import {
     selectedModel as selectedModelStore,
     selectedVoice,
@@ -116,6 +117,19 @@
     checkMobile()
     window.addEventListener('resize', checkMobile)
     return () => window.removeEventListener('resize', checkMobile)
+  })
+
+  // Load generated audio from IndexedDB on mount
+  $effect(() => {
+    if (currentBook) {
+      const bookId = get(currentLibraryBookId)
+      if (bookId) {
+        const chapterIds = currentBook.chapters.map((ch) => ch.id)
+        ensureChaptersAudio(chapterIds).catch((err) => {
+          console.warn('Failed to load chapter audio on mount:', err)
+        })
+      }
+    }
   })
 
   function toggleChapter(id: string) {
