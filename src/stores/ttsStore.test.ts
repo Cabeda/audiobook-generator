@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -36,36 +35,7 @@ describe('TTS settings persistence', () => {
     expect(value).toBe('kokoro')
   })
 
-  it('selectedModel persists kitten across module reload', async () => {
-    localStorageMock.setItem('audiobook_model', JSON.stringify('kitten'))
-    const { selectedModel } = await import('../stores/ttsStore')
-    let value: string | undefined
-    selectedModel.subscribe((v) => {
-      value = v
-    })()
-    expect(value).toBe('kitten')
-  })
-
-  it('lastKittenVoice defaults to Bella', async () => {
-    const { lastKittenVoice } = await import('../stores/ttsStore')
-    let value: string | undefined
-    lastKittenVoice.subscribe((v) => {
-      value = v
-    })()
-    expect(value).toBe('Bella')
-  })
-
-  it('lastKittenVoice persists custom voice', async () => {
-    localStorageMock.setItem('audiobook_voice_kitten', JSON.stringify('Luna'))
-    const { lastKittenVoice } = await import('../stores/ttsStore')
-    let value: string | undefined
-    lastKittenVoice.subscribe((v) => {
-      value = v
-    })()
-    expect(value).toBe('Luna')
-  })
-
-  it('advancedSettings defaults kitten.modelVariant to micro', async () => {
+  it('advancedSettings defaults to schema defaults', async () => {
     const { advancedSettings } = await import('../stores/ttsStore')
     let value: Record<string, any> | undefined
     advancedSettings.subscribe((v) => {
@@ -97,20 +67,7 @@ describe('TTS settings persistence', () => {
     advancedSettings.subscribe((v) => {
       value = v
     })()
-    expect(value?.['kitten']?.modelVariant).toBe('mini')
-    expect(value?.['kitten']?.speed).toBe(1.0) // default
-  })
-
-  it('all kitten advanced setting keys match schema', async () => {
-    const { advancedSettings } = await import('../stores/ttsStore')
-    let value: Record<string, any> | undefined
-    advancedSettings.subscribe((v) => {
-      value = v
-    })()
-    const schemaKeys = ADVANCED_SETTINGS_SCHEMA['kitten'].map((s) => s.key)
-    const storeKeys = Object.keys(value?.['kitten'] ?? {})
-    for (const key of schemaKeys) {
-      expect(storeKeys).toContain(key)
-    }
+    expect(value?.['kokoro']).toBeDefined()
+    expect(value?.['piper']).toBeDefined()
   })
 })

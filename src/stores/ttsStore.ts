@@ -11,7 +11,7 @@ const MODEL_KEY = 'audiobook_model'
 // Type definitions
 export type Quantization = 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
 export type Device = 'auto' | 'wasm' | 'webgpu' | 'cpu'
-export type TTSModel = 'kokoro' | 'piper' | 'kitten'
+export type TTSModel = 'kokoro' | 'piper'
 
 // Get adaptive defaults based on device capabilities
 // Mobile devices get smaller/faster settings (q4 instead of q8)
@@ -118,7 +118,6 @@ export const lastPiperVoice = persistedWritable<string>(
   'audiobook_voice_piper',
   'en_US-hfc_female-medium'
 )
-export const lastKittenVoice = persistedWritable<string>('audiobook_voice_kitten', 'Bella')
 
 import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
 
@@ -216,13 +215,4 @@ export const voiceLabels: Record<string, string> = {
   bm_lewis: '🇬🇧 Lewis (Male British)',
   bm_daniel: '🇬🇧 Daniel (Male British)',
   bm_fable: '🇬🇧 Fable (Male British)',
-  // KittenTTS voices
-  Bella: '🐱 Bella (Female)',
-  Jasper: '🐱 Jasper (Male)',
-  Luna: '🐱 Luna (Female)',
-  Bruno: '🐱 Bruno (Male)',
-  Rosie: '🐱 Rosie (Female)',
-  Hugo: '🐱 Hugo (Male)',
-  Kiki: '🐱 Kiki (Female)',
-  Leo: '🐱 Leo (Male)',
 }

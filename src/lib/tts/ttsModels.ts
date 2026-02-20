@@ -3,7 +3,7 @@
  * Provides a unified interface for different TTS engines
  */
 
-export type TTSModelType = 'kokoro' | 'piper' | 'kitten'
+export type TTSModelType = 'kokoro' | 'piper'
 
 export interface TTSGenerateParams {
   text: string
@@ -78,24 +78,6 @@ export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> 
               text: params.text,
               voice: params.voice,
               speed: params.speed,
-            },
-            onChunkProgress,
-            onProgress
-          )
-        },
-      }
-    }
-    case 'kitten': {
-      const { generateVoice } = await import('../kitten/kittenClient')
-      return {
-        generateVoice: async (params, onChunkProgress, onProgress) => {
-          const kittenSettings = params.advancedSettings?.['kitten'] ?? {}
-          return generateVoice(
-            {
-              text: params.text,
-              voice: params.voice as any,
-              speed: kittenSettings.speed ?? params.speed,
-              variant: kittenSettings.modelVariant ?? 'micro',
             },
             onChunkProgress,
             onProgress

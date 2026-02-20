@@ -44,7 +44,7 @@ class AudioPlaybackService {
   private voice = ''
   private quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   private device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
-  private selectedModel: 'kokoro' | 'piper' | 'web_speech' | 'kitten' = 'kokoro'
+  private selectedModel: 'kokoro' | 'piper' | 'web_speech' = 'kokoro'
   playbackSpeed = $state(1.0)
 
   constructor() {
@@ -76,7 +76,7 @@ class AudioPlaybackService {
       voice: string
       quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'web_speech' | 'kitten'
+      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
       playbackSpeed?: number
     },
     options?: {
@@ -278,7 +278,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'web_speech' | 'kitten'
+      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -304,7 +304,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'web_speech' | 'kitten'
+      selectedModel?: 'kokoro' | 'piper' | 'web_speech'
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -656,7 +656,7 @@ class AudioPlaybackService {
     audioPlayerStore.setChapterDuration(0)
   }
 
-  getCurrentModel(): 'kokoro' | 'piper' | 'web_speech' | 'kitten' {
+  getCurrentModel(): 'kokoro' | 'piper' | 'web_speech' {
     return this.selectedModel
   }
 

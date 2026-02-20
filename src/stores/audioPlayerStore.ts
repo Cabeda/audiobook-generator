@@ -107,7 +107,7 @@ function createAudioPlayerStore() {
         voice: string
         quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
         device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-        selectedModel?: 'kokoro' | 'piper' | 'web_speech' | 'kitten'
+        selectedModel?: 'kokoro' | 'piper' | 'web_speech'
         playbackSpeed?: number
       },
       startPlaying: boolean = true,

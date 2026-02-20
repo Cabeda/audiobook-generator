@@ -37,7 +37,6 @@
     voiceLabels,
     lastKokoroVoice,
     lastPiperVoice,
-    lastKittenVoice,
   } from './stores/ttsStore'
   import { audioPlayerStore } from './stores/audioPlayerStore'
   import { currentLibraryBookId } from './stores/libraryStore'
@@ -145,19 +144,6 @@
             }
           })
         }
-      })
-    } else if (model === 'kitten') {
-      import('./lib/kitten/kittenVoices').then(({ listVoices }) => {
-        const voices = listVoices().map((v) => ({ id: v, label: voiceLabels[v] || v }))
-        availableVoices.set(voices)
-        untrack(() => {
-          const last = $lastKittenVoice
-          if (voices.find((v) => v.id === last)) {
-            selectedVoice.set(last)
-          } else if (voices.length > 0) {
-            selectedVoice.set(voices[0].id)
-          }
-        })
       })
     }
   })

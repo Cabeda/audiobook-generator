@@ -31,7 +31,7 @@
     voice: string
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper' | 'web_speech' | 'kitten'
+    selectedModel?: 'kokoro' | 'piper' | 'web_speech'
     onBack: () => void
     onChapterChange?: (chapter: Chapter) => void
   }>()
@@ -42,7 +42,7 @@
 
   // Initialize from localStorage if available
   let initialSpeed = 1.0
-  let initialModel: 'kokoro' | 'piper' | 'web_speech' | 'kitten' = selectedModel
+  let initialModel: 'kokoro' | 'piper' | 'web_speech' = selectedModel
   let initialVoice = voice
   try {
     const saved = localStorage.getItem(SPEED_KEY)
@@ -52,10 +52,7 @@
     const savedModel = localStorage.getItem(MODEL_KEY)
     if (
       savedModel &&
-      (savedModel === 'kokoro' ||
-        savedModel === 'piper' ||
-        savedModel === 'web_speech' ||
-        savedModel === 'kitten')
+      (savedModel === 'kokoro' || savedModel === 'piper' || savedModel === 'web_speech')
     ) {
       initialModel = savedModel
     }
@@ -70,7 +67,7 @@
   }
 
   // Local model state for text reader
-  let localModel = $state<'kokoro' | 'piper' | 'web_speech' | 'kitten'>(initialModel)
+  let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(initialModel)
   let localVoice = $state(initialVoice)
 
   // Settings menu state
@@ -81,7 +78,6 @@
   let savedProgress: { chapterId: string; segmentIndex: number } | null = null
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
   let piperVoices = $state<Array<{ key: string; name: string; language: string }>>([])
-  let kittenVoices = $state<string[]>([])
   let pendingPlaySegment: number | null = null // Track segment waiting for generation to auto-play
 
   // Sort voices to show detected language first
@@ -893,9 +889,6 @@
     // Load Piper voices
     loadPiperVoices()
 
-    // Load Kitten voices
-    loadKittenVoices()
-
     // Keyboard shortcuts
     const handleKeyPress = (e: KeyboardEvent) => {
       // Ignore if typing in input or settings open
@@ -1012,15 +1005,6 @@
       })
     } catch (e) {
       console.error('Failed to load Piper voices:', e)
-    }
-  }
-
-  async function loadKittenVoices() {
-    try {
-      const { listVoices } = await import('../lib/kitten/kittenVoices')
-      kittenVoices = listVoices()
-    } catch (e) {
-      console.error('Failed to load Kitten voices:', e)
     }
   }
 
@@ -1232,7 +1216,6 @@
             <option value="web_speech">Web Speech API</option>
             <option value="kokoro">Kokoro TTS</option>
             <option value="piper">Piper TTS</option>
-            <option value="kitten">Kitten TTS</option>
           </select>
           {#if localModel !== 'web_speech'}
             <span class="hint">Changes sync with chapter settings</span>
@@ -1256,10 +1239,6 @@
             {:else if localModel === 'piper'}
               {#each piperVoices as piperVoice}
                 <option value={piperVoice.key}>{piperVoice.name} ({piperVoice.language})</option>
-              {/each}
-            {:else if localModel === 'kitten'}
-              {#each kittenVoices as kittenVoice}
-                <option value={kittenVoice}>{kittenVoice}</option>
               {/each}
             {:else}
               {#each sortedWebSpeechVoices() as wsVoice}
