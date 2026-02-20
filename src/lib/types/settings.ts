@@ -130,6 +130,32 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
         'Number of text segments to generate audio for simultaneously. Higher values speed up generation but use more memory.',
     },
   ],
+  kitten: [
+    {
+      key: 'modelVariant',
+      label: 'Model Variant',
+      type: 'select',
+      defaultValue: 'micro',
+      group: 'Model',
+      description: 'nano (~24MB, fastest) · micro (~41MB, balanced) · mini (~166MB, best quality)',
+      options: [
+        { value: 'nano', label: 'Nano (~24MB, fastest)' },
+        { value: 'micro', label: 'Micro (~41MB, balanced)' },
+        { value: 'mini', label: 'Mini (~166MB, best quality)' },
+      ],
+    },
+    {
+      key: 'speed',
+      label: 'Speed',
+      type: 'slider',
+      min: 0.5,
+      max: 2.0,
+      step: 0.1,
+      defaultValue: 1.0,
+      group: 'Audio Characteristics',
+      description: 'Speech rate multiplier.',
+    },
+  ],
   global: [
     {
       key: 'parallelChapters',
