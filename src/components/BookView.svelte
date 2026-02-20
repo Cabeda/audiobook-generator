@@ -908,6 +908,7 @@
     padding: 0 8px;
     flex: 1;
     min-height: 0;
+    overflow-y: auto;
   }
 
   .chapter-list {
@@ -1069,6 +1070,8 @@
     border-radius: 12px;
     background: var(--feature-bg);
     border: 1px solid var(--border-color);
+    max-height: 400px;
+    overflow-y: auto;
   }
 
   .setting-group-title {
