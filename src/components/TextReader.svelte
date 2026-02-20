@@ -12,6 +12,7 @@
   import AudioPlayerBar from './AudioPlayerBar.svelte'
   import logger from '../lib/utils/logger'
   import { saveProgress, loadProgress } from '../lib/progressStore'
+  import { loadChapterSegmentProgress } from '../stores/segmentProgressStore'
 
   let {
     chapter,
@@ -77,6 +78,7 @@
   let savedProgress: { chapterId: string; segmentIndex: number } | null = null
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
   let piperVoices = $state<Array<{ key: string; name: string; language: string }>>([])
+  let pendingPlaySegment: number | null = null // Track segment waiting for generation to auto-play
 
   // Sort voices to show detected language first
   let sortedWebSpeechVoices = $derived(() => {
@@ -126,14 +128,26 @@
       const cId = chapter.id
       const bId = bookId
 
+      // Always load progressive segments from IndexedDB on mount
+      // This ensures segments generated before page refresh are available
+      loadChapterSegmentProgress(bId, cId).catch((err) => {
+        logger.warn('Failed to load segment progress from DB:', err)
+      })
+
       // Check if already loaded for this chapter
       const needsLoad = untrack(() => {
         const store = get(audioPlayerStore)
+        logger.info(
+          `[TextReader] Checking if load needed: store.bookId=${store.bookId}, bId=${bId}, store.chapterId=${store.chapterId}, cId=${cId}`
+        )
         return !(store.bookId === bId && store.chapterId === cId)
       })
 
       // On hard refresh the store may think the chapter is loaded while the service is empty.
       const shouldInitialize = needsLoad || audioService.segments.length === 0
+      logger.info(
+        `[TextReader] needsLoad=${needsLoad}, audioService.segments.length=${audioService.segments.length}, shouldInitialize=${shouldInitialize}`
+      )
 
       if (shouldInitialize) {
         isLoading = true
@@ -494,6 +508,19 @@
     }
   })
 
+  // Auto-play segment when it becomes available after user clicked it
+  $effect(() => {
+    if (pendingPlaySegment === null || !chapter?.id) return
+
+    const segmentData = getGeneratedSegment(chapter.id, pendingPlaySegment)
+    if (segmentData) {
+      logger.info(`Auto-playing segment ${pendingPlaySegment} after generation`)
+      audioService.injectProgressiveSegment(segmentData)
+      audioService.playFromSegment(pendingPlaySegment)
+      pendingPlaySegment = null // Clear pending state
+    }
+  })
+
   // Scroll to current segment
   $effect(() => {
     const index = audioService.currentSegmentIndex
@@ -746,22 +773,32 @@
         return
       }
 
-      if (!hasAudio && !isGenerating) {
-        // No audio and not generating - start generation from this segment
-        // Pass the total segment count for immediate progress display
-        const totalSegments = audioService.segments.length
-        generationService
-          .generateSingleChapterFromSegment(chapter, index, totalSegments)
-          .catch((err) => {
-            logger.error('Failed to start generation from segment', err)
-          })
-      } else {
-        // Has audio or already generating - inject progressive segment if available, then play
+      // If we have audio, inject it and play
+      if (hasAudio && segmentData) {
+        audioService.injectProgressiveSegment(segmentData)
+        audioService.playFromSegment(index)
+        return
+      }
+
+      // If generating, set priority and play if available
+      if (isGenerating) {
+        generationService.setGenerationPriority(chapter.id, index)
         if (segmentData) {
           audioService.injectProgressiveSegment(segmentData)
         }
         audioService.playFromSegment(index)
+        return
       }
+
+      // No audio and not generating - start generation from this segment
+      const totalSegments = audioService.segments.length
+      pendingPlaySegment = index // Mark this segment for auto-play when ready
+      generationService
+        .generateSingleChapterFromSegment(chapter, index, totalSegments, bookId ?? undefined)
+        .catch((err) => {
+          logger.error('Failed to start generation from segment', err)
+          pendingPlaySegment = null // Clear on error
+        })
     }
   }
 
@@ -778,21 +815,32 @@
           const segmentData = getGeneratedSegment(chapter.id, index)
           const hasAudio = !!segmentData
 
-          if (!hasAudio && !isGenerating) {
-            // No audio and not generating - start generation from this segment
-            const totalSegments = audioService.segments.length
-            generationService
-              .generateSingleChapterFromSegment(chapter, index, totalSegments)
-              .catch((err) => {
-                logger.error('Failed to start generation from segment', err)
-              })
-          } else {
-            // Has audio or already generating - inject progressive segment if available, then play
+          // If we have audio, inject it and play
+          if (hasAudio && segmentData) {
+            audioService.injectProgressiveSegment(segmentData)
+            audioService.playFromSegment(index)
+            return
+          }
+
+          // If generating, set priority and play if available
+          if (isGenerating) {
+            generationService.setGenerationPriority(chapter.id, index)
             if (segmentData) {
               audioService.injectProgressiveSegment(segmentData)
             }
             audioService.playFromSegment(index)
+            return
           }
+
+          // No audio and not generating - start generation from this segment
+          const totalSegments = audioService.segments.length
+          pendingPlaySegment = index // Mark this segment for auto-play when ready
+          generationService
+            .generateSingleChapterFromSegment(chapter, index, totalSegments, bookId ?? undefined)
+            .catch((err) => {
+              logger.error('Failed to start generation from segment', err)
+              pendingPlaySegment = null // Clear on error
+            })
         }
       }
     }
