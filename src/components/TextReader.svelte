@@ -6,13 +6,24 @@
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
-  import { segmentProgress, getGeneratedSegment } from '../stores/segmentProgressStore'
+  import {
+    segmentProgress,
+    getGeneratedSegment,
+    initChapterSegments,
+    markSegmentGenerated,
+  } from '../stores/segmentProgressStore'
   import { segmentHtmlContent, generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
   import logger from '../lib/utils/logger'
   import { saveProgress, loadProgress } from '../lib/progressStore'
   import { loadChapterSegmentProgress } from '../stores/segmentProgressStore'
+  import { appSettings } from '../stores/appSettingsStore'
+  import {
+    scheduleUpgradePass,
+    cancelUpgrade,
+    startFastPass,
+  } from '../lib/services/adaptiveQualityService'
 
   let {
     chapter,
@@ -22,6 +33,7 @@
     quantization,
     device = 'auto',
     selectedModel = 'kokoro',
+    chapters = [],
     onBack,
     onChapterChange,
   } = $props<{
@@ -32,6 +44,7 @@
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
     selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+    chapters?: Chapter[]
     onBack: () => void
     onChapterChange?: (chapter: Chapter) => void
   }>()
@@ -70,6 +83,28 @@
   let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(initialModel)
   let localVoice = $state(initialVoice)
 
+  // Chapter progress
+  let chapterIndex = $derived(chapters.findIndex((c: Chapter) => c.id === chapter.id))
+  let chapterTotal = $derived(chapters.length)
+
+  // Font size
+  const FONT_SIZE_KEY = 'text_reader_font_size'
+  let fontSize = $state(18)
+  try {
+    const savedFs = localStorage.getItem(FONT_SIZE_KEY)
+    if (savedFs) fontSize = parseInt(savedFs, 10)
+  } catch (e) {
+    // ignore
+  }
+  function changeFontSize(delta: number) {
+    fontSize = Math.min(32, Math.max(12, fontSize + delta))
+    try {
+      localStorage.setItem(FONT_SIZE_KEY, String(fontSize))
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
   // Settings menu state
   let showSettings = $state(false)
   let showKeyboardHelp = $state(false)
@@ -77,7 +112,9 @@
   let showResumePrompt = $state(false)
   let savedProgress: { chapterId: string; segmentIndex: number } | null = null
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
-  let piperVoices = $state<Array<{ key: string; name: string; language: string }>>([])
+  let piperVoices = $state<Array<{ key: string; name: string; language: string; quality: string }>>(
+    []
+  )
   let pendingPlaySegment: number | null = null // Track segment waiting for generation to auto-play
 
   // Sort voices to show detected language first
@@ -202,6 +239,28 @@
               isLoading = false
               segmentsLoaded = true
 
+              // Schedule background quality upgrade if enabled
+              const aqSettings = get(appSettings).adaptiveQuality
+              if (aqSettings.enabled && bookId) {
+                const lang = chapter.detectedLanguage || chapter.language || 'en'
+                const piperVoiceList = piperVoices.map((v) => ({
+                  key: v.key,
+                  name: v.name,
+                  language: v.language,
+                  quality: v.quality as 'low' | 'medium' | 'high',
+                }))
+                scheduleUpgradePass(
+                  cId,
+                  bookId,
+                  lang,
+                  piperVoiceList,
+                  () => audioService.currentSegmentIndex,
+                  (upgraded) =>
+                    audioService.replaceSegmentAudio(upgraded.index, upgraded.audioBlob),
+                  aqSettings.upgradePlayedSegments
+                )
+              }
+
               const store = get(audioPlayerStore)
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
 
@@ -212,6 +271,11 @@
                   savedProg && savedProg.chapterId === chapter.id && savedProg.segmentIndex > 0
                 audioService.playFromSegment(startSeg, !hasSavedProgress).catch((err) => {
                   console.error('Initial seek failed:', err)
+                })
+              } else {
+                // No pre-generated audio — start fast pass so audio begins immediately
+                triggerFastPass(cId, bId, aqSettings.enabled).catch((err) => {
+                  logger.warn('[TextReader] Fast pass failed:', err)
                 })
               }
             } else {
@@ -246,10 +310,15 @@
                 isLoading = false
                 segmentsLoaded = true
               } else {
-                // Audio not available initially, but we still load the text for reading
-                // User can click segments to generate audio on-demand
+                // Audio not available initially — start fast pass so audio begins immediately
                 isLoading = false
                 segmentsLoaded = true
+                const aqSettings2 = get(appSettings).adaptiveQuality
+                if (aqSettings2.enabled) {
+                  triggerFastPass(cId, bId, true).catch((err) => {
+                    logger.warn('[TextReader] Fast pass failed:', err)
+                  })
+                }
               }
             }
           })
@@ -298,6 +367,69 @@
     })
     segs.sort((a, b) => a.index - b.index)
     audioService.segments = segs
+  }
+
+  /**
+   * Run the fast pass for a chapter that has no pre-generated audio.
+   * Generates all segments at the cheapest available tier so playback starts
+   * immediately, then optionally schedules the background upgrade pass.
+   */
+  async function triggerFastPass(
+    cId: string,
+    bId: number,
+    scheduleUpgrade: boolean
+  ): Promise<void> {
+    const aqSettings = get(appSettings).adaptiveQuality
+    if (!aqSettings.enabled) return
+
+    const segs = audioService.segments
+    if (segs.length === 0) return
+
+    const lang = chapter.detectedLanguage || chapter.language || 'en'
+    const piperVoiceList = piperVoices.map((v) => ({
+      key: v.key,
+      name: v.name,
+      language: v.language,
+      quality: v.quality as 'low' | 'medium' | 'high',
+    }))
+
+    const segInput = segs.map((s) => ({
+      index: s.index,
+      text: s.text,
+      id: `${cId}-${s.index}`,
+      chapterId: cId,
+    }))
+
+    // Initialize segment store so upgrade pass can track quality tiers
+    initChapterSegments(cId, segInput)
+
+    let firstSegmentPlayed = false
+
+    await startFastPass(
+      segInput,
+      lang,
+      piperVoiceList,
+      (segment) => {
+        audioService.injectProgressiveSegment(segment)
+        if (!firstSegmentPlayed) {
+          firstSegmentPlayed = true
+          audioService.playFromSegment(segment.index)
+        }
+      },
+      aqSettings.skipWebSpeech
+    )
+
+    if (scheduleUpgrade) {
+      scheduleUpgradePass(
+        cId,
+        bId,
+        lang,
+        piperVoiceList,
+        () => audioService.currentSegmentIndex,
+        (upgraded) => audioService.replaceSegmentAudio(upgraded.index, upgraded.audioBlob),
+        aqSettings.upgradePlayedSegments
+      )
+    }
   }
 
   // Update playback speed when changed
@@ -995,6 +1127,7 @@
   }
 
   onDestroy(() => {
+    if (chapter?.id) cancelUpgrade(chapter.id)
     audioService.stop()
   })
 </script>
@@ -1012,14 +1145,14 @@
           <div class="main-title" aria-label="Chapter title">{chapter.title}</div>
         </div>
         <div class="header-actions">
-          <button
-            class="theme-toggle"
-            onclick={cycleTheme}
-            aria-label={`Switch theme (current ${themeLabels[currentTheme]})`}
-          >
-            <span class="theme-icon">{themeIcons[currentTheme]}</span>
-            <span class="theme-label">{themeLabels[currentTheme]}</span>
-          </button>
+          {#if chapterTotal > 0}
+            <span
+              class="chapter-progress"
+              aria-label="Chapter {chapterIndex + 1} of {chapterTotal}"
+            >
+              {chapterIndex + 1} / {chapterTotal}
+            </span>
+          {/if}
         </div>
       </div>
     </div>
@@ -1029,6 +1162,7 @@
     <div
       class="text-content"
       role="main"
+      style="font-size: {fontSize}px"
       onclick={handleContentClick}
       onkeydown={handleContentKeyDown}
       bind:this={textContentEl}
@@ -1156,6 +1290,23 @@
         </div>
 
         <div class="setting-item">
+          <label>Font Size</label>
+          <div class="font-size-selector">
+            <button
+              class="font-size-btn"
+              onclick={() => changeFontSize(-2)}
+              aria-label="Decrease font size">A−</button
+            >
+            <span class="font-size-value">{fontSize}px</span>
+            <button
+              class="font-size-btn"
+              onclick={() => changeFontSize(2)}
+              aria-label="Increase font size">A+</button
+            >
+          </div>
+        </div>
+
+        <div class="setting-item">
           <label for="theme-select">Theme</label>
           <div class="theme-selector">
             <button
@@ -1249,9 +1400,9 @@
     --header-bg: rgba(30, 30, 30, 0.95);
     --border-color: rgba(255, 255, 255, 0.1);
     --surface-color: #2a2a2a;
-    --highlight-bg: rgba(255, 255, 0, 0.2);
+    --highlight-bg: rgba(250, 204, 21, 0.35);
     --highlight-text: inherit;
-    --highlight-border: #ffd700;
+    --highlight-border: #fbbf24;
     --buffered-text: #d0d0d0;
     --unprocessed-text: #808080;
     --hover-bg: rgba(255, 255, 255, 0.05);
@@ -1592,9 +1743,12 @@
   }
 
   :global(.segment.active) {
-    background-color: var(--selected-bg);
-    color: var(--text-color);
-    box-shadow: 0 0 0 2px var(--primary-color);
+    background-color: var(--highlight-bg);
+    color: var(--highlight-text);
+    border-radius: 3px;
+    box-shadow: none;
+    outline: 2px solid var(--highlight-border);
+    outline-offset: 1px;
   }
 
   /* Progressive Generation Segment States */
@@ -1728,6 +1882,45 @@
     background: var(--surface-color);
   }
 
+  .font-size-selector {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .font-size-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-color);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .font-size-btn:hover {
+    background: var(--surface-color);
+  }
+
+  .font-size-value {
+    min-width: 40px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--secondary-text);
+  }
+
+  .chapter-progress {
+    font-size: 0.8rem;
+    color: var(--secondary-text);
+    white-space: nowrap;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+  }
+
   /* Subtle indicator for buffered segments */
   .theme-selector {
     display: flex;
@@ -1793,10 +1986,42 @@
   }
 
   @media (max-width: 640px) {
+    .reader-header {
+      padding: 8px 12px;
+      gap: 6px;
+    }
+
+    .header-title .eyebrow {
+      display: none;
+    }
+
+    .header-title .main-title {
+      font-size: 15px;
+    }
+
+    .back-button {
+      padding: 6px 10px;
+      font-size: 0.85rem;
+    }
+
+    .header-actions {
+      min-width: auto;
+    }
+
+    .chapter-progress {
+      font-size: 0.75rem;
+      padding: 2px 6px;
+    }
+
     .text-content {
       padding: 16px 16px 100px 16px;
       font-size: 17px;
       line-height: 1.7;
+    }
+
+    .info-banner {
+      padding: 8px 12px;
+      font-size: 0.82rem;
     }
 
     .settings-menu {

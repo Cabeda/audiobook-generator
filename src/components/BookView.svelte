@@ -787,8 +787,8 @@
 
   /* Buttons */
   .primary-btn {
-    background: var(--primary-color);
-    color: var(--bg-color);
+    background: var(--success-color, #22c55e);
+    color: white;
     border: none;
     padding: 10px 24px;
     border-radius: 10px;
@@ -802,7 +802,7 @@
   }
 
   .primary-btn:hover:not(:disabled) {
-    background: var(--primary-hover);
+    filter: brightness(1.1);
     box-shadow: 0 6px 16px var(--shadow-color);
   }
 
@@ -818,8 +818,8 @@
   }
 
   .export-primary-btn {
-    background: var(--success-color, #22c55e);
-    color: white;
+    background: var(--primary-color);
+    color: var(--bg-color);
     border: none;
     font-weight: 600;
     font-size: 1rem;
@@ -847,7 +847,7 @@
   }
 
   .export-primary-btn:hover:not(:disabled) {
-    background: var(--success-hover, #16a34a);
+    background: var(--primary-hover);
   }
 
   .export-main:hover:not(:disabled) {
@@ -1072,9 +1072,30 @@
     .toolbar {
       flex-direction: column;
       align-items: stretch;
+      padding: 8px 12px;
+      gap: 8px;
+      border-radius: 0;
     }
     .toolbar-left {
-      flex-direction: column;
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+    .toolbar-left .premium-select {
+      flex: 1;
+      min-width: 0;
+    }
+    .toolbar-right {
+      flex-wrap: wrap;
+    }
+    .toolbar-right .primary-btn,
+    .toolbar-right .cancel-btn {
+      flex: 1;
+    }
+    .export-split-btn {
+      flex: 1;
+    }
+    .export-main {
+      flex: 1;
     }
   }
 

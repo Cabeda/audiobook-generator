@@ -565,12 +565,30 @@
 
     /* Reader mode mobile */
     .reader .player-content {
-      padding: 8px 12px;
-      gap: 8px;
+      padding: 6px 12px 8px;
+      gap: 4px;
+      flex-wrap: wrap;
     }
 
     .reader .controls {
-      gap: 4px;
+      gap: 2px;
+      order: 1;
+      flex: 1 1 100%;
+      justify-content: center;
+    }
+
+    .reader .progress-section {
+      order: 2;
+      flex: 1 1 100%;
+      max-width: 100%;
+      padding: 0 4px;
+    }
+
+    .reader .actions {
+      order: 0;
+      position: absolute;
+      top: 8px;
+      right: 12px;
     }
 
     .reader .control-btn {
@@ -580,11 +598,6 @@
     .reader .control-btn.play-pause {
       width: 36px;
       height: 36px;
-    }
-
-    .reader .progress-section {
-      width: 100%;
-      gap: 8px;
     }
 
     .time {

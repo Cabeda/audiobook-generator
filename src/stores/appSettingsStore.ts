@@ -12,13 +12,31 @@ export interface LanguageDefault {
   voice?: string
 }
 
+export interface AdaptiveQualitySettings {
+  /** Master toggle for adaptive quality TTS */
+  enabled: boolean
+  /** Skip Tier 0 (Web Speech), start at Tier 1 */
+  skipWebSpeech: boolean
+  /** Upgrade already-played segments in the background */
+  upgradePlayedSegments: boolean
+}
+
 export interface AppSettings {
   /** Per-language model/voice defaults keyed by ISO 639-1 code */
   languageDefaults: Record<string, LanguageDefault>
+  /** Adaptive quality TTS settings */
+  adaptiveQuality: AdaptiveQualitySettings
+}
+
+const DEFAULT_ADAPTIVE_QUALITY: AdaptiveQualitySettings = {
+  enabled: true,
+  skipWebSpeech: false,
+  upgradePlayedSegments: true,
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
   languageDefaults: {},
+  adaptiveQuality: DEFAULT_ADAPTIVE_QUALITY,
 }
 
 function loadSettings(): AppSettings {
@@ -33,6 +51,10 @@ function loadSettings(): AppSettings {
         languageDefaults: {
           ...DEFAULT_SETTINGS.languageDefaults,
           ...(parsed.languageDefaults ?? {}),
+        },
+        adaptiveQuality: {
+          ...DEFAULT_ADAPTIVE_QUALITY,
+          ...(parsed.adaptiveQuality ?? {}),
         },
       }
     }
