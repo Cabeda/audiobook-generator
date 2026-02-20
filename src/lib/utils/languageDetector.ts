@@ -26,8 +26,10 @@ const MAX_SAMPLE_LENGTH = 1000
 const MIN_TEXT_LENGTH = 20
 
 /**
- * Detect the language of a text sample
- * Uses franc-min for lightweight detection
+ * Detect the language of a text sample.
+ * Runs franc synchronously but only on a short sample (≤1000 chars),
+ * keeping main-thread impact minimal. For bulk book-level detection
+ * (many chapters at once) callers should use a scheduler or idle callback.
  *
  * @param text The text to analyze
  * @returns Detection result with ISO 639-3 code converted to ISO 639-1 and confidence
