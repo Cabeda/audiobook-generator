@@ -83,6 +83,11 @@
   // Local state for UI
   let showSettings = $state(false)
   let isGenerating = $state(false)
+  let heroCollapsed = $state(false)
+
+  function handleContentScroll(e: Event) {
+    heroCollapsed = (e.currentTarget as HTMLElement).scrollTop > 60
+  }
   let showAdvanced = $state(false)
   let selectedFormat = $state<'mp3' | 'mp4' | 'm4b' | 'wav' | 'epub'>('mp3')
   let showFormatPicker = $state(false)
@@ -373,7 +378,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <svelte:window onclick={() => (showFormatPicker = false)} />
 
-<div class="book-view" in:fade>
+<div class="book-view" class:hero-collapsed={heroCollapsed} onscroll={handleContentScroll} in:fade>
   {#if currentBook}
     <!-- Hero Header -->
     <div class="hero-header">
@@ -403,6 +408,9 @@
 
     <!-- Toolbar -->
     <div class="toolbar">
+      {#if heroCollapsed}
+        <span class="toolbar-title" transition:fade={{ duration: 150 }}>{currentBook.title}</span>
+      {/if}
       <div class="toolbar-left">
         <select bind:value={$selectedModelStore} disabled={isGenerating} class="premium-select">
           {#each TTS_MODELS as model}
@@ -659,7 +667,8 @@
     flex-direction: column;
     height: 100%;
     gap: 24px;
-    padding-bottom: 80px; /* Space for player bar */
+    padding-bottom: 80px;
+    overflow-y: auto;
   }
 
   /* Hero Header */
@@ -671,6 +680,20 @@
     color: white;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
     min-height: 200px;
+    transition:
+      min-height 0.3s ease,
+      padding 0.3s ease,
+      opacity 0.3s ease;
+  }
+
+  .hero-collapsed .hero-header {
+    min-height: 0;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+    height: 0;
+    margin: 0;
   }
 
   .hero-bg {
@@ -748,6 +771,16 @@
     position: sticky;
     top: 0;
     z-index: 10;
+  }
+
+  .toolbar-title {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
   }
 
   .toolbar-left {
@@ -922,7 +955,6 @@
     padding: 0 8px;
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
   }
 
   .chapter-list {
