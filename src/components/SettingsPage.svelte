@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { appSettings, type LanguageDefault } from '../stores/appSettingsStore'
   import { LANGUAGE_OPTIONS, getLanguageLabel } from '../lib/utils/languageResolver'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
@@ -10,6 +11,15 @@
     isKokoroLanguageSupported,
   } from '../lib/utils/voiceSelector'
   import { piperVoices, loadPiperVoices } from '../stores/piperVoicesStore'
+  import {
+    getStorageInfo,
+    clearLibraryData,
+    clearModelCache,
+    clearAllData,
+    formatBytes,
+    type StorageInfo,
+  } from '../lib/storageManager'
+  import { toastStore } from '../stores/toastStore'
 
   interface Props {
     onBack: () => void
@@ -20,9 +30,26 @@
   let settings = $derived($appSettings)
   let addingLanguage = $state(false)
   let newLangCode = $state('')
+  let storageInfo = $state<StorageInfo | null>(null)
+  let loadingStorage = $state(false)
 
   // Load piper voices via shared store (once across app)
   loadPiperVoices()
+
+  onMount(() => {
+    loadStorageInfo()
+  })
+
+  async function loadStorageInfo() {
+    loadingStorage = true
+    try {
+      storageInfo = await getStorageInfo()
+    } catch (e) {
+      console.error('Failed to load storage info:', e)
+    } finally {
+      loadingStorage = false
+    }
+  }
 
   let configuredLanguages = $derived(Object.keys(settings.languageDefaults))
 
@@ -66,6 +93,44 @@
   function handleVoiceChange(langCode: string, event: Event) {
     const value = (event.target as HTMLSelectElement).value || undefined
     appSettings.setLanguageDefault(langCode, { voice: value })
+  }
+
+  async function handleClearLibrary() {
+    if (!confirm('Delete all books, audio, and segments? This cannot be undone.')) return
+    try {
+      await clearLibraryData()
+      toastStore.show('Library data cleared', 'success')
+      await loadStorageInfo()
+    } catch (e) {
+      toastStore.show('Failed to clear library data', 'error')
+    }
+  }
+
+  async function handleClearModels() {
+    if (!confirm('Delete all cached TTS models? They will be re-downloaded when needed.')) return
+    try {
+      await clearModelCache()
+      toastStore.show('Model cache cleared', 'success')
+      await loadStorageInfo()
+    } catch (e) {
+      toastStore.show('Failed to clear model cache', 'error')
+    }
+  }
+
+  async function handleClearAll() {
+    if (
+      !confirm(
+        'Delete EVERYTHING (books, audio, models, settings)? This cannot be undone and will reload the page.'
+      )
+    )
+      return
+    try {
+      await clearAllData()
+      toastStore.show('All data cleared', 'success')
+      setTimeout(() => window.location.reload(), 1000)
+    } catch (e) {
+      toastStore.show('Failed to clear all data', 'error')
+    }
   }
 </script>
 
@@ -157,6 +222,55 @@
       <button class="add-btn" onclick={() => (addingLanguage = true)}>
         + Add language default
       </button>
+    {/if}
+  </section>
+
+  <section class="settings-section">
+    <h3>Storage Management</h3>
+    <p class="section-desc">
+      Manage cached data, models, and library storage. Free up space by deleting unused items.
+    </p>
+
+    {#if loadingStorage}
+      <p class="empty-hint">Loading storage info...</p>
+    {:else if storageInfo}
+      <div class="storage-info">
+        <div class="storage-stat">
+          <span class="stat-label">Total Storage Used:</span>
+          <span class="stat-value">{formatBytes(storageInfo.totalSize)}</span>
+        </div>
+        <div class="storage-stat">
+          <span class="stat-label">Books:</span>
+          <span class="stat-value">{storageInfo.books}</span>
+        </div>
+        <div class="storage-stat">
+          <span class="stat-label">Audio Chapters:</span>
+          <span class="stat-value">{storageInfo.audio}</span>
+        </div>
+        <div class="storage-stat">
+          <span class="stat-label">Segments:</span>
+          <span class="stat-value">{storageInfo.segments}</span>
+        </div>
+      </div>
+
+      {#if storageInfo.models.length > 0}
+        <div class="models-list">
+          <h4>Cached Models</h4>
+          {#each storageInfo.models as model}
+            <div class="model-item">
+              <span>{model.name}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      <div class="storage-actions">
+        <button class="danger-btn" onclick={handleClearLibrary}> Clear Library Data </button>
+        <button class="danger-btn" onclick={handleClearModels}>Clear Model Cache</button>
+        <button class="danger-btn critical" onclick={handleClearAll}> Clear Everything </button>
+      </div>
+
+      <button class="refresh-btn" onclick={loadStorageInfo}>↻ Refresh</button>
     {/if}
   </section>
 </div>
@@ -357,6 +471,108 @@
     color: var(--secondary-text);
     cursor: pointer;
     font-size: 0.85rem;
+  }
+
+  .storage-info {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .storage-stat {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .storage-stat:last-child {
+    border-bottom: none;
+  }
+
+  .stat-label {
+    color: var(--secondary-text);
+    font-size: 0.9rem;
+  }
+
+  .stat-value {
+    color: var(--text-color);
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .models-list {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .models-list h4 {
+    margin: 0 0 12px 0;
+    font-size: 0.95rem;
+    color: var(--text-color);
+  }
+
+  .model-item {
+    padding: 8px 0;
+    color: var(--secondary-text);
+    font-size: 0.85rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .model-item:last-child {
+    border-bottom: none;
+  }
+
+  .storage-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .danger-btn {
+    padding: 10px 16px;
+    background: #dc2626;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+
+  .danger-btn:hover {
+    background: #b91c1c;
+  }
+
+  .danger-btn.critical {
+    background: #991b1b;
+  }
+
+  .danger-btn.critical:hover {
+    background: #7f1d1d;
+  }
+
+  .refresh-btn {
+    padding: 8px 16px;
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--secondary-text);
+    cursor: pointer;
+    font-size: 0.85rem;
+    width: fit-content;
+  }
+
+  .refresh-btn:hover {
+    border-color: var(--text-color);
+    color: var(--text-color);
   }
 
   @media (max-width: 480px) {
