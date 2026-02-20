@@ -1513,12 +1513,12 @@ class GenerationService {
 
                 const blob = await worker.generateVoice({
                   text: segment.text,
-                  modelType: 'piper', // Piper
+                  modelType: effectiveModel as import('../tts/ttsModels').TTSModelType,
                   voice: effectiveVoice,
                   device: currentDevice,
                   language: effectiveLanguage,
                   advancedSettings: currentAdvancedSettings,
-                  // No dtype for Piper
+                  // No dtype for Piper/Kitten
                 })
 
                 const duration = await parseWavDuration(blob)

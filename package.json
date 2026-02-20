@@ -69,6 +69,7 @@
     "kokoro-js": "^1.2.1",
     "onnxruntime-web": "^1.24.1",
     "pdfjs-dist": "^5.4.624",
+    "phonemizer": "^1.2.1",
     "workbox-window": "^7.4.0"
   }
 }
