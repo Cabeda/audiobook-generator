@@ -337,11 +337,11 @@
   <ToastContainer />
 
   {#if currentView === 'landing'}
-    <div in:fade>
+    <div in:fade class="view-wrapper scrollable">
       <LandingPage onbookloaded={onBookLoaded} onopensettings={() => (currentView = 'settings')} />
     </div>
   {:else if currentView === 'settings'}
-    <div in:fade class="view-wrapper">
+    <div in:fade class="view-wrapper scrollable">
       <SettingsPage onBack={() => (currentView = 'landing')} />
     </div>
   {:else if currentView === 'book'}
@@ -389,8 +389,12 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    min-height: 0; /* Allow flex children to shrink below content size */
-    overflow: hidden; /* Prevent wrapper from growing — let VirtualList scroll */
+    min-height: 0;
+    overflow: hidden; /* Children manage their own scroll */
+  }
+
+  .view-wrapper.scrollable {
+    overflow-y: auto;
   }
 
   .view-wrapper.full-height {

@@ -55,8 +55,8 @@
 
   // Initialize from localStorage if available
   let initialSpeed = 1.0
-  let initialModel: 'kokoro' | 'piper' | 'web_speech' = selectedModel
-  let initialVoice = voice
+  let initialModel: 'kokoro' | 'piper' | 'web_speech' | null = null
+  let initialVoice: string | null = null
   try {
     const saved = localStorage.getItem(SPEED_KEY)
     if (saved) initialSpeed = parseFloat(saved)
@@ -79,9 +79,9 @@
     // ignore
   }
 
-  // Local model state for text reader
-  let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(initialModel)
-  let localVoice = $state(initialVoice)
+  // Local model state for text reader (falls back to prop value if no localStorage)
+  let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(initialModel ?? selectedModel)
+  let localVoice = $state(initialVoice ?? voice)
 
   // Chapter progress
   let chapterIndex = $derived(chapters.findIndex((c: Chapter) => c.id === chapter.id))
@@ -1290,7 +1290,7 @@
         </div>
 
         <div class="setting-item">
-          <label>Font Size</label>
+          <span class="setting-label">Font Size</span>
           <div class="font-size-selector">
             <button
               class="font-size-btn"
@@ -1582,45 +1582,6 @@
     gap: 8px;
     min-width: 140px;
     justify-self: flex-end;
-  }
-
-  .theme-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
-    border-radius: 999px;
-    border: 1px solid var(--border-color);
-    background: var(--surface-color);
-    color: var(--text-color);
-    cursor: pointer;
-    font-size: 0.9rem;
-    transition: all 0.2s ease;
-    min-width: 110px;
-  }
-
-  .theme-toggle:hover {
-    border-color: var(--text-color);
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
-  }
-
-  .reader-page[data-theme='dark'] .theme-toggle {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(148, 163, 184, 0.35);
-  }
-
-  .reader-page[data-theme='dark'] .theme-toggle:hover {
-    border-color: var(--text-color);
-    background: rgba(255, 255, 255, 0.1);
-  }
-
-  .theme-icon {
-    font-size: 1rem;
-  }
-
-  .theme-label {
-    font-weight: 600;
-    letter-spacing: -0.01em;
   }
 
   .text-content {

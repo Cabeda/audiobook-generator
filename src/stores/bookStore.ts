@@ -90,23 +90,50 @@ export const selectedChaptersWithData = derived(
 )
 
 import { getBookGenerationStatus } from '../lib/libraryDB'
+import { segmentProgress } from './segmentProgressStore'
+
+// Track the previous book's cover URL for cleanup
+let previousCoverUrl: string | null = null
 
 book.subscribe((b) => {
+  // Clear segment progress from previous book to free audioBlob memory
+  const oldSegments = get(segmentProgress)
+  if (oldSegments.size > 0) {
+    segmentProgress.set(new Map())
+  }
+
+  // Revoke old cover image blob URL if present
+  if (previousCoverUrl && previousCoverUrl.startsWith('blob:')) {
+    try {
+      URL.revokeObjectURL(previousCoverUrl)
+    } catch {
+      // ignore
+    }
+  }
+  previousCoverUrl = b?.cover ?? null
+
   if (b) {
     // Initialize status for new book
     const statusMap = new Map<string, ChapterStatus>()
     b.chapters.forEach((ch) => statusMap.set(ch.id, 'pending'))
     chapterStatus.set(statusMap)
 
-    // Clear maps — audio is loaded lazily now
+    // Revoke old blob URLs before clearing to prevent memory leaks
+    const oldAudio = get(generatedAudio)
+    for (const entry of oldAudio.values()) {
+      try {
+        URL.revokeObjectURL(entry.url)
+      } catch {
+        // ignore
+      }
+    }
     generatedAudio.set(new Map())
     chapterErrors.set(new Map())
     chapterProgress.set(new Map())
     selectedChapters.set(new Map(b.chapters.map((c) => [c.id, true])))
 
-    const libBook = b as any
-    if (libBook.id && typeof libBook.id === 'number') {
-      currentBookDatabaseId = libBook.id
+    if ('id' in b && typeof b.id === 'number') {
+      currentBookDatabaseId = b.id
 
       // Only hydrate chapterStatus (lightweight — just IDs, no blobs)
       getBookGenerationStatus(currentBookDatabaseId!)
@@ -126,6 +153,15 @@ book.subscribe((b) => {
   } else {
     currentBookDatabaseId = null
     chapterStatus.set(new Map())
+    // Revoke old blob URLs before clearing
+    const oldAudio = get(generatedAudio)
+    for (const entry of oldAudio.values()) {
+      try {
+        URL.revokeObjectURL(entry.url)
+      } catch {
+        // ignore
+      }
+    }
     generatedAudio.set(new Map())
     chapterErrors.set(new Map())
     chapterProgress.set(new Map())

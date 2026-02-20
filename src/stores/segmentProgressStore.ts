@@ -82,15 +82,20 @@ export function markSegmentGenerated(chapterId: string, segment: AudioSegment) {
 }
 
 /**
- * Mark chapter generation as complete
+ * Mark chapter generation as complete.
+ * Clears the in-memory audioBlob references from generatedSegments to free memory,
+ * since the blobs have already been persisted to IndexedDB by this point.
  */
 export function markChapterGenerationComplete(chapterId: string) {
   segmentProgress.update((map) => {
     const newMap = new Map(map)
     const progress = newMap.get(chapterId)
     if (progress) {
+      // Clear the audioBlob references to free memory — data is already in IndexedDB
+      progress.generatedSegments.clear()
       newMap.set(chapterId, {
         ...progress,
+        generatedSegments: new Map(),
         isGenerating: false,
       })
     }

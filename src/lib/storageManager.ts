@@ -1,5 +1,5 @@
 /**
- * Storage management utilities for IndexedDB and localStorage
+ * Storage management utilities for IndexedDB, Cache API, and localStorage
  */
 
 const DB_NAME = 'AudiobookLibrary'
@@ -15,7 +15,8 @@ export interface StorageInfo {
 export interface CachedModel {
   name: string
   size: number
-  lastAccessed?: number
+  cacheName: string
+  cacheKey: string
 }
 
 /**
@@ -50,7 +51,7 @@ export async function getStorageInfo(): Promise<StorageInfo> {
 
     db.close()
 
-    // Get cached models from IndexedDB
+    // Get cached models from Cache API
     info.models = await getCachedModels()
 
     // Estimate total size
@@ -66,44 +67,118 @@ export async function getStorageInfo(): Promise<StorageInfo> {
 }
 
 /**
- * Get list of cached TTS models
+ * Extract a human-readable model name from a cache URL
+ */
+function extractModelName(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname
+
+    // Extract filename from path
+    const parts = path.split('/')
+    const filename = parts[parts.length - 1] || ''
+
+    // Try to extract model info from the path
+    // e.g. /onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model_fp32.onnx
+    // -> "Kokoro-82M-v1.0 / model_fp32.onnx"
+    const repoMatch = path.match(/\/([^/]+\/[^/]+)\/resolve\//)
+    if (repoMatch) {
+      const repo = repoMatch[1].replace('onnx-community/', '')
+      return `${repo} / ${filename}`
+    }
+
+    // For piper voices: extract voice name from URL
+    // e.g. /piper/en_US-lessac-medium.onnx -> "en_US-lessac-medium.onnx"
+    if (filename.endsWith('.onnx') || filename.endsWith('.json')) {
+      return filename
+    }
+
+    // Fallback: last 2 path segments
+    if (parts.length >= 2) {
+      return parts.slice(-2).join('/')
+    }
+
+    return filename || url.substring(0, 60)
+  } catch {
+    return url.substring(0, 60)
+  }
+}
+
+/**
+ * Get list of cached TTS models from Cache API with sizes
  */
 async function getCachedModels(): Promise<CachedModel[]> {
   const models: CachedModel[] = []
 
-  try {
-    // Check for Kokoro models in IndexedDB
-    const kokoroDB = await openModelDB('kokoro-cache')
-    if (kokoroDB) {
-      const store = kokoroDB.transaction('models', 'readonly').objectStore('models')
-      const keys = await getAllKeys(store)
-      for (const key of keys) {
-        models.push({
-          name: `Kokoro: ${key}`,
-          size: 0, // Size not easily available
-        })
-      }
-      kokoroDB.close()
-    }
+  if (typeof caches === 'undefined') return models
 
-    // Check for Piper models
-    const piperDB = await openModelDB('piper-cache')
-    if (piperDB) {
-      const store = piperDB.transaction('models', 'readonly').objectStore('models')
-      const keys = await getAllKeys(store)
-      for (const key of keys) {
+  try {
+    const cacheNames = await caches.keys()
+
+    for (const cacheName of cacheNames) {
+      // Only look at model-related caches
+      if (
+        !cacheName.includes('kokoro') &&
+        !cacheName.includes('piper') &&
+        !cacheName.includes('model') &&
+        !cacheName.includes('onnx') &&
+        !cacheName.includes('transformers')
+      ) {
+        continue
+      }
+
+      const cache = await caches.open(cacheName)
+      const keys = await cache.keys()
+
+      for (const request of keys) {
+        let size = 0
+        try {
+          const response = await cache.match(request)
+          if (response) {
+            // Try content-length header first (fast)
+            const contentLength = response.headers.get('content-length')
+            if (contentLength) {
+              size = parseInt(contentLength, 10)
+            } else {
+              // Fall back to reading the blob size
+              const blob = await response.clone().blob()
+              size = blob.size
+            }
+          }
+        } catch {
+          // ignore size errors
+        }
+
         models.push({
-          name: `Piper: ${key}`,
-          size: 0,
+          name: extractModelName(request.url),
+          size,
+          cacheName,
+          cacheKey: request.url,
         })
       }
-      piperDB.close()
     }
   } catch (e) {
     console.warn('Failed to get cached models:', e)
   }
 
+  // Sort by size descending
+  models.sort((a, b) => b.size - a.size)
+
   return models
+}
+
+/**
+ * Delete a single cached model entry
+ */
+export async function deleteCachedModel(cacheName: string, cacheKey: string): Promise<void> {
+  if (typeof caches === 'undefined') return
+  try {
+    const cache = await caches.open(cacheName)
+    await cache.delete(cacheKey)
+  } catch (e) {
+    console.warn('Failed to delete cached model:', e)
+    throw e
+  }
 }
 
 /**
@@ -124,8 +199,25 @@ export async function clearLibraryData(): Promise<void> {
  */
 export async function clearModelCache(): Promise<void> {
   try {
+    // Clear IndexedDB model caches
     await deleteDatabase('kokoro-cache')
     await deleteDatabase('piper-cache')
+
+    // Clear Cache API model caches
+    if (typeof caches !== 'undefined') {
+      const cacheNames = await caches.keys()
+      for (const name of cacheNames) {
+        if (
+          name.includes('kokoro') ||
+          name.includes('piper') ||
+          name.includes('model') ||
+          name.includes('onnx') ||
+          name.includes('transformers')
+        ) {
+          await caches.delete(name)
+        }
+      }
+    }
   } catch (e) {
     console.warn('Failed to clear model cache:', e)
   }
@@ -151,25 +243,9 @@ function openDB(): Promise<IDBDatabase> {
   })
 }
 
-function openModelDB(name: string): Promise<IDBDatabase | null> {
-  return new Promise((resolve) => {
-    const request = indexedDB.open(name)
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => resolve(null)
-  })
-}
-
 function countStore(store: IDBObjectStore): Promise<number> {
   return new Promise((resolve, reject) => {
     const request = store.count()
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
-}
-
-function getAllKeys(store: IDBObjectStore): Promise<IDBValidKey[]> {
-  return new Promise((resolve, reject) => {
-    const request = store.getAllKeys()
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
