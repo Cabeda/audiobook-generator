@@ -70,6 +70,7 @@
 
   // Settings menu state
   let showSettings = $state(false)
+  let showKeyboardHelp = $state(false)
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
   let piperVoices = $state<Array<{ key: string; name: string; language: string }>>([])
 
@@ -817,6 +818,72 @@
 
     // Load Piper voices
     loadPiperVoices()
+
+    // Keyboard shortcuts
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Ignore if typing in input or settings open
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        showSettings
+      ) {
+        return
+      }
+
+      switch (e.key) {
+        case ' ':
+          e.preventDefault()
+          audioService.togglePlayPause()
+          break
+        case 'ArrowLeft':
+          e.preventDefault()
+          if (e.shiftKey) {
+            audioService.skip(-10)
+          } else {
+            audioService.skipPrevious()
+          }
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          if (e.shiftKey) {
+            audioService.skip(10)
+          } else {
+            audioService.skipNext()
+          }
+          break
+        case 'ArrowUp': {
+          e.preventDefault()
+          const speedUp = Math.min(audioService.playbackSpeed + 0.1, 3.0)
+          audioService.setSpeed(speedUp)
+          break
+        }
+        case 'ArrowDown': {
+          e.preventDefault()
+          const speedDown = Math.max(audioService.playbackSpeed - 0.1, 0.5)
+          audioService.setSpeed(speedDown)
+          break
+        }
+        case 'f':
+        case 'F':
+          e.preventDefault()
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen()
+          } else {
+            document.exitFullscreen()
+          }
+          break
+        case '?':
+          e.preventDefault()
+          showKeyboardHelp = !showKeyboardHelp
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyPress)
+    }
   })
 
   async function loadPiperVoices() {

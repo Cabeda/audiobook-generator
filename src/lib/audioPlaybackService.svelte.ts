@@ -665,6 +665,29 @@ class AudioPlaybackService {
     return this.voice
   }
 
+  skip(seconds: number) {
+    // For Web Speech, skip segments (approximate)
+    if (this.selectedModel === 'web_speech') {
+      const direction = seconds > 0 ? 1 : -1
+      const segmentsToSkip = Math.ceil(Math.abs(seconds) / 5) // ~5s per segment
+      const newIndex = Math.max(
+        0,
+        Math.min(this.segments.length - 1, this.currentSegmentIndex + direction * segmentsToSkip)
+      )
+      this.playFromSegment(newIndex)
+      return
+    }
+
+    // For audio files, skip time
+    if (this.audio) {
+      const newTime = Math.max(
+        0,
+        Math.min(this.audio.duration || 0, this.audio.currentTime + seconds)
+      )
+      this.audio.currentTime = newTime
+    }
+  }
+
   /**
    * Inject a segment from progressive generation store into audioSegments map
    * This allows playback of progressively generated audio without regeneration

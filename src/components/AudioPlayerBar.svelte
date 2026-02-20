@@ -69,6 +69,16 @@
     audioService.skipPrevious()
   }
 
+  function handleSkip10Back(e: MouseEvent) {
+    e.stopPropagation()
+    audioService.skip(-10)
+  }
+
+  function handleSkip10Forward(e: MouseEvent) {
+    e.stopPropagation()
+    audioService.skip(10)
+  }
+
   function handleBarClick(e: MouseEvent) {
     if (mode !== 'persistent') return
     const target = e.target as HTMLElement
@@ -154,6 +164,25 @@
     <!-- Controls -->
     <div class="controls">
       <button
+        class="control-btn skip-10"
+        onclick={handleSkip10Back}
+        aria-label="Skip back 10 seconds"
+        title="Skip back 10 seconds"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M2.5 2v6h6M2.66 15.57a10 10 0 1 0 .57-8.38" />
+        </svg>
+        <span class="skip-label">10</span>
+      </button>
+
+      <button
         class="control-btn"
         onclick={handleSkipBackward}
         aria-label="Previous segment"
@@ -206,6 +235,25 @@
         >
           <path d="M13 19l7-7-7-7M5 19l7-7-7-7" />
         </svg>
+      </button>
+
+      <button
+        class="control-btn skip-10"
+        onclick={handleSkip10Forward}
+        aria-label="Skip forward 10 seconds"
+        title="Skip forward 10 seconds"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38" />
+        </svg>
+        <span class="skip-label">10</span>
       </button>
     </div>
 
@@ -385,6 +433,18 @@
     transition:
       background-color 0.2s,
       transform 0.2s;
+    position: relative;
+  }
+
+  .control-btn.skip-10 {
+    position: relative;
+  }
+
+  .control-btn.skip-10 .skip-label {
+    position: absolute;
+    font-size: 10px;
+    font-weight: bold;
+    pointer-events: none;
   }
 
   .control-btn:hover {
