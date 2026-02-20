@@ -11,6 +11,7 @@
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
   import logger from '../lib/utils/logger'
+  import { saveProgress, loadProgress } from '../lib/progressStore'
 
   let {
     chapter,
@@ -71,6 +72,9 @@
   // Settings menu state
   let showSettings = $state(false)
   let showKeyboardHelp = $state(false)
+  let autoScrollEnabled = $state(true)
+  let showResumePrompt = $state(false)
+  let savedProgress: { chapterId: string; segmentIndex: number } | null = null
   let webSpeechVoices = $state<SpeechSynthesisVoice[]>([])
   let piperVoices = $state<Array<{ key: string; name: string; language: string }>>([])
 
@@ -527,6 +531,24 @@
         wrappedContent = segmentedHtml // Store the pre-wrapped HTML
         segmentsLoaded = true
       }
+
+      // Auto-scroll to current segment
+      $effect(() => {
+        if (!autoScrollEnabled || !audioService.isPlaying) return
+
+        const currentIndex = audioService.currentSegmentIndex
+        if (currentIndex < 0) return
+
+        const segmentEl = document.getElementById(`seg-${currentIndex}`)
+        if (!segmentEl) return
+
+        const rect = segmentEl.getBoundingClientRect()
+        const isOutsideViewport = rect.top < 100 || rect.bottom > window.innerHeight - 100
+
+        if (isOutsideViewport) {
+          segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      })
     }
 
     // Segments are now pre-wrapped in the HTML, just ensure they have the segment class
@@ -881,10 +903,37 @@
 
     window.addEventListener('keydown', handleKeyPress)
 
+    // Load saved progress
+    if (bookId) {
+      const progress = loadProgress(String(bookId))
+      if (progress && progress.chapterId === chapter.id && progress.segmentIndex > 0) {
+        savedProgress = { chapterId: progress.chapterId, segmentIndex: progress.segmentIndex }
+        showResumePrompt = true
+      }
+    }
+
     return () => {
       window.removeEventListener('keydown', handleKeyPress)
     }
   })
+
+  // Save progress on segment change
+  $effect(() => {
+    if (bookId && audioService.currentSegmentIndex >= 0) {
+      saveProgress(String(bookId), chapter.id, audioService.currentSegmentIndex)
+    }
+  })
+
+  function resumeFromSaved() {
+    if (savedProgress) {
+      audioService.playFromSegment(savedProgress.segmentIndex)
+      showResumePrompt = false
+    }
+  }
+
+  function startFromBeginning() {
+    showResumePrompt = false
+  }
 
   async function loadPiperVoices() {
     try {
@@ -997,6 +1046,57 @@
       onSettings={() => (showSettings = !showSettings)}
     />
 
+    <!-- Resume Prompt -->
+    {#if showResumePrompt}
+      <div class="resume-prompt" transition:fade={{ duration: 200 }}>
+        <div class="resume-content">
+          <p>Resume from where you left off?</p>
+          <div class="resume-actions">
+            <button class="resume-btn primary" onclick={resumeFromSaved}>Resume</button>
+            <button class="resume-btn" onclick={startFromBeginning}>Start Over</button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Keyboard Help Overlay -->
+    {#if showKeyboardHelp}
+      <div class="keyboard-help-overlay" transition:fade={{ duration: 200 }}>
+        <div class="keyboard-help-content">
+          <div class="keyboard-help-header">
+            <h3>Keyboard Shortcuts</h3>
+            <button class="close-btn" onclick={() => (showKeyboardHelp = false)}>✕</button>
+          </div>
+          <div class="shortcuts-grid">
+            <div class="shortcut-item">
+              <kbd>Space</kbd>
+              <span>Play / Pause</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>←</kbd> / <kbd>→</kbd>
+              <span>Previous / Next segment</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>Shift</kbd> + <kbd>←</kbd> / <kbd>→</kbd>
+              <span>Skip 10s back / forward</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>↑</kbd> / <kbd>↓</kbd>
+              <span>Speed up / down</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>F</kbd>
+              <span>Toggle fullscreen</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>?</kbd>
+              <span>Show this help</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <!-- Settings Menu -->
     {#if showSettings}
       <div class="settings-menu" transition:fade={{ duration: 100 }}>
@@ -1106,6 +1206,13 @@
             <span class="label">Current:</span>
             <span class="value">{localModel} / {voice}</span>
           </div>
+        </div>
+
+        <div class="setting-item">
+          <label>
+            <input type="checkbox" bind:checked={autoScrollEnabled} />
+            Auto-scroll during playback
+          </label>
         </div>
       </div>
     {/if}
@@ -1679,5 +1786,120 @@
       width: auto;
       bottom: 80px;
     }
+  }
+
+  .resume-prompt {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px 24px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+  }
+
+  .resume-content p {
+    margin: 0 0 12px 0;
+    color: var(--text-color);
+  }
+
+  .resume-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .resume-btn {
+    padding: 8px 16px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-color);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  .resume-btn.primary {
+    background: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+  }
+
+  .resume-btn:hover {
+    opacity: 0.8;
+  }
+
+  .keyboard-help-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+  }
+
+  .keyboard-help-content {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 500px;
+    width: 90%;
+  }
+
+  .keyboard-help-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
+  .keyboard-help-header h3 {
+    margin: 0;
+    color: var(--text-color);
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    color: var(--text-color);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+  }
+
+  .shortcuts-grid {
+    display: grid;
+    gap: 12px;
+  }
+
+  .shortcut-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .shortcut-item kbd {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: monospace;
+    font-size: 13px;
+    min-width: 32px;
+    text-align: center;
+  }
+
+  .shortcut-item span {
+    color: var(--text-color);
+    font-size: 14px;
   }
 </style>

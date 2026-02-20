@@ -2,6 +2,7 @@ import { get } from 'svelte/store'
 import { getTTSWorker } from './ttsWorkerManager'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
+import { toastStore } from '../stores/toastStore'
 import type { Chapter } from './types/book'
 import { getChapterSegments, getChapterAudio } from './libraryDB'
 import { segmentHtmlContent } from './services/generationService'
@@ -259,6 +260,7 @@ class AudioPlaybackService {
         error: err instanceof Error ? err.message : String(err),
         language: normalizedLang,
       })
+      toastStore.show('Failed to load voice for language', 'warning')
     }
   }
 

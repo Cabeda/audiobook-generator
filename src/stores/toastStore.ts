@@ -1,39 +1,38 @@
-import { writable, type Writable } from 'svelte/store'
+import { writable } from 'svelte/store'
 
 export interface Toast {
-  id: number
+  id: string
   message: string
-  type: 'success' | 'error' | 'warning' | 'info'
-  duration: number
+  type: 'info' | 'success' | 'warning' | 'error'
+  duration?: number
 }
 
-const toasts: Writable<Toast[]> = writable([])
+function createToastStore() {
+  const { subscribe, update } = writable<Toast[]>([])
 
-let nextId = 0
+  return {
+    subscribe,
+    show(message: string, type: Toast['type'] = 'info', duration = 3000) {
+      const id = `${Date.now()}-${Math.random()}`
+      const toast: Toast = { id, message, type, duration }
 
-function addToast(message: string, type: Toast['type'], duration = 3000) {
-  const id = nextId++
-  const toast: Toast = { id, message, type, duration }
+      update((toasts) => [...toasts, toast])
 
-  toasts.update((all) => [...all, toast])
+      if (duration > 0) {
+        setTimeout(() => {
+          this.dismiss(id)
+        }, duration)
+      }
 
-  // Auto-remove after duration
-  if (duration > 0) {
-    setTimeout(() => {
-      removeToast(id)
-    }, duration)
+      return id
+    },
+    dismiss(id: string) {
+      update((toasts) => toasts.filter((t) => t.id !== id))
+    },
+    clear() {
+      update(() => [])
+    },
   }
 }
 
-function removeToast(id: number) {
-  toasts.update((all) => all.filter((t) => t.id !== id))
-}
-
-export const toastStore = {
-  subscribe: toasts.subscribe,
-  success: (message: string, duration?: number) => addToast(message, 'success', duration),
-  error: (message: string, duration?: number) => addToast(message, 'error', duration),
-  warning: (message: string, duration?: number) => addToast(message, 'warning', duration),
-  info: (message: string, duration?: number) => addToast(message, 'info', duration),
-  dismiss: removeToast,
-}
+export const toastStore = createToastStore()

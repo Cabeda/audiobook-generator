@@ -8,6 +8,7 @@
   import TextReader from './components/TextReader.svelte'
   import SettingsPage from './components/SettingsPage.svelte'
   import Toast from './components/Toast.svelte'
+  import ToastContainer from './components/ToastContainer.svelte'
   import ReloadPrompt from './components/ReloadPrompt.svelte'
 
   // APIs & Logic
@@ -333,6 +334,7 @@
 <main class="app-container" id="main-content">
   <Toast />
   <ReloadPrompt />
+  <ToastContainer />
 
   {#if currentView === 'landing'}
     <div in:fade>
