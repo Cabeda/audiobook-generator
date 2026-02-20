@@ -116,13 +116,6 @@ export const TTS_MODELS: TTSModelInfo[] = [
     requiresDownload: true,
     supportsOffline: true,
   },
-  {
-    id: 'kitten',
-    name: 'KittenTTS',
-    description: 'Ultra-lightweight neural TTS (15M params, ~41MB, browser-native).',
-    requiresDownload: true,
-    supportsOffline: true,
-  },
 ]
 
 /**

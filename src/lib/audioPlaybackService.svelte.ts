@@ -174,11 +174,7 @@ class AudioPlaybackService {
           }
           const url = this.audioSegments.get(index)
           if (!url) return
-          if (this.audio) {
-            this.audio.pause()
-            this.audio.src = ''
-            this.audio = null
-          }
+          this.disposeAudio()
           this.audio = new Audio(url)
           this.audio.playbackRate = this.playbackSpeed
           this.audio.onloadedmetadata = () => {
@@ -216,13 +212,19 @@ class AudioPlaybackService {
     return new Promise((resolve) => {
       try {
         const a = new Audio(url)
+        const cleanup = () => {
+          a.onloadedmetadata = null
+          a.onerror = null
+          a.src = ''
+          a.load() // Release media resource on all browsers (critical on Firefox Android)
+        }
         a.onloadedmetadata = () => {
           const dur = a.duration || 0
-          a.pause()
-          a.src = ''
+          cleanup()
           resolve(dur)
         }
         a.onerror = () => {
+          cleanup()
           resolve(0)
         }
       } catch {
@@ -531,15 +533,7 @@ class AudioPlaybackService {
     const wasPlaying = this.isPlaying || autoPlay
 
     // Stop current audio completely to prevent race condition
-    if (this.audio) {
-      this.audio.pause()
-      this.audio.onended = null
-      this.audio.ontimeupdate = null
-      this.audio.onerror = null
-      this.audio.onloadedmetadata = null
-      this.audio.src = ''
-      this.audio = null
-    }
+    this.disposeAudio()
 
     this.cancelWebSpeech()
 
@@ -620,15 +614,7 @@ class AudioPlaybackService {
 
   stop() {
     this.pause()
-    if (this.audio) {
-      this.audio.pause()
-      this.audio.onended = null
-      this.audio.ontimeupdate = null
-      this.audio.onerror = null
-      this.audio.onloadedmetadata = null
-      this.audio.src = ''
-      this.audio = null
-    }
+    this.disposeAudio()
     this.cancelWebSpeech()
 
     // Revoke all blob URLs to prevent memory leaks
@@ -653,6 +639,7 @@ class AudioPlaybackService {
     this.wordsPerSegment = []
     this.totalWords = 0
     this.wordsMeasured = 0
+    this.webSpeechUtteranceCount = 0
     audioPlayerStore.setChapterDuration(0)
   }
 
@@ -711,6 +698,18 @@ class AudioPlaybackService {
     }
   }
 
+  private disposeAudio() {
+    if (this.audio) {
+      this.audio.pause()
+      this.audio.onended = null
+      this.audio.ontimeupdate = null
+      this.audio.onerror = null
+      this.audio.onloadedmetadata = null
+      this.audio.src = ''
+      this.audio = null
+    }
+  }
+
   // Internal Logic
   private isPlayingSegment = false // Guard against concurrent playCurrentSegment calls
 
@@ -750,14 +749,7 @@ class AudioPlaybackService {
     try {
       // Create new audio element with proper cleanup
       // First ensure any old instance is fully cleaned
-      if (this.audio) {
-        this.audio.pause()
-        this.audio.onended = null
-        this.audio.ontimeupdate = null
-        this.audio.onerror = null
-        this.audio.onloadedmetadata = null
-        this.audio.src = ''
-      }
+      this.disposeAudio()
 
       this.audio = new Audio(url)
       this.audio.playbackRate = this.playbackSpeed
@@ -791,14 +783,7 @@ class AudioPlaybackService {
         } else {
           this.isPlaying = false
           audioPlayerStore.pause()
-          if (this.audio) {
-            this.audio.onended = null
-            this.audio.ontimeupdate = null
-            this.audio.onerror = null
-            this.audio.onloadedmetadata = null
-            this.audio.src = ''
-          }
-          this.audio = null
+          this.disposeAudio()
         }
       }
 
@@ -838,23 +823,19 @@ class AudioPlaybackService {
       if (this.currentSegmentIndex === index) {
         this.isPlaying = false
         audioPlayerStore.pause()
-        if (this.audio) {
-          this.audio.onended = null
-          this.audio.ontimeupdate = null
-          this.audio.onerror = null
-          this.audio.onloadedmetadata = null
-          this.audio.src = ''
-        }
-        this.audio = null
+        this.disposeAudio()
       }
     }
   }
+
+  // Web Speech: count utterances spoken since last engine reset (Firefox Android leak mitigation)
+  private webSpeechUtteranceCount = 0
+  private readonly WEB_SPEECH_RESET_INTERVAL = 20 // reset engine every N utterances
 
   private playWebSpeech(text: string) {
     this.cancelWebSpeech()
 
     // Chrome workaround: ensure speech synthesis is ready
-    // Chrome sometimes needs a "warm-up" call
     if (window.speechSynthesis.paused) {
       window.speechSynthesis.resume()
     }
@@ -868,18 +849,16 @@ class AudioPlaybackService {
     // Set language if available
     const segment = this.segments[this.currentSegmentIndex]
     if (segment && 'language' in segment && segment.language) {
-      utterance.lang = segment.language
+      utterance.lang = segment.language as string
     }
 
     // Set voice - ensure voices are loaded
     const voices = window.speechSynthesis.getVoices()
     if (this.voice && voices.length > 0) {
-      // Try to match by name or URI
       const voice = voices.find((v) => v.name === this.voice || v.voiceURI === this.voice)
       if (voice) {
         utterance.voice = voice
       } else {
-        // If no exact match, try to find a voice for the language
         if (utterance.lang) {
           const langVoice = voices.find((v) => v.lang.startsWith(utterance.lang.split('-')[0]))
           if (langVoice) utterance.voice = langVoice
@@ -890,11 +869,29 @@ class AudioPlaybackService {
     utterance.rate = this.playbackSpeed
 
     utterance.onend = () => {
+      // Null out handlers immediately to allow GC of this utterance
+      utterance.onend = null
+      utterance.onerror = null
+      if (this.speechUtterance === utterance) this.speechUtterance = null
+
       this.isPlayingSegment = false
+      this.webSpeechUtteranceCount++
+
       const nextIndex = this.currentSegmentIndex + 1
       if (nextIndex < this.segments.length && this.isPlaying) {
         this.currentSegmentIndex = nextIndex
-        this.playCurrentSegment()
+
+        // Periodically cancel+resume the speech synthesis engine to flush Firefox Android's
+        // internal queue which otherwise grows unboundedly and causes slowdown/OOM.
+        if (this.webSpeechUtteranceCount % this.WEB_SPEECH_RESET_INTERVAL === 0) {
+          window.speechSynthesis.cancel()
+          // Small delay to let the engine settle before speaking again
+          setTimeout(() => {
+            if (this.isPlaying) this.playCurrentSegment()
+          }, 50)
+        } else {
+          this.playCurrentSegment()
+        }
       } else {
         this.isPlaying = false
         audioPlayerStore.pause()
@@ -902,7 +899,13 @@ class AudioPlaybackService {
     }
 
     utterance.onerror = (e) => {
+      utterance.onend = null
+      utterance.onerror = null
+      if (this.speechUtterance === utterance) this.speechUtterance = null
+
       this.isPlayingSegment = false
+      // 'interrupted' is not a real error — it fires when cancel() is called (e.g. on skip/stop)
+      if (e.error === 'interrupted' || e.error === 'canceled') return
       logger.error('Web Speech API error:', e)
       this.isPlaying = false
       audioPlayerStore.pause()
@@ -1048,15 +1051,7 @@ class AudioPlaybackService {
    */
   async playSingleSegment(segment: AudioSegment): Promise<void> {
     // Stop any current playback
-    if (this.audio) {
-      this.audio.pause()
-      this.audio.onended = null
-      this.audio.ontimeupdate = null
-      this.audio.onerror = null
-      this.audio.onloadedmetadata = null
-      this.audio.src = ''
-      this.audio = null
-    }
+    this.disposeAudio()
     this.cancelWebSpeech()
     // Clear any pending generations to avoid stale state during single segment playback
     this.pendingGenerations.clear()

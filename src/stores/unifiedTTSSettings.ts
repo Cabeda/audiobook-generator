@@ -71,8 +71,6 @@ const KOKORO_VOICES = [
   'bm_fable',
 ]
 
-const KITTEN_VOICES: string[] = []
-
 // Piper voices are dynamic - loaded from API
 let piperVoices: string[] = []
 
@@ -87,8 +85,6 @@ export function isValidVoiceForModel(model: TTSModelType | 'web_speech', voice: 
   switch (model) {
     case 'kokoro':
       return KOKORO_VOICES.includes(voice)
-    case 'kitten':
-      return KITTEN_VOICES.includes(voice)
     case 'piper':
       return piperVoices.length === 0 || piperVoices.includes(voice)
     case 'web_speech':
@@ -105,8 +101,6 @@ export function getDefaultVoiceForModel(model: TTSModelType | 'web_speech'): str
   switch (model) {
     case 'kokoro':
       return 'af_heart'
-    case 'kitten':
-      return 'Bella'
     case 'piper':
       return piperVoices[0] || 'en_US-hfc_female-medium'
     case 'web_speech':
@@ -134,7 +128,7 @@ export function validateSettings(settings: TTSSettings): TTSSettings {
   }
 
   // Device only applies to kokoro and piper
-  if (validated.model === 'web_speech' || validated.model === 'kitten') {
+  if (validated.model === 'web_speech') {
     delete validated.device
   }
 

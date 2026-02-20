@@ -475,10 +475,8 @@ export function segmentHtmlContent(
       const segmentId = `seg-${segmentIndex}`
 
       // Try to find and wrap this sentence in the block's text nodes
-      let wrapped = false
-
       // Try to wrap the sentence, even if it spans multiple text nodes (with inline elements)
-      wrapped = wrapSentenceInBlock(block, sentence, segmentId, segmentIndex)
+      const wrapped = wrapSentenceInBlock(block, sentence, segmentId, segmentIndex)
 
       // Only create a segment if we successfully wrapped it
       if (wrapped) {
@@ -650,257 +648,6 @@ class GenerationService {
       logger.warn('Failed to stop silent audio', err)
     }
   }
-
-  /**
-   * Calculate duration of a WAV blob by parsing its header.
-   *
-   * Previous implementation hardcoded 24 kHz / float32 / mono which caused
-   * duration mis-estimates (and therefore highlight desync) whenever the
-   * actual WAV format differed — e.g. 16-bit PCM from Kokoro's toBlob(),
-   * Piper at 22050 Hz, or the audioBufferToWav helper which writes 16-bit.
-   *
-   * The async variant reads the first 1 KB of the blob to locate the "fmt "
-   * and "data" chunks so it works regardless of extra chunks (LIST, fact, …).
-   * A synchronous fast-path is kept for callers that only have blob.size.
-   */
-  private calculateWavDuration(blob: Blob): number {
-    // Synchronous fallback: use the most common output format (24 kHz 16-bit mono)
-    // This is only used as the return value; the async path below is preferred
-    // when the caller can await, but both call-sites currently use the sync return.
-    // We parse the header synchronously via the blob size heuristic but with the
-    // correct default bytes-per-sample for PCM-16.
-    const headerSize = 44
-    const sampleRate = 24000
-    const bytesPerSample = 2 // 16-bit PCM (most common output)
-    const channels = 1
-
-    const pcmDataSize = blob.size - headerSize
-    if (pcmDataSize <= 0) return 0
-
-    return pcmDataSize / (sampleRate * bytesPerSample * channels)
-  }
-
-  // Helper to segment HTML content into sentences and wrap them with spans
-  private segmentHtml(
-    chapterId: string,
-    htmlContent: string,
-    options?: SegmentOptions
-  ): { html: string; segments: { index: number; text: string; id: string }[] } {
-    return segmentHtmlContent(chapterId, htmlContent, options)
-  }
-
-  // Old complex segmentation logic removed - kept simple for reliability
-  private segmentHtmlComplex_DISABLED(
-    chapterId: string,
-    htmlContent: string
-  ): { html: string; segments: { index: number; text: string; id: string }[] } {
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(htmlContent, 'text/html')
-    const segments: { index: number; text: string; id: string }[] = []
-
-    logger.info('[segmentHtml] Starting HTML segmentation', {
-      chapterId,
-      htmlLength: htmlContent.length,
-      htmlPreview: htmlContent.substring(0, 200),
-    })
-
-    // Algorithm:
-    // 1. Identify "block" elements (p, h1-6, div, li, blockquote).
-    // 2. For each block, extract text and find sentence boundaries.
-    // 3. Instead of complex Range wrapping which is fragile, we'll try a simpler approach for v1:
-    //    - If block contains simple text, replace text with wrapped spans.
-    //    - If block contains tags, we attempt to process text nodes.
-    //
-    // Revised Robust Approach:
-    // Walk the tree. Collect text nodes.
-    // Build a mapping of "global text offset" -> "TextNode + offset".
-    // Split the full text into sentences.
-    // For each sentence (start, end), assume it maps to a range of text nodes.
-    // Wrap that range.
-
-    // Since we are in browser environment, we can use TreeWalker.
-    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
-    const textNodes: Text[] = []
-    let node: Node | null = walker.nextNode()
-    while (node) {
-      if (node.textContent && node.textContent.trim().length > 0) {
-        textNodes.push(node as Text)
-      }
-      node = walker.nextNode()
-    }
-
-    // Ideally we split per block to avoid spanning sentences across paragraphs (uncommon in books).
-    // Let's iterate over block elements instead.
-    const blocks = doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, div, blockquote, dt, dd')
-    // If no blocks found (plain text wrapped in body), fallback to body?
-    const elementsToProcess = blocks.length > 0 ? Array.from(blocks) : [doc.body]
-
-    logger.info('[segmentHtml] Found block elements', {
-      blockCount: blocks.length,
-      elementCount: elementsToProcess.length,
-      bodyTextLength: doc.body.textContent?.length || 0,
-      bodyTextPreview: doc.body.textContent?.substring(0, 200),
-    })
-
-    let globalIndex = 0
-
-    elementsToProcess.forEach((block) => {
-      // Skip if already processed (nested blocks case)
-      // e.g. div contains p. splitting div might double process p.
-      // Simplest check: if block has no block children.
-      if (block.querySelector('p, h1, h2, h3, h4, h5, h6, li, div, blockquote')) {
-        if (block.tagName !== 'BODY') return // Let children handle it
-      }
-
-      // Get text content of this block
-      const text = block.textContent || ''
-      if (!text.trim()) return
-
-      // Split into sentences using a simple regex (same as before)
-      // Note: This matches "Sentence." "Sentence?" "Sentence!"
-      // It's greedy.
-      const sentences = text.match(/[^.!?]+[.!?]+["']?|[^.!?]+$/g) || [text]
-
-      // Now the hard part: mapping these sentences back to DOM ranges to wrap them.
-      // Since we might have <b> etc inside.
-      // Strategy: "Eat" text nodes until we satisfy the sentence text.
-
-      // Gather text nodes within this block
-      const blockWalker = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT)
-      const blockNodes: Text[] = []
-      let bn: Node | null = blockWalker.nextNode()
-      while (bn) {
-        blockNodes.push(bn as Text)
-        bn = blockWalker.nextNode()
-      }
-
-      let currentNodeIdx = 0
-      let currentOffset = 0 // Offset within the current text node
-
-      sentences.forEach((sentence) => {
-        const trimmed = sentence.trim()
-        if (!trimmed) return
-
-        const segId = `seg-${globalIndex}`
-        segments.push({ index: globalIndex, text: trimmed, id: segId })
-
-        if (globalIndex === 0) {
-          logger.warn('[segmentHtml] First segment created', {
-            segmentId: segId,
-            text: trimmed,
-            textLength: trimmed.length,
-          })
-        }
-
-        globalIndex++
-
-        // We need to find the range in DOM that corresponds to 'sentence' (raw text, including whitespace)
-        // Actually, 'sentence' from match includes whitespace.
-
-        // We create a span wrapper
-        const span = doc.createElement('span')
-        span.id = segId
-        span.className = 'segment'
-
-        // We need to extract the nodes/parts corresponding to this sentence and move them into the span.
-        // We greedily consume 'sentence.length' characters from blockNodes.
-
-        let charsNeeded = sentence.length
-
-        // Wait, 'sentence' comes from textContent, which might have collapsed whitespace compared to text nodes?
-        // HTML whitespace handling makes this tricky.
-        // Regex match on textContent (which is what user sees) is correct for TTS.
-        // But mapping back to TextNodes which might contain newlines/tabs that are rendered as spaces is hard.
-
-        // Alternative "Safe" approach for mixed content:
-        // Don't wrap perfectly.
-        // Just inject markers? No, we want highlighting.
-
-        // Let's try: Normalize text nodes?
-        // Or: Recursive descent?
-
-        // Fallback for complex HTML:
-        // Just wrap the whole block if parsing fails?
-        // Or:
-        // 1. Create a Range.
-        // 2. Set Start (currentNode, currentOffset)
-        // 3. Advance charsNeeded.
-        // 4. Set End.
-        // 5. span.append(range.extractContents())
-        // 6. insert span.
-
-        // To do this we need to account for whitespace normalization.
-        // `textContent` does NOT normalize whitespace usually (it returns newlines etc).
-        // `innerText` does.
-        // If we used `textContent` to split, `charsNeeded` should match the sum of lengths of text nodes.
-
-        // Let's assume textContent is reliable enough.
-
-        if (currentNodeIdx >= blockNodes.length) return
-
-        try {
-          const range = doc.createRange()
-
-          if (currentNodeIdx >= blockNodes.length) {
-            logger.warn('No text nodes left while wrapping segment', { sentence: trimmed })
-            return
-          }
-
-          range.setStart(blockNodes[currentNodeIdx], currentOffset)
-
-          // Scanning forward
-          while (charsNeeded > 0 && currentNodeIdx < blockNodes.length) {
-            const node = blockNodes[currentNodeIdx]
-            const available = node.length - currentOffset
-
-            if (available <= 0) {
-              currentNodeIdx++
-              currentOffset = 0
-              continue
-            }
-
-            if (charsNeeded <= available) {
-              range.setEnd(node, currentOffset + charsNeeded)
-              currentOffset += charsNeeded
-              charsNeeded = 0
-              if (currentOffset >= node.length) {
-                currentNodeIdx++
-                currentOffset = 0
-              }
-            } else {
-              charsNeeded -= available
-              currentNodeIdx++
-              currentOffset = 0
-            }
-          }
-
-          // If we still need chars, bail out to avoid DOMException
-          if (charsNeeded > 0) {
-            logger.warn('Could not fully wrap segment (insufficient text nodes)', {
-              sentence: trimmed,
-              remaining: charsNeeded,
-            })
-            return
-          }
-
-          const content = range.extractContents()
-          span.appendChild(content)
-          range.insertNode(span)
-        } catch (e) {
-          console.warn('Failed to wrap segment', e)
-        }
-      })
-    })
-
-    logger.info('[segmentHtml] Segmentation complete (OLD COMPLEX)', {
-      totalSegments: segments.length,
-      firstSegmentText: segments[0]?.text.substring(0, 100),
-      lastSegmentText: segments[segments.length - 1]?.text.substring(0, 100),
-    })
-
-    return { html: doc.body.innerHTML, segments }
-  }
-  // END OF DISABLED COMPLEX SEGMENTATION
 
   /**
    * Process segments with dynamic priority handling.
@@ -1175,454 +922,27 @@ class GenerationService {
         // Update status to processing
         chapterStatus.update((m) => new Map(m).set(ch.id, 'processing'))
 
-        // Select appropriate voice based on language
-        let effectiveVoice = currentVoice
-
-        // We determine if we need to auto-select a voice.
-        // Auto-select if:
-        // 1. Current voice is invalid/missing (!currentVoice)
-        // 2. OR we fell back to a different model AND the user's voice is not valid for the fallback model
-        // Note: If the user explicitly set a chapter voice that's valid for the fallback model, respect it
-        let shouldAutoSelectVoice = !currentVoice
-        if (!shouldAutoSelectVoice && isFallbackModel) {
-          // Only auto-select if the user's voice isn't valid for the fallback model
-          if (effectiveModel === 'piper') {
-            const { PiperClient } = await import('../piper/piperClient')
-            const piperClient = PiperClient.getInstance()
-            const voices = await piperClient.getVoices()
-            const isValidForPiper = voices.some((v: { key: string }) => v.key === currentVoice)
-            shouldAutoSelectVoice = !isValidForPiper
-          } else {
-            shouldAutoSelectVoice = true
-          }
-        }
-
-        if (shouldAutoSelectVoice) {
-          // Auto-select voice based on language
-          // If fallback happened, we ignore 'currentVoice' as a preference because it's likely for the wrong model (e.g. Kokoro voice 'af_heart' when we want Piper)
-          const preferredVoice = isFallbackModel ? undefined : currentVoice
-
-          if (effectiveModel === 'kokoro') {
-            // Automatically select Kokoro voice based on language
-            effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, preferredVoice)
-            const kokoroVoices = listKokoroVoices()
-            if (!kokoroVoices.includes(effectiveVoice as VoiceId)) {
-              logger.warn(
-                `Invalid Kokoro voice '${effectiveVoice}' after selection, falling back to af_heart`
-              )
-              effectiveVoice = 'af_heart'
-            }
-            logger.info(
-              `Auto-selected Kokoro voice for language ${effectiveLanguage}: ${effectiveVoice}`
-            )
-          } else if (effectiveModel === 'piper') {
-            // Automatically select Piper voice based on language
-            const { PiperClient } = await import('../piper/piperClient')
-            const piperClient = PiperClient.getInstance()
-            const availableVoices = await piperClient.getVoices()
-            effectiveVoice = selectPiperVoiceForLanguage(
-              effectiveLanguage,
-              availableVoices,
-              preferredVoice
-            )
-            logger.info(
-              `Auto-selected Piper voice for language ${effectiveLanguage}: ${effectiveVoice}`
-            )
-          }
-        } else {
-          logger.info(`Using chapter-specific voice: ${effectiveVoice}`)
-        }
-
-        // If a specific Piper voice is selected from the GLOBAL default (not a chapter override)
-        // but doesn't match the detected language, switch to a matching one.
-        // We skip this check when the user explicitly set a chapter voice — respect their choice.
-        if (effectiveModel === 'piper' && !shouldAutoSelectVoice && !ch.voice) {
-          const { PiperClient } = await import('../piper/piperClient')
-          const piperClient = PiperClient.getInstance()
-          const availableVoices = await piperClient.getVoices()
-          const selectedVoiceInfo = availableVoices.find(
-            (v: { key: string }) => v.key === effectiveVoice
-          )
-          const normalizedChapterLang = normalizeLanguageCode(effectiveLanguage)
-          const voiceLang = selectedVoiceInfo
-            ? normalizeLanguageCode(selectedVoiceInfo.language)
-            : null
-
-          const voiceMatchesLanguage = selectedVoiceInfo && voiceLang === normalizedChapterLang
-
-          if (!voiceMatchesLanguage) {
-            logger.warn(
-              `Selected Piper voice '${effectiveVoice}' is not compatible with language '${effectiveLanguage}', auto-switching`,
-              {
-                chapterId: ch.id,
-                detectedLanguage: effectiveLanguage,
-                selectedVoice: effectiveVoice,
-                selectedVoiceLanguage: selectedVoiceInfo?.language,
-              }
-            )
-
-            effectiveVoice = selectPiperVoiceForLanguage(
-              effectiveLanguage,
-              availableVoices,
-              undefined
-            )
-
-            logger.info(
-              `Switched Piper voice to '${effectiveVoice}' for language '${effectiveLanguage}'`
-            )
-          }
-        }
+        const effectiveVoice = await this.resolveEffectiveVoice(
+          ch,
+          effectiveModel,
+          effectiveLanguage,
+          isFallbackModel,
+          currentVoice
+        )
 
         try {
-          if (effectiveModel === 'kokoro') {
-            logger.info('[generateChapters] About to segment HTML for Kokoro', {
-              chapterId: ch.id,
-              contentLength: ch.content.length,
-              contentPreview: ch.content.substring(0, 200),
-            })
-
-            // 1. Segment the HTML content
-            const { html, segments: textSegments } = this.segmentHtml(ch.id, ch.content, {
-              ignoreCodeBlocks: Boolean(currentAdvancedSettings.ignoreCodeBlocks),
-              ignoreLinks: Boolean(currentAdvancedSettings.ignoreLinks),
-            })
-
-            // Update in-memory content
-            ch.content = html
-
-            // 2. Update the chapter content in DB with the injected HTML
-            const bookId = explicitBookId ?? getBookId()
-            logger.info(
-              `[generateChapters] bookId for chapter ${ch.id}: ${bookId} (explicit: ${explicitBookId}, from store: ${getBookId()})`
-            )
-
-            if (bookId) {
-              const { updateChapterContent } = await import('../libraryDB')
-              await updateChapterContent(bookId, ch.id, html)
-              logger.info(`Updated content for chapter ${ch.id} with segmented HTML`)
-            }
-
-            // Initialize segment progress tracking for live UI updates
-            initChapterSegments(ch.id, textSegments)
-
-            // 3. Generate Audio for each segment
-            const audioSegments: AudioSegment[] = []
-
-            chapterProgress.update((m) =>
-              new Map(m).set(ch.id, {
-                current: 0,
-                total: textSegments.length,
-                message: 'Initializing generation...',
-              })
-            )
-
-            // Get parallelization setting (default to 1 for sequential processing)
-            const getParallelChunks = () =>
-              Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
-
-            const worker = getTTSWorker()
-
-            // Create batch handler for efficient database writes
-            const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
-
-            await this.processSegmentsWithPriority(
-              ch.id,
-              textSegments,
-              getParallelChunks,
-              async (segment) => {
-                if (this.canceled || this.canceledChapters.has(ch.id))
-                  throw new Error('Generation canceled')
-
-                // Skip empty segments
-                if (!segment.text.trim()) return null
-
-                const blob = await worker.generateVoice({
-                  text: segment.text,
-                  modelType: 'kokoro',
-                  voice: effectiveVoice,
-                  dtype: currentQuantization,
-                  device: currentDevice,
-                  language: effectiveLanguage,
-                  advancedSettings: currentAdvancedSettings,
-                })
-
-                const duration = await parseWavDuration(blob)
-
-                return {
-                  segment,
-                  blob,
-                  duration,
-                }
-              },
-              async (result) => {
-                if (!result) return
-                const segment: AudioSegment = {
-                  id: result.segment.id,
-                  chapterId: ch.id,
-                  index: result.segment.index,
-                  text: result.segment.text,
-                  audioBlob: result.blob as Blob,
-                  duration: result.duration,
-                  startTime: 0, // Placeholder, fixed after sort
-                }
-                audioSegments.push(segment)
-                await batchHandler.addSegment(segment)
-
-                // Auto-play first segment for seamless mobile experience
-                // Only triggers once per chapter, on the first completed segment
-                if (
-                  this.autoPlayEnabled &&
-                  !this.autoPlayTriggered.has(ch.id) &&
-                  !this.canceled &&
-                  !this.canceledChapters.has(ch.id)
-                ) {
-                  this.autoPlayTriggered.add(ch.id)
-                  logger.info(`[AutoPlay] Starting playback of first available segment`, {
-                    chapterId: ch.id,
-                    segmentIndex: segment.index,
-                  })
-                  // Use setTimeout to avoid blocking the generation loop
-                  // Re-check canceled inside callback to prevent playing after cancellation
-                  setTimeout(() => {
-                    if (this.canceled || this.canceledChapters.has(ch.id)) {
-                      logger.info('[AutoPlay] Skipped — generation was canceled')
-                      return
-                    }
-                    audioService.playSingleSegment(segment).catch((err) => {
-                      logger.warn('[AutoPlay] Failed to auto-play first segment:', err)
-                    })
-                  }, 0)
-                }
-              },
-              (completed, total) => {
-                throttledProgress.set(ch.id, {
-                  current: completed,
-                  total,
-                  message: `Generating segment ${completed}/${total}`,
-                })
-              }
-            )
-
-            await batchHandler.flush()
-
-            // Sort audio segments by index and fix start times
-            audioSegments.sort((a, b) => a.index - b.index)
-            let cumulativeTime = 0
-            for (const s of audioSegments) {
-              s.startTime = cumulativeTime
-              cumulativeTime += s.duration || 0
-            }
-
-            if (this.canceled || this.canceledChapters.has(ch.id)) break
-
-            // Mark chapter generation as complete
-            markChapterGenerationComplete(ch.id)
-
-            // Save all chapter segments to DB as a complete batch snapshot.
-            // This serves as a safety net to ensure all segments are persisted,
-            // even if some progressive batches failed during generation.
-            // Uses `put` operations which are idempotent, so duplicate saves are safe.
-            if (bookId) {
-              await saveChapterSegments(bookId, ch.id, audioSegments)
-            }
-
-            // Concatenate for chapter audio
-            const audioChapters: AudioChapter[] = audioSegments.map((s) => ({
-              id: s.id,
-              title: `Segment ${s.index}`,
-              blob: s.audioBlob,
-            }))
-
-            const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
-
-            // Save concatenated audio to DB for TextReader playback
-            if (bookId) {
-              const { saveChapterAudio } = await import('../libraryDB')
-              await saveChapterAudio(bookId, ch.id, fullBlob, {
-                model: effectiveModel,
-                voice: effectiveVoice,
-                quantization: currentQuantization,
-                device: currentDevice,
-                language: effectiveLanguage,
-              })
-            }
-
-            // Update in-memory store
-            generatedAudio.update((m) => {
-              const newMap = new Map(m)
-              if (m.has(ch.id)) {
-                URL.revokeObjectURL(m.get(ch.id)!.url)
-              }
-              newMap.set(ch.id, {
-                url: URL.createObjectURL(fullBlob),
-                blob: fullBlob,
-              })
-              return newMap
-            })
-          } else {
-            // Legacy/Worker path for Piper (unchanged for now, or TODO: implement segmentation for piper too?)
-            // For now keep Piper legacy flow (flat text) as user likely uses Kokoro.
-            // But user asked for "readd the epub media overlay export", implying it should work.
-            // If we don't segment HTML for piper, we can't export synced EPUB for piper.
-            // Let's force segmentation for Piper too?
-            // Yes, same logic.
-
-            logger.info('[generateChapters] About to segment HTML for Piper', {
-              chapterId: ch.id,
-              contentLength: ch.content.length,
-              contentPreview: ch.content.substring(0, 200),
-            })
-
-            // 1. Segment HTML
-            const { html, segments: textSegments } = this.segmentHtml(ch.id, ch.content, {
-              ignoreCodeBlocks: Boolean(currentAdvancedSettings.ignoreCodeBlocks),
-              ignoreLinks: Boolean(currentAdvancedSettings.ignoreLinks),
-            })
-
-            // 2. Update Content
-            const bookId = explicitBookId ?? getBookId()
-            if (bookId) {
-              const { updateChapterContent } = await import('../libraryDB')
-              await updateChapterContent(bookId, ch.id, html)
-            }
-
-            // Initialize segment progress tracking for live UI updates
-            initChapterSegments(ch.id, textSegments)
-
-            // 3. Generate
-            const audioSegments: AudioSegment[] = []
-            const worker = getTTSWorker()
-
-            // Get parallelization setting (default to 1 for sequential processing)
-            const getParallelChunksPiper = () =>
-              Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
-
-            // Create batch handler for efficient database writes
-            const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
-
-            await this.processSegmentsWithPriority(
-              ch.id,
-              textSegments,
-              getParallelChunksPiper,
-              async (segment) => {
-                if (this.canceled || this.canceledChapters.has(ch.id))
-                  throw new Error('Generation canceled')
-
-                // Skip empty segments
-                if (!segment.text.trim()) return null
-
-                const blob = await worker.generateVoice({
-                  text: segment.text,
-                  modelType: effectiveModel as import('../tts/ttsModels').TTSModelType,
-                  voice: effectiveVoice,
-                  device: currentDevice,
-                  language: effectiveLanguage,
-                  advancedSettings: currentAdvancedSettings,
-                  // No dtype for Piper/Kitten
-                })
-
-                const duration = await parseWavDuration(blob)
-
-                return {
-                  segment,
-                  blob,
-                  duration,
-                }
-              },
-              async (result) => {
-                if (!result) return
-                const segment: AudioSegment = {
-                  id: result.segment.id,
-                  chapterId: ch.id,
-                  index: result.segment.index,
-                  text: result.segment.text,
-                  audioBlob: result.blob as Blob,
-                  duration: result.duration,
-                  startTime: 0, // Placeholder, fixed after sort
-                }
-                audioSegments.push(segment)
-                await batchHandler.addSegment(segment)
-
-                // Auto-play first segment for seamless mobile experience
-                // Only triggers once per chapter, on the first completed segment
-                if (
-                  this.autoPlayEnabled &&
-                  !this.autoPlayTriggered.has(ch.id) &&
-                  !this.canceled &&
-                  !this.canceledChapters.has(ch.id)
-                ) {
-                  this.autoPlayTriggered.add(ch.id)
-                  logger.info(`[AutoPlay/Piper] Starting playback of first available segment`, {
-                    chapterId: ch.id,
-                    segmentIndex: segment.index,
-                  })
-                  setTimeout(() => {
-                    if (this.canceled || this.canceledChapters.has(ch.id)) {
-                      logger.info('[AutoPlay/Piper] Skipped — generation was canceled')
-                      return
-                    }
-                    audioService.playSingleSegment(segment).catch((err) => {
-                      logger.warn('[AutoPlay/Piper] Failed to auto-play first segment:', err)
-                    })
-                  }, 0)
-                }
-              },
-              (completed, total) => {
-                throttledProgress.set(ch.id, {
-                  current: completed,
-                  total,
-                  message: `Generating segment ${completed}/${total}`,
-                })
-              }
-            )
-
-            await batchHandler.flush()
-
-            // Sort audio segments by index and fix start times
-            audioSegments.sort((a, b) => a.index - b.index)
-            let cumulativeTime = 0
-            for (const s of audioSegments) {
-              s.startTime = cumulativeTime
-              cumulativeTime += s.duration || 0
-            }
-
-            if (this.canceled || this.canceledChapters.has(ch.id)) break
-
-            // Mark chapter generation as complete
-            markChapterGenerationComplete(ch.id)
-
-            // Save all chapter segments to DB as a complete batch snapshot.
-            // This serves as a safety net to ensure all segments are persisted,
-            // even if some progressive batches failed during generation.
-            // Uses `put` operations which are idempotent, so duplicate saves are safe.
-            if (bookId) await saveChapterSegments(bookId, ch.id, audioSegments)
-
-            // Concat
-            const audioChapters = audioSegments.map((s) => ({
-              id: s.id,
-              title: '',
-              blob: s.audioBlob,
-            }))
-            const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
-
-            // Save chapter audio to DB
-            if (bookId) {
-              const { saveChapterAudio } = await import('../libraryDB')
-              await saveChapterAudio(bookId, ch.id, fullBlob, {
-                model: effectiveModel,
-                voice: effectiveVoice,
-                device: currentDevice,
-                language: effectiveLanguage,
-              })
-            }
-
-            generatedAudio.update((m) => {
-              const newMap = new Map(m)
-              if (m.has(ch.id)) URL.revokeObjectURL(m.get(ch.id)!.url)
-              newMap.set(ch.id, { url: URL.createObjectURL(fullBlob), blob: fullBlob })
-              return newMap
-            })
-          }
+          const bookId = explicitBookId ?? getBookId()
+          const canceled = await this.generateChapterAudio(
+            ch,
+            effectiveModel,
+            effectiveVoice,
+            effectiveLanguage,
+            currentQuantization,
+            currentDevice,
+            currentAdvancedSettings,
+            bookId
+          )
+          if (canceled) break
 
           // Flush any pending throttled progress updates before marking done
           throttledProgress.flush()
@@ -1653,6 +973,244 @@ class GenerationService {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange)
       await this.releaseWakeLock()
     }
+  }
+
+  /**
+   * Resolve the effective voice for a chapter, auto-selecting when needed.
+   */
+  private async resolveEffectiveVoice(
+    ch: Chapter,
+    effectiveModel: string,
+    effectiveLanguage: string,
+    isFallbackModel: boolean,
+    currentVoice: string
+  ): Promise<string> {
+    let effectiveVoice = currentVoice
+
+    let shouldAutoSelectVoice = !currentVoice
+    if (!shouldAutoSelectVoice && isFallbackModel) {
+      if (effectiveModel === 'piper') {
+        const { PiperClient } = await import('../piper/piperClient')
+        const voices = await PiperClient.getInstance().getVoices()
+        shouldAutoSelectVoice = !voices.some((v: { key: string }) => v.key === currentVoice)
+      } else {
+        shouldAutoSelectVoice = true
+      }
+    }
+
+    if (shouldAutoSelectVoice) {
+      const preferredVoice = isFallbackModel ? undefined : currentVoice
+      if (effectiveModel === 'kokoro') {
+        effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, preferredVoice)
+        const kokoroVoices = listKokoroVoices()
+        if (!kokoroVoices.includes(effectiveVoice as VoiceId)) {
+          logger.warn(`Invalid Kokoro voice '${effectiveVoice}', falling back to af_heart`)
+          effectiveVoice = 'af_heart'
+        }
+        logger.info(
+          `Auto-selected Kokoro voice for language ${effectiveLanguage}: ${effectiveVoice}`
+        )
+      } else if (effectiveModel === 'piper') {
+        const { PiperClient } = await import('../piper/piperClient')
+        const availableVoices = await PiperClient.getInstance().getVoices()
+        effectiveVoice = selectPiperVoiceForLanguage(
+          effectiveLanguage,
+          availableVoices,
+          preferredVoice
+        )
+        logger.info(
+          `Auto-selected Piper voice for language ${effectiveLanguage}: ${effectiveVoice}`
+        )
+      }
+    } else {
+      logger.info(`Using chapter-specific voice: ${effectiveVoice}`)
+    }
+
+    // If a global Piper voice doesn't match the chapter language, auto-switch.
+    // Skip when the user explicitly set a chapter voice.
+    if (effectiveModel === 'piper' && !shouldAutoSelectVoice && !ch.voice) {
+      const { PiperClient } = await import('../piper/piperClient')
+      const availableVoices = await PiperClient.getInstance().getVoices()
+      const selectedVoiceInfo = availableVoices.find(
+        (v: { key: string }) => v.key === effectiveVoice
+      )
+      const voiceLang = selectedVoiceInfo ? normalizeLanguageCode(selectedVoiceInfo.language) : null
+      if (!selectedVoiceInfo || voiceLang !== normalizeLanguageCode(effectiveLanguage)) {
+        logger.warn(
+          `Piper voice '${effectiveVoice}' mismatches language '${effectiveLanguage}', auto-switching`
+        )
+        effectiveVoice = selectPiperVoiceForLanguage(effectiveLanguage, availableVoices, undefined)
+        logger.info(
+          `Switched Piper voice to '${effectiveVoice}' for language '${effectiveLanguage}'`
+        )
+      }
+    }
+
+    return effectiveVoice
+  }
+
+  /**
+   * Segment, generate, and persist audio for a single chapter.
+   * Returns true if generation was canceled mid-way.
+   */
+  private async generateChapterAudio(
+    ch: Chapter,
+    effectiveModel: string,
+    effectiveVoice: string,
+    effectiveLanguage: string,
+    currentQuantization: string,
+    currentDevice: string,
+    currentAdvancedSettings: Record<string, unknown>,
+    bookId: number
+  ): Promise<boolean> {
+    logger.info(`[generateChapters] Segmenting HTML for ${effectiveModel}`, {
+      chapterId: ch.id,
+      contentLength: ch.content.length,
+      contentPreview: ch.content.substring(0, 200),
+    })
+
+    // 1. Segment HTML
+    const { html, segments: textSegments } = segmentHtmlContent(ch.id, ch.content, {
+      ignoreCodeBlocks: Boolean(currentAdvancedSettings.ignoreCodeBlocks),
+      ignoreLinks: Boolean(currentAdvancedSettings.ignoreLinks),
+    })
+    ch.content = html
+
+    // 2. Persist segmented HTML
+    if (bookId) {
+      const { updateChapterContent } = await import('../libraryDB')
+      await updateChapterContent(bookId, ch.id, html)
+    }
+
+    initChapterSegments(ch.id, textSegments)
+
+    chapterProgress.update((m) =>
+      new Map(m).set(ch.id, {
+        current: 0,
+        total: textSegments.length,
+        message: 'Initializing generation...',
+      })
+    )
+
+    // 3. Generate audio per segment
+    const audioSegments: AudioSegment[] = []
+    const worker = getTTSWorker()
+    const getParallelChunks = () =>
+      Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
+    const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
+
+    await this.processSegmentsWithPriority(
+      ch.id,
+      textSegments,
+      getParallelChunks,
+      async (segment) => {
+        if (this.canceled || this.canceledChapters.has(ch.id))
+          throw new Error('Generation canceled')
+        if (!segment.text.trim()) return null
+
+        const blob = await worker.generateVoice({
+          text: segment.text,
+          modelType: effectiveModel as import('../tts/ttsModels').TTSModelType,
+          voice: effectiveVoice,
+          dtype:
+            effectiveModel === 'kokoro'
+              ? (currentQuantization as import('../../stores/ttsStore').Quantization)
+              : undefined,
+          device: currentDevice as import('../../stores/ttsStore').Device,
+          language: effectiveLanguage,
+          advancedSettings: currentAdvancedSettings,
+        })
+
+        return { segment, blob, duration: await parseWavDuration(blob) }
+      },
+      async (result) => {
+        if (!result) return
+        const segment: AudioSegment = {
+          id: result.segment.id,
+          chapterId: ch.id,
+          index: result.segment.index,
+          text: result.segment.text,
+          audioBlob: result.blob as Blob,
+          duration: result.duration,
+          startTime: 0,
+        }
+        audioSegments.push(segment)
+        await batchHandler.addSegment(segment)
+
+        if (
+          this.autoPlayEnabled &&
+          !this.autoPlayTriggered.has(ch.id) &&
+          !this.canceled &&
+          !this.canceledChapters.has(ch.id)
+        ) {
+          this.autoPlayTriggered.add(ch.id)
+          logger.info(`[AutoPlay] Starting playback of first available segment`, {
+            chapterId: ch.id,
+            segmentIndex: segment.index,
+          })
+          setTimeout(() => {
+            if (this.canceled || this.canceledChapters.has(ch.id)) {
+              logger.info('[AutoPlay] Skipped — generation was canceled')
+              return
+            }
+            audioService.playSingleSegment(segment).catch((err) => {
+              logger.warn('[AutoPlay] Failed to auto-play first segment:', err)
+            })
+          }, 0)
+        }
+      },
+      (completed, total) => {
+        throttledProgress.set(ch.id, {
+          current: completed,
+          total,
+          message: `Generating segment ${completed}/${total}`,
+        })
+      }
+    )
+
+    await batchHandler.flush()
+
+    // Fix start times
+    audioSegments.sort((a, b) => a.index - b.index)
+    let cumulativeTime = 0
+    for (const s of audioSegments) {
+      s.startTime = cumulativeTime
+      cumulativeTime += s.duration || 0
+    }
+
+    if (this.canceled || this.canceledChapters.has(ch.id)) return true
+
+    markChapterGenerationComplete(ch.id)
+
+    if (bookId) await saveChapterSegments(bookId, ch.id, audioSegments)
+
+    // 4. Concatenate and persist merged audio
+    const audioChapters: AudioChapter[] = audioSegments.map((s) => ({
+      id: s.id,
+      title: `Segment ${s.index}`,
+      blob: s.audioBlob,
+    }))
+    const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
+
+    if (bookId) {
+      const { saveChapterAudio } = await import('../libraryDB')
+      await saveChapterAudio(bookId, ch.id, fullBlob, {
+        model: effectiveModel,
+        voice: effectiveVoice,
+        quantization: currentQuantization,
+        device: currentDevice,
+        language: effectiveLanguage,
+      })
+    }
+
+    generatedAudio.update((m) => {
+      const newMap = new Map(m)
+      if (m.has(ch.id)) URL.revokeObjectURL(m.get(ch.id)!.url)
+      newMap.set(ch.id, { url: URL.createObjectURL(fullBlob), blob: fullBlob })
+      return newMap
+    })
+
+    return false
   }
 
   cancel() {

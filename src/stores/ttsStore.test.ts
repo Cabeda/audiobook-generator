@@ -41,19 +41,19 @@ describe('TTS settings persistence', () => {
     advancedSettings.subscribe((v) => {
       value = v
     })()
-    expect(value?.['kitten']?.modelVariant).toBe('micro')
+    expect(value?.['kokoro']).toBeDefined()
+    expect(value?.['piper']).toBeDefined()
   })
 
-  it('advancedSettings persists kitten.modelVariant nano', async () => {
-    const stored = { kitten: { modelVariant: 'nano', speed: 1.2 } }
+  it('advancedSettings persists kokoro settings', async () => {
+    const stored = { kokoro: { parallelChunks: 3 } }
     localStorageMock.setItem('audiobook_advanced_settings', JSON.stringify(stored))
     const { advancedSettings } = await import('../stores/ttsStore')
     let value: Record<string, any> | undefined
     advancedSettings.subscribe((v) => {
       value = v
     })()
-    expect(value?.['kitten']?.modelVariant).toBe('nano')
-    expect(value?.['kitten']?.speed).toBe(1.2)
+    expect(value?.['kokoro']?.parallelChunks).toBe(3)
   })
 
   it('advancedSettings merges stored with defaults (missing keys get defaults)', async () => {
