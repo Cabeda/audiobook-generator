@@ -27,7 +27,6 @@
   import { generationService } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
-  import VirtualList from './VirtualList.svelte'
   import type { Chapter } from '../lib/types/book'
   import type { LibraryBook } from '../lib/libraryDB'
   import {
@@ -93,9 +92,8 @@
   let showFormatPicker = $state(false)
   let selectedBitrate = $state(192)
 
-  // Responsive item height for VirtualList
+  // Responsive state
   let isMobile = $state(false)
-  let chapterItemHeight = $derived(isMobile ? 70 : 100)
 
   let selectedModel = $derived($selectedModelStore)
   let currentBook = $derived($book)
@@ -631,32 +629,28 @@
 
     <!-- Chapter List -->
     <div class="content-area">
-      <VirtualList items={currentBook.chapters} itemHeight={chapterItemHeight} buffer={3}>
-        {#snippet children(visibleItems: { item: Chapter; index: number }[])}
-          <div class="chapter-list">
-            {#each visibleItems as { item: chapter } (chapter.id)}
-              <ChapterItem
-                {chapter}
-                book={currentBook}
-                selected={selections.get(chapter.id)}
-                status={statusMap.get(chapter.id)}
-                error={errorsMap.get(chapter.id)}
-                progress={$chapterProgress.get(chapter.id)}
-                audioData={audioMap.get(chapter.id)}
-                onToggle={toggleChapter}
-                onRead={handleRead}
-                onRetry={handleRetry}
-                onCancel={handleCancelChapter}
-                onDownload={handleDownload}
-                onModelChange={handleModelChange}
-                onVoiceChange={handleVoiceChange}
-                onLanguageChange={handleLanguageChange}
-                onSelectOnly={selectOnlyChapter}
-              />
-            {/each}
-          </div>
-        {/snippet}
-      </VirtualList>
+      <div class="chapter-list">
+        {#each currentBook.chapters as chapter (chapter.id)}
+          <ChapterItem
+            {chapter}
+            book={currentBook}
+            selected={selections.get(chapter.id)}
+            status={statusMap.get(chapter.id)}
+            error={errorsMap.get(chapter.id)}
+            progress={$chapterProgress.get(chapter.id)}
+            audioData={audioMap.get(chapter.id)}
+            onToggle={toggleChapter}
+            onRead={handleRead}
+            onRetry={handleRetry}
+            onCancel={handleCancelChapter}
+            onDownload={handleDownload}
+            onModelChange={handleModelChange}
+            onVoiceChange={handleVoiceChange}
+            onLanguageChange={handleLanguageChange}
+            onSelectOnly={selectOnlyChapter}
+          />
+        {/each}
+      </div>
     </div>
   {/if}
 </div>
@@ -665,10 +659,11 @@
   .book-view {
     display: flex;
     flex-direction: column;
-    height: 100%;
     gap: 24px;
     padding-bottom: 80px;
     overflow-y: auto;
+    flex: 1;
+    min-height: 0;
   }
 
   /* Hero Header */
@@ -680,6 +675,7 @@
     color: white;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
     min-height: 200px;
+    flex-shrink: 0;
     transition:
       min-height 0.3s ease,
       padding 0.3s ease,
@@ -768,9 +764,7 @@
     flex-wrap: wrap;
     background: var(--surface-color);
     border: 1px solid var(--border-color);
-    position: sticky;
-    top: 0;
-    z-index: 10;
+    flex-shrink: 0;
   }
 
   .toolbar-title {
@@ -800,6 +794,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 0 4px;
+    flex-shrink: 0;
   }
 
   .selection-actions {
@@ -813,8 +808,8 @@
     border: 1px solid var(--border-color);
     padding: 8px 12px;
     border-radius: 8px;
-    font-size: 0.95rem;
-    min-width: 150px;
+    font-size: 0.9rem;
+    min-width: 140px;
     cursor: pointer;
   }
 
@@ -823,15 +818,15 @@
     background: var(--success-color, #22c55e);
     color: white;
     border: none;
-    padding: 10px 24px;
-    border-radius: 10px;
+    padding: 8px 20px;
+    border-radius: 8px;
     font-weight: 600;
-    font-size: 1rem;
+    font-size: 0.9rem;
     cursor: pointer;
     transition:
       background-color 0.2s,
       box-shadow 0.2s;
-    box-shadow: 0 4px 12px var(--shadow-color);
+    box-shadow: 0 2px 8px var(--shadow-color);
   }
 
   .primary-btn:hover:not(:disabled) {
@@ -855,7 +850,7 @@
     color: var(--bg-color);
     border: none;
     font-weight: 600;
-    font-size: 1rem;
+    font-size: 0.9rem;
     cursor: pointer;
     transition:
       background-color 0.2s,
@@ -863,9 +858,9 @@
   }
 
   .export-main {
-    padding: 10px 18px;
-    border-radius: 10px 0 0 10px;
-    box-shadow: 0 4px 12px var(--shadow-color);
+    padding: 8px 16px;
+    border-radius: 8px 0 0 8px;
+    box-shadow: 0 2px 8px var(--shadow-color);
   }
 
   .export-dropdown-wrapper {
@@ -1034,38 +1029,28 @@
 
   @media (max-width: 768px) {
     .book-view {
-      padding-bottom: 50px; /* Reduced padding for mobile player bar */
-      gap: 12px; /* Reduce gap between sections on mobile */
+      padding-bottom: 50px;
+      gap: 8px;
     }
 
     .content-area {
-      padding: 0 4px; /* Reduce horizontal padding on mobile */
+      padding: 0 4px;
     }
 
-    .export-primary-btn {
-      font-size: 0.9rem;
-    }
-
-    .export-main {
-      padding: 8px 14px;
-    }
-
-    .export-toggle {
-      padding: 8px 8px;
-    }
-
+    /* Hero — compact card */
     .hero-header {
-      padding: 16px;
+      padding: 12px;
       min-height: auto;
       text-align: center;
+      border-radius: 12px;
+      background: var(--surface-color);
+      color: var(--text-color);
+      box-shadow: 0 2px 8px var(--shadow-color);
+      overflow: visible;
+      flex-shrink: 0;
     }
     .hero-bg {
       display: none;
-    }
-    .hero-header {
-      background: var(--surface-color);
-      color: var(--text-color);
-      box-shadow: 0 4px 12px var(--shadow-color);
     }
     .hero-content {
       flex-direction: row;
@@ -1073,61 +1058,97 @@
       gap: 12px;
       text-align: left;
     }
+    .cover-wrapper {
+      flex-shrink: 0;
+    }
     .book-cover {
-      width: 60px;
-      height: 90px;
-      box-shadow: 0 4px 8px var(--shadow-color);
+      width: 50px;
+      height: 75px;
+      box-shadow: 0 2px 6px var(--shadow-color);
       border: 1px solid var(--border-color);
     }
     .placeholder {
-      font-size: 1.5rem;
+      font-size: 1.2rem;
+    }
+    .book-info {
+      min-width: 0; /* Allow text truncation */
     }
     .book-info h1 {
-      font-size: 1.3rem;
+      font-size: 1.1rem;
       font-weight: 700;
       text-shadow: none;
+      margin: 0 0 4px 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
     }
     .author {
-      font-size: 0.85rem;
-      margin: 0 0 8px 0;
+      font-size: 0.8rem;
+      margin: 0 0 6px 0;
     }
     .meta-badges {
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 4px;
     }
     .badge {
-      font-size: 0.75rem;
-      padding: 3px 8px;
+      font-size: 0.7rem;
+      padding: 2px 6px;
       background: var(--feature-bg);
       color: var(--secondary-text);
     }
+
+    /* Toolbar — compact, streamlined */
     .toolbar {
       flex-direction: column;
       align-items: stretch;
-      padding: 8px 12px;
+      padding: 8px 10px;
       gap: 8px;
-      border-radius: 0;
+      border-radius: 10px;
     }
     .toolbar-left {
+      display: flex;
       flex-direction: row;
       flex-wrap: wrap;
+      gap: 6px;
     }
     .toolbar-left .premium-select {
-      flex: 1;
+      flex: 1 1 100px;
       min-width: 0;
+      padding: 6px 8px;
+      font-size: 0.85rem;
     }
     .toolbar-right {
+      display: flex;
       flex-wrap: wrap;
+      gap: 6px;
+      width: 100%;
     }
     .toolbar-right .primary-btn,
     .toolbar-right .cancel-btn {
-      flex: 1;
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 8px 12px;
+      font-size: 0.85rem;
     }
     .export-split-btn {
-      flex: 1;
+      flex: 1 1 0;
+      min-width: 0;
+    }
+    .export-primary-btn {
+      font-size: 0.85rem;
     }
     .export-main {
       flex: 1;
+      min-width: 0;
+      padding: 8px 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .export-toggle {
+      padding: 8px 8px;
     }
   }
 

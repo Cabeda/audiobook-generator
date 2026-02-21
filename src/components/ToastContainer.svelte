@@ -7,7 +7,8 @@
 
 <div class="toast-container">
   {#each toasts as toast (toast.id)}
-    <div
+    <button
+      type="button"
       class="toast toast-{toast.type}"
       transition:fly={{ y: -20, duration: 200 }}
       onclick={() => toastStore.dismiss(toast.id)}
@@ -19,7 +20,7 @@
         {:else}ℹ{/if}
       </span>
       <span class="toast-message">{toast.message}</span>
-    </div>
+    </button>
   {/each}
 </div>
 
@@ -48,6 +49,9 @@
     max-width: 400px;
     pointer-events: auto;
     cursor: pointer;
+    border: none;
+    font: inherit;
+    text-align: left;
   }
 
   .toast-icon {

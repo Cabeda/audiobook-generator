@@ -23,7 +23,7 @@ import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { appSettings } from '../../stores/appSettingsStore'
-import { saveChapterSegments, type LibraryBook } from '../libraryDB'
+import { saveChapterSegments, getChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { resolveChapterLanguageWithDetection, DEFAULT_LANGUAGE } from '../utils/languageResolver'
 import { audioService } from '../audioPlaybackService.svelte'
@@ -59,6 +59,8 @@ class SegmentBatchHandler {
   private readonly batchSize: number
   private readonly bookId: number | undefined
   private readonly chapterId: string
+  /** Segments whose blobs have been persisted and can be released from memory */
+  private flushedSegments: AudioSegment[] = []
 
   constructor(bookId: number | undefined, chapterId: string, batchSize: number = 10) {
     this.bookId = bookId
@@ -119,6 +121,8 @@ class SegmentBatchHandler {
       )
       await saveChapterSegments(this.bookId, this.chapterId, this.batch)
       logger.debug(`Flushed batch of ${this.batch.length} segments for chapter ${this.chapterId}`)
+      // Track flushed segments so their blobs can be released
+      this.flushedSegments.push(...this.batch)
       this.batch = []
     } catch (error) {
       logger.error('Failed to save segment batch', {
@@ -132,6 +136,24 @@ class SegmentBatchHandler {
       this.batch = []
       throw error
     }
+  }
+
+  /**
+   * Release audioBlob references from all flushed segments to free memory.
+   * Call this after flush() to reduce peak memory on constrained devices (e.g. Android).
+   * Segments retain their metadata (id, index, duration, startTime, text) for later use.
+   */
+  releaseBlobs(): void {
+    for (const seg of this.flushedSegments) {
+      // Cast to allow null — the blob data is safely in IndexedDB
+      ;(seg as { audioBlob: Blob | null }).audioBlob = null
+    }
+    if (this.flushedSegments.length > 0) {
+      logger.debug(
+        `[SegmentBatchHandler] Released ${this.flushedSegments.length} blob references for chapter ${this.chapterId}`
+      )
+    }
+    this.flushedSegments = []
   }
 }
 
@@ -1136,6 +1158,9 @@ class GenerationService {
         }
         audioSegments.push(segment)
         await batchHandler.addSegment(segment)
+        // Release blob references for segments already persisted to IndexedDB.
+        // This prevents accumulating all segment blobs in memory (OOM on Android).
+        batchHandler.releaseBlobs()
 
         if (
           this.autoPlayEnabled &&
@@ -1169,8 +1194,10 @@ class GenerationService {
     )
 
     await batchHandler.flush()
+    // Release remaining blob references from the final flush to free memory
+    batchHandler.releaseBlobs()
 
-    // Fix start times
+    // Fix start times (metadata only — blobs may have been released)
     audioSegments.sort((a, b) => a.index - b.index)
     let cumulativeTime = 0
     for (const s of audioSegments) {
@@ -1185,12 +1212,23 @@ class GenerationService {
     if (bookId) await saveChapterSegments(bookId, ch.id, audioSegments)
 
     // 4. Concatenate and persist merged audio
-    const audioChapters: AudioChapter[] = audioSegments.map((s) => ({
+    // Re-read segments from IndexedDB to avoid holding all blobs in memory simultaneously.
+    // The in-memory audioSegments array has had its blobs released after each batch flush.
+    let concatSegments: AudioSegment[]
+    if (bookId) {
+      concatSegments = await getChapterSegments(bookId, ch.id)
+    } else {
+      // No persistent storage — blobs are still in memory (releaseBlobs is a no-op without bookId)
+      concatSegments = audioSegments
+    }
+    const audioChapters: AudioChapter[] = concatSegments.map((s) => ({
       id: s.id,
       title: `Segment ${s.index}`,
       blob: s.audioBlob,
     }))
     const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
+    // Release concat segments from memory immediately after concatenation
+    concatSegments.length = 0
 
     if (bookId) {
       const { saveChapterAudio } = await import('../libraryDB')

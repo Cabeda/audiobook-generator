@@ -87,10 +87,11 @@
       chapterSegmentProgress.generatedIndices.size < chapterSegmentProgress.totalSegments
   )
 
-  // Local state for chapter overrides
-  let chapterModel = $state(chapter.model)
-  let chapterVoice = $state(chapter.voice)
-  let chapterLanguage = $state(chapter.language)
+  // Local state for chapter overrides — initialized to undefined,
+  // then synced from the chapter prop via $effect below.
+  let chapterModel = $state<string | undefined>(undefined)
+  let chapterVoice = $state<string | undefined>(undefined)
+  let chapterLanguage = $state<string | undefined>(undefined)
 
   // Update local state when chapter prop changes
   $effect(() => {
