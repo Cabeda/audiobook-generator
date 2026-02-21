@@ -43,6 +43,26 @@ Notes:
 - Avoid `git checkout` in the main working copy while agents are running in their worktrees.
 - Clean up completed worktrees with `git worktree remove ../worktrees/my-feature` and consider pruning stale branches.
 
+Post-merge cleanup (mandatory after every PR merge):
+
+After a PR is merged, always perform these cleanup steps:
+
+1. Delete the remote branch (if not auto-deleted by the merge):
+   - `gh api repos/OWNER/REPO/git/refs/heads/BRANCH -X DELETE`
+2. Remove the worktree:
+   - `git worktree remove ../worktrees/my-feature`
+   - Use `--force` if the worktree has stale uncommitted changes that are no longer needed.
+3. Switch to the main repo and update local main:
+   - `cd /path/to/main/repo`
+   - `git fetch origin main && git reset --hard origin/main`
+4. Delete the local feature branch:
+   - `git branch -D my-feature`
+5. Prune stale remote refs:
+   - `git remote prune origin`
+6. Verify clean state:
+   - `git status` — should show clean working tree on main
+   - `git worktree list` — should show only the main working copy
+
 Using `gh` CLI (preferred) for GitHub interactions
 
 - Authenticate once per machine with `gh auth login`.
