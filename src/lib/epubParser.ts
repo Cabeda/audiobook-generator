@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import type { Book, BookParser, Chapter } from './types/book'
+import type { Book, BookParser, Chapter, OnParseProgress } from './types/book'
 
 // This file runs in the browser and depends on lib.dom being available.
 // If your TypeScript environment complains, enable the 'dom' lib or
@@ -22,8 +22,8 @@ export class EpubParser implements BookParser {
     return 'EPUB'
   }
 
-  async parse(file: File): Promise<Book> {
-    return parseEpubFile(file)
+  async parse(file: File, onProgress?: OnParseProgress): Promise<Book> {
+    return parseEpubFile(file, onProgress)
   }
 }
 
@@ -200,10 +200,12 @@ function extractChapterTitle(
   return title || fallbackTitle || `Chapter ${index + 1}`
 }
 
-export async function parseEpubFile(file: File): Promise<EPubBook> {
+export async function parseEpubFile(file: File, onProgress?: OnParseProgress): Promise<EPubBook> {
+  onProgress?.({ percent: 0, step: 'Reading eBook archive...' })
   const zip = await JSZip.loadAsync(await file.arrayBuffer())
   const parser = new DOMParser()
 
+  onProgress?.({ percent: 0.1, step: 'Reading metadata...' })
   const containerXml = await zip.file('META-INF/container.xml')?.async('text')
   if (!containerXml) throw new Error('container.xml not found in EPUB')
   const containerDoc = parser.parseFromString(containerXml, 'application/xml')
@@ -253,7 +255,9 @@ export async function parseEpubFile(file: File): Promise<EPubBook> {
     ])
   )
 
+  onProgress?.({ percent: 0.2, step: 'Extracting chapters...' })
   const chapters: Chapter[] = []
+  const totalSpineItems = spine.length
   for (const [index, item] of spine.entries()) {
     const id = item.getAttribute('idref') || ''
     const href = manifest.get(id)
@@ -270,7 +274,15 @@ export async function parseEpubFile(file: File): Promise<EPubBook> {
         chapters.push({ id: `chapter-${index + 1}`, title, content })
       }
     }
+    // Report per-chapter progress (0.2 to 0.9 range)
+    const chapterProgress = 0.2 + ((index + 1) / totalSpineItems) * 0.7
+    onProgress?.({
+      percent: chapterProgress,
+      step: `Extracting chapter ${index + 1} of ${totalSpineItems}...`,
+    })
   }
+
+  onProgress?.({ percent: 0.9, step: 'Loading cover image...' })
 
   // Prepare cover as object URL if present
   let coverUrl: string | undefined = undefined

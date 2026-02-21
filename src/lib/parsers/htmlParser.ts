@@ -1,4 +1,4 @@
-import type { Book, BookParser, Chapter } from '../types/book'
+import type { Book, BookParser, Chapter, OnParseProgress } from '../types/book'
 import { readFileAsText } from '../fileUtils'
 
 /**
@@ -15,7 +15,7 @@ export class HtmlParser implements BookParser {
     return 'HTML'
   }
 
-  async parse(file: File): Promise<Book> {
+  async parse(file: File, _onProgress?: OnParseProgress): Promise<Book> {
     const html = await readFileAsText(file)
     const parser = new DOMParser()
     const doc = parser.parseFromString(html, 'text/html')

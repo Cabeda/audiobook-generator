@@ -22,6 +22,18 @@ export interface Chapter {
 }
 
 /**
+ * Progress callback for book parsing
+ */
+export interface ParseProgress {
+  /** 0–1 fraction of completion */
+  percent: number
+  /** Human-readable description of the current step */
+  step: string
+}
+
+export type OnParseProgress = (progress: ParseProgress) => void
+
+/**
  * Interface that all book parsers must implement
  */
 export interface BookParser {
@@ -29,7 +41,7 @@ export interface BookParser {
   canParse(file: File): Promise<boolean>
 
   /** Parse the file into a Book */
-  parse(file: File): Promise<Book>
+  parse(file: File, onProgress?: OnParseProgress): Promise<Book>
 
   /** Get the format name this parser handles */
   getFormatName(): string

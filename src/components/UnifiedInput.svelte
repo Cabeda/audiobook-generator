@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Readability } from '@mozilla/readability'
-  import type { Book } from '../lib/types/book'
+  import type { Book, ParseProgress } from '../lib/types/book'
   import { retryWithBackoff } from '../lib/retryUtils'
 
   let {
@@ -12,6 +12,7 @@
   let fileInput: HTMLInputElement
   let parsing = $state(false)
   let dragActive = $state(false)
+  let progress = $state<ParseProgress | null>(null)
 
   // URL state
   let url = $state('')
@@ -55,16 +56,20 @@
   async function handleFile(f: File | null) {
     if (!f) return
     parsing = true
+    progress = null
     error = null
     try {
       const { loadBook } = await import('../lib/bookLoader')
-      const book = await loadBook(f)
+      const book = await loadBook(f, (p) => {
+        progress = p
+      })
       onbookloaded({ book, sourceFile: f })
     } catch (err) {
       console.error('Failed to parse book:', err)
       error = err instanceof Error ? err.message : 'Unknown error parsing file'
     } finally {
       parsing = false
+      progress = null
     }
   }
 
@@ -230,7 +235,19 @@
     </div>
 
     {#if parsing}
-      <p class="status">Parsing eBook...</p>
+      <div
+        class="progress-container"
+        role="progressbar"
+        aria-valuenow={Math.round((progress?.percent ?? 0) * 100)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Parsing progress"
+      >
+        <div class="progress-track">
+          <div class="progress-fill" style="width: {(progress?.percent ?? 0) * 100}%"></div>
+        </div>
+        <p class="progress-step">{progress?.step ?? 'Preparing...'}</p>
+      </div>
     {/if}
 
     {#if error}
@@ -351,9 +368,34 @@
     cursor: not-allowed;
   }
 
-  .status {
-    color: var(--primary-color);
-    font-weight: 500;
+  .progress-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .progress-track {
+    width: 100%;
+    height: 6px;
+    background: var(--border-color);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--primary-color);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+
+  .progress-step {
+    font-size: 0.85em;
+    color: var(--secondary-text);
+    margin: 0;
+    min-height: 1.2em;
   }
 
   .error {
