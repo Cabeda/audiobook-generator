@@ -1,6 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist'
 import logger from '../utils/logger'
-import type { Book, BookParser, Chapter } from '../types/book'
+import type { Book, BookParser, Chapter, OnParseProgress } from '../types/book'
 
 // Configure PDF.js worker
 // In browser, this should point to the worker file from pdfjs-dist
@@ -31,20 +31,25 @@ export class PdfParser implements BookParser {
     return 'PDF'
   }
 
-  async parse(file: File): Promise<Book> {
+  async parse(file: File, onProgress?: OnParseProgress): Promise<Book> {
+    onProgress?.({ percent: 0, step: 'Reading PDF file...' })
     const arrayBuffer = await file.arrayBuffer()
 
     // Load PDF document
+    onProgress?.({ percent: 0.1, step: 'Loading PDF document...' })
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
     const pdf = await loadingTask.promise
 
     // Extract metadata
+    onProgress?.({ percent: 0.2, step: 'Extracting metadata...' })
     const metadata = await this.extractMetadata(pdf)
 
     // Extract text from all pages with formatting info
-    const pages = await this.extractAllPages(pdf)
+    onProgress?.({ percent: 0.3, step: 'Extracting pages...' })
+    const pages = await this.extractAllPages(pdf, onProgress)
 
     // Detect chapters based on font sizes and formatting
+    onProgress?.({ percent: 0.95, step: 'Detecting chapters...' })
     const chapters = this.detectChapters(pages)
 
     return {
@@ -86,7 +91,10 @@ export class PdfParser implements BookParser {
   /**
    * Extract text and formatting from all pages
    */
-  private async extractAllPages(pdf: pdfjsLib.PDFDocumentProxy): Promise<
+  private async extractAllPages(
+    pdf: pdfjsLib.PDFDocumentProxy,
+    onProgress?: OnParseProgress
+  ): Promise<
     {
       pageNum: number
       text: string
@@ -117,6 +125,13 @@ export class PdfParser implements BookParser {
         pageNum: i,
         text: text.trim(),
         items,
+      })
+
+      // Report per-page progress (0.3 to 0.9 range)
+      const pageProgress = 0.3 + (i / pdf.numPages) * 0.6
+      onProgress?.({
+        percent: pageProgress,
+        step: `Extracting page ${i} of ${pdf.numPages}...`,
       })
     }
 

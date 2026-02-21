@@ -1,6 +1,6 @@
 import { detectFormat } from './formatDetector'
 import logger from './utils/logger'
-import type { Book, BookParser } from './types/book'
+import type { Book, BookParser, OnParseProgress } from './types/book'
 
 /**
  * Lazy load EPUB parser to support dynamic imports
@@ -78,10 +78,12 @@ async function getAllParsers(): Promise<BookParser[]> {
 /**
  * Load a book file, automatically detecting format and using appropriate parser
  */
-export async function loadBook(file: File): Promise<Book> {
+export async function loadBook(file: File, onProgress?: OnParseProgress): Promise<Book> {
+  onProgress?.({ percent: 0, step: 'Detecting file format...' })
   const format = await detectFormat(file)
   logger.info(`Detected format: ${format}`)
 
+  onProgress?.({ percent: 0.05, step: 'Loading parser...' })
   // Find parser that can handle this file
   const parser = await findParser(file)
 
@@ -96,8 +98,14 @@ export async function loadBook(file: File): Promise<Book> {
 
   logger.info(`Using parser: ${parser.getFormatName()}`)
 
-  // Parse the file
-  return await parser.parse(file)
+  onProgress?.({ percent: 0.1, step: `Parsing ${parser.getFormatName()} file...` })
+  // Parse the file, forwarding progress scaled to 0.1–1.0
+  const result = await parser.parse(file, (p) => {
+    onProgress?.({ percent: 0.1 + p.percent * 0.9, step: p.step })
+  })
+
+  onProgress?.({ percent: 1, step: 'Done' })
+  return result
 }
 
 /**
