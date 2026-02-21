@@ -282,6 +282,11 @@
         return
       }
 
+      if (parsed.view === 'settings') {
+        currentView = 'settings'
+        return
+      }
+
       const bookId = parsed.bookId
       const chapterId = parsed.view === 'reader' ? parsed.chapterId : undefined
 
@@ -348,11 +353,22 @@
 
   {#if currentView === 'landing'}
     <div in:fade class="view-wrapper scrollable">
-      <LandingPage onbookloaded={onBookLoaded} onopensettings={() => (currentView = 'settings')} />
+      <LandingPage
+        onbookloaded={onBookLoaded}
+        onopensettings={() => {
+          currentView = 'settings'
+          location.hash = '#/settings'
+        }}
+      />
     </div>
   {:else if currentView === 'settings'}
     <div in:fade class="view-wrapper scrollable">
-      <SettingsPage onBack={() => (currentView = 'landing')} />
+      <SettingsPage
+        onBack={() => {
+          currentView = 'landing'
+          location.hash = '#/'
+        }}
+      />
     </div>
   {:else if currentView === 'book'}
     <div in:fade class="view-wrapper">
@@ -455,6 +471,7 @@
 
   .view-wrapper.full-height {
     padding: 0;
+    position: relative;
   }
 
   .back-link {
@@ -510,14 +527,15 @@
   }
 
   .mode-btn {
-    padding: 4px 12px;
-    font-size: 0.75rem;
+    padding: 6px 14px;
+    font-size: 0.8rem;
     border: none;
     background: var(--surface-color, #2a2a2a);
     color: var(--secondary-text, #a0a0a0);
     cursor: pointer;
     transition: all 0.15s;
     font-weight: 500;
+    min-height: 36px;
   }
 
   .mode-btn.active {

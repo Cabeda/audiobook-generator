@@ -32,22 +32,27 @@ export async function getStorageInfo(): Promise<StorageInfo> {
   }
 
   try {
-    // Get IndexedDB usage
+    // Get IndexedDB usage — open without version to avoid triggering upgrades.
+    // If the DB doesn't exist yet or stores are missing, we just return zeros.
     const db = await openDB()
+    const storeNames = Array.from(db.objectStoreNames)
 
-    // Count books
-    const booksStore = db.transaction('books', 'readonly').objectStore('books')
-    info.books = await countStore(booksStore)
+    if (storeNames.includes('books')) {
+      const booksStore = db.transaction('books', 'readonly').objectStore('books')
+      info.books = await countStore(booksStore)
+    }
 
-    // Count audio
-    const audioStore = db.transaction('chapterAudio', 'readonly').objectStore('chapterAudio')
-    info.audio = await countStore(audioStore)
+    if (storeNames.includes('chapterAudio')) {
+      const audioStore = db.transaction('chapterAudio', 'readonly').objectStore('chapterAudio')
+      info.audio = await countStore(audioStore)
+    }
 
-    // Count segments
-    const segmentsStore = db
-      .transaction('chapterSegments', 'readonly')
-      .objectStore('chapterSegments')
-    info.segments = await countStore(segmentsStore)
+    if (storeNames.includes('chapterSegments')) {
+      const segmentsStore = db
+        .transaction('chapterSegments', 'readonly')
+        .objectStore('chapterSegments')
+      info.segments = await countStore(segmentsStore)
+    }
 
     db.close()
 
@@ -186,10 +191,11 @@ export async function deleteCachedModel(cacheName: string, cacheKey: string): Pr
  */
 export async function clearLibraryData(): Promise<void> {
   const db = await openDB()
+  const storeNames = Array.from(db.objectStoreNames)
 
-  await clearStore(db, 'books')
-  await clearStore(db, 'chapterAudio')
-  await clearStore(db, 'chapterSegments')
+  if (storeNames.includes('books')) await clearStore(db, 'books')
+  if (storeNames.includes('chapterAudio')) await clearStore(db, 'chapterAudio')
+  if (storeNames.includes('chapterSegments')) await clearStore(db, 'chapterSegments')
 
   db.close()
 }

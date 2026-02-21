@@ -393,8 +393,9 @@
     color: var(--secondary-text);
     cursor: pointer;
     font-size: 0.9rem;
-    padding: 8px 0;
+    padding: 8px 16px;
     min-height: 44px;
+    min-width: 44px;
   }
 
   .back-btn:hover {
