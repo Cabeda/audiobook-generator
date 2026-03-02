@@ -26,6 +26,7 @@ import { appSettings } from '../../stores/appSettingsStore'
 import { saveChapterSegments, getChapterSegments, type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { resolveChapterLanguageWithDetection, DEFAULT_LANGUAGE } from '../utils/languageResolver'
+import { isMobileDevice } from '../utils/mobileDetect'
 import { audioService } from '../audioPlaybackService.svelte'
 
 import {
@@ -930,7 +931,8 @@ class GenerationService {
         }
 
         const currentVoice = ch.voice || langDefaults?.voice || get(selectedVoice)
-        const currentQuantization = get(selectedQuantization)
+        // Cap quantization to q4 on mobile to avoid loading a ~100MB q8 model
+        const currentQuantization = isMobileDevice() ? 'q4' : get(selectedQuantization)
         const currentDevice = get(selectedDevice)
         const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
 
@@ -1208,8 +1210,6 @@ class GenerationService {
     if (this.canceled || this.canceledChapters.has(ch.id)) return true
 
     markChapterGenerationComplete(ch.id)
-
-    if (bookId) await saveChapterSegments(bookId, ch.id, audioSegments)
 
     // 4. Concatenate and persist merged audio
     // Re-read segments from IndexedDB to avoid holding all blobs in memory simultaneously.
