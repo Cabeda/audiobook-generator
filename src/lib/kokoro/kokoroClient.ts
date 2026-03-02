@@ -357,7 +357,8 @@ export async function generateVoiceSegments(
     const tts = await getKokoroInstance(model, dtype, actualDevice, onProgress)
     if (onProgress) onProgress('Generating speech...')
 
-    const MAX_CHUNK_SIZE = 1000
+    // Use adaptive chunk size: smaller on mobile to reduce peak memory pressure
+    const MAX_CHUNK_SIZE = getRecommendedChunkSize()
 
     if (text.length > MAX_CHUNK_SIZE) {
       logger.info(
