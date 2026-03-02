@@ -936,10 +936,15 @@ class GenerationService {
         const currentDevice = get(selectedDevice)
         const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
 
-        // Validate content
+        // Validate content — skip empty chapters gracefully without an error
         if (!ch.content || !ch.content.trim()) {
-          chapterStatus.update((m) => new Map(m).set(ch.id, 'error'))
-          chapterErrors.update((m) => new Map(m).set(ch.id, 'Chapter content is empty'))
+          logger.info(`[Generation] Skipping empty chapter: ${ch.title} (${ch.id})`)
+          chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
+          chapterErrors.update((m) => {
+            const newMap = new Map(m)
+            newMap.delete(ch.id)
+            return newMap
+          })
           continue
         }
 
