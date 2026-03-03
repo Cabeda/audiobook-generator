@@ -33,21 +33,25 @@ export const segmentProgress = writable(new Map<string, ChapterSegmentProgress>(
  */
 export function initChapterSegments(
   chapterId: string,
-  segments: Array<{ index: number; text: string; id: string }>
+  segments: Array<{ index: number; text: string; id: string }>,
+  resume = false
 ) {
   segmentProgress.update((map) => {
     const newMap = new Map(map)
     const segmentTexts = new Map<number, string>()
     segments.forEach((s) => segmentTexts.set(s.index, s.text))
 
+    const existing = map.get(chapterId)
+
     const chapterProgress: ChapterSegmentProgress = {
       totalSegments: segments.length,
-      generatedIndices: new Set<number>(),
+      // When resuming, preserve already-generated indices so the UI keeps showing progress
+      generatedIndices: resume && existing ? existing.generatedIndices : new Set<number>(),
       segmentTexts,
-      generatedSegments: new Map(),
+      generatedSegments: resume && existing ? existing.generatedSegments : new Map(),
       isGenerating: true,
       processingIndex: -1,
-      segmentQuality: new Map(),
+      segmentQuality: resume && existing ? existing.segmentQuality : new Map(),
     }
     newMap.set(chapterId, chapterProgress)
     return newMap
@@ -203,7 +207,11 @@ export const segmentProgressPercentage = derived(segmentProgress, ($progress) =>
 /**
  * Load segment progress from DB for chapters that have been partially or fully generated
  */
-export async function loadChapterSegmentProgress(bookId: number, chapterId: string) {
+export async function loadChapterSegmentProgress(
+  bookId: number,
+  chapterId: string,
+  knownTotal?: number
+) {
   try {
     logger.info(
       `[loadChapterSegmentProgress] Loading segments for bookId=${bookId}, chapterId=${chapterId}`
@@ -226,7 +234,7 @@ export async function loadChapterSegmentProgress(bookId: number, chapterId: stri
         })
 
         newMap.set(chapterId, {
-          totalSegments: segments.length,
+          totalSegments: knownTotal ?? segments.length,
           generatedIndices,
           segmentTexts,
           generatedSegments,

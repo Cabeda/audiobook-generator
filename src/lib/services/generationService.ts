@@ -1210,7 +1210,7 @@ class GenerationService {
       await updateChapterContent(bookId, ch.id, html)
     }
 
-    initChapterSegments(ch.id, textSegments)
+    initChapterSegments(ch.id, textSegments, resume)
 
     chapterProgress.update((m) =>
       new Map(m).set(ch.id, {
