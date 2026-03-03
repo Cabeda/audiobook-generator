@@ -163,10 +163,20 @@ async function getCachedModels(): Promise<CachedModel[]> {
     console.warn('Failed to get cached models:', e)
   }
 
-  // Sort by size descending
-  models.sort((a, b) => b.size - a.size)
+  // Deduplicate by URL — the same file can appear in multiple caches
+  // (e.g. both a versioned and an unversioned cache). Duplicate keys cause
+  // a Svelte each_key_duplicate error that crashes the SettingsPage render.
+  const seen = new Set<string>()
+  const unique = models.filter((m) => {
+    if (seen.has(m.cacheKey)) return false
+    seen.add(m.cacheKey)
+    return true
+  })
 
-  return models
+  // Sort by size descending
+  unique.sort((a, b) => b.size - a.size)
+
+  return unique
 }
 
 /**
