@@ -40,23 +40,28 @@ export function isWebGPUAvailable(): boolean {
 
 /**
  * Asynchronously verify that WebGPU is usable by requesting an adapter.
- * This is a more accurate check than a simple existence of navigator.gpu.
+ * Result is cached for the lifetime of the page so repeated calls are free.
  */
-export async function isWebGPUAvailableAsync(): Promise<boolean> {
-  try {
-    if (typeof navigator === 'undefined') return false
-    const nav = navigator as unknown as { gpu?: unknown; userAgent?: string }
-    if (!('gpu' in nav) || nav.gpu === undefined) return false
-    const ua = typeof nav.userAgent === 'string' ? nav.userAgent : ''
-    if (/Headless|Playwright|HeadlessChrome/i.test(ua)) return false
-    const gp = (nav as unknown as { gpu?: { requestAdapter?: () => Promise<unknown> } }).gpu
-    if (typeof gp?.requestAdapter !== 'function') return false
-    // Try to request an adapter — if this fails, GPU backends cannot be used
-    const adapter = await gp.requestAdapter?.()
-    return !!adapter
-  } catch {
-    return false
-  }
+let _webGPUCache: Promise<boolean> | null = null
+
+export function isWebGPUAvailableAsync(): Promise<boolean> {
+  if (_webGPUCache !== null) return _webGPUCache
+  _webGPUCache = (async () => {
+    try {
+      if (typeof navigator === 'undefined') return false
+      const nav = navigator as unknown as { gpu?: unknown; userAgent?: string }
+      if (!('gpu' in nav) || nav.gpu === undefined) return false
+      const ua = typeof nav.userAgent === 'string' ? nav.userAgent : ''
+      if (/Headless|Playwright|HeadlessChrome/i.test(ua)) return false
+      const gp = (nav as unknown as { gpu?: { requestAdapter?: () => Promise<unknown> } }).gpu
+      if (typeof gp?.requestAdapter !== 'function') return false
+      const adapter = await gp.requestAdapter?.()
+      return !!adapter
+    } catch {
+      return false
+    }
+  })()
+  return _webGPUCache
 }
 
 // Helper to detect thenable/promise-like objects (cross-realm Promise instances too)
@@ -216,6 +221,41 @@ async function getKokoroInstance(
 }
 
 import { getRecommendedChunkSize } from '../utils/mobileDetect'
+
+/**
+ * Eagerly initialize the Kokoro model in the background.
+ * Reports progress via modelLoadingStore so the UI can show a loading indicator.
+ */
+export function warmUpKokoro(
+  model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
+  dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8',
+  device: 'wasm' | 'webgpu' | 'cpu' | 'auto' = 'auto'
+): void {
+  // If already loaded, nothing to do
+  if (ttsInstance) return
+  ;(async () => {
+    try {
+      const { setModelLoading, setModelReady } = await import('../../stores/modelLoadingStore')
+      let actualDevice: 'wasm' | 'webgpu' | 'cpu' = 'wasm'
+      if (device === 'auto') {
+        actualDevice = (await isWebGPUAvailableAsync()) ? 'webgpu' : 'wasm'
+      } else {
+        actualDevice = device as 'wasm' | 'webgpu' | 'cpu'
+      }
+      await getKokoroInstance(model, dtype, actualDevice, (msg) => {
+        // Parse percentage out of messages like "Downloading model.onnx: 42%"
+        const pct = msg.match(/(\d+)%/)
+        setModelLoading(msg, pct ? parseInt(pct[1], 10) : undefined)
+      })
+      setModelReady()
+      logger.info('[KokoroClient]', 'Warm-up complete')
+    } catch (e) {
+      const { setModelError } = await import('../../stores/modelLoadingStore')
+      setModelError()
+      logger.warn('[KokoroClient]', 'Warm-up failed (non-fatal):', e)
+    }
+  })()
+}
 
 /**
  * Split text into chunks at sentence boundaries
@@ -419,7 +459,6 @@ export async function generateVoiceSegments(
 
       for (const chunk of chunks) {
         splitter.push(chunk)
-        await new Promise((resolve) => setTimeout(resolve, 10))
       }
       splitter.close()
       await streamPromise

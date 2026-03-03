@@ -11,9 +11,11 @@
   import Toast from './components/Toast.svelte'
   import ToastContainer from './components/ToastContainer.svelte'
   import ReloadPrompt from './components/ReloadPrompt.svelte'
+  import ModelLoadingIndicator from './components/ModelLoadingIndicator.svelte'
 
   // APIs & Logic
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroVoices'
+  import { warmUpKokoro } from './lib/kokoro/kokoroClient'
   import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
   import { isKokoroLanguageSupported, selectPiperVoiceForLanguage } from './lib/utils/voiceSelector'
@@ -123,6 +125,8 @@
   $effect(() => {
     const model = $selectedModel
     if (model === 'kokoro') {
+      // Warm up the model eagerly so the first generation doesn't pay load cost
+      warmUpKokoro('onnx-community/Kokoro-82M-v1.0-ONNX', $selectedQuantization, $selectedDevice)
       availableVoices.set(
         kokoroVoices.map((v) => ({
           id: v,
@@ -354,6 +358,7 @@
   <Toast />
   <ReloadPrompt />
   <ToastContainer />
+  <ModelLoadingIndicator />
 
   {#if currentView === 'landing'}
     <div in:fade class="view-wrapper scrollable">
