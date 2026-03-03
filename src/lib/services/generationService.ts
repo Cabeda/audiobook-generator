@@ -1126,7 +1126,17 @@ class GenerationService {
     const worker = getTTSWorker()
     const getParallelChunks = () =>
       Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
-    const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
+    // On mobile flush after every segment (batchSize=1) so blobs are GC-eligible immediately.
+    // On desktop batch 10 segments for fewer DB transactions.
+    const batchSize = isMobileDevice() ? 1 : 10
+    const batchHandler = new SegmentBatchHandler(bookId, ch.id, batchSize)
+
+    // Delete any stale segments from a previous interrupted run before starting fresh.
+    // This ensures the DB doesn't accumulate orphaned blobs and the count is accurate.
+    if (bookId) {
+      const { deleteChapterSegments } = await import('../libraryDB')
+      await deleteChapterSegments(bookId, ch.id)
+    }
 
     await this.processSegmentsWithPriority(
       ch.id,
@@ -1210,6 +1220,16 @@ class GenerationService {
     for (const s of audioSegments) {
       s.startTime = cumulativeTime
       cumulativeTime += s.duration || 0
+    }
+
+    // Persist updated startTime/duration back to DB so they survive app reload
+    if (bookId) {
+      const { updateSegmentStartTimes } = await import('../libraryDB')
+      await updateSegmentStartTimes(
+        bookId,
+        ch.id,
+        audioSegments.map((s) => ({ index: s.index, startTime: s.startTime, duration: s.duration }))
+      )
     }
 
     if (this.canceled || this.canceledChapters.has(ch.id)) return true

@@ -786,6 +786,55 @@ export async function saveChapterSegments(
 }
 
 /**
+ * Count audio segments for a chapter without loading blobs (lightweight)
+ */
+export async function countChapterSegments(bookId: number, chapterId: string): Promise<number> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    const index = store.index('chapterId')
+    const request = index.count(IDBKeyRange.only([bookId, chapterId]))
+
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(new Error('Failed to count chapter segments'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
+ * Delete all segments for a specific chapter (used before re-generation)
+ */
+export async function deleteChapterSegments(bookId: number, chapterId: string): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    const index = store.index('chapterId')
+    const request = index.openKeyCursor(IDBKeyRange.only([bookId, chapterId]))
+
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (cursor) {
+        store.delete(cursor.primaryKey)
+        cursor.continue()
+      }
+    }
+
+    transaction.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+    transaction.onerror = () => {
+      db.close()
+      reject(new Error('Failed to delete chapter segments'))
+    }
+  })
+}
+
+/**
  * Get all audio segments for a chapter
  */
 export async function getChapterSegments(
@@ -856,6 +905,44 @@ export async function deleteBookAudio(bookId: number): Promise<void> {
     transaction.onerror = () => {
       db.close()
       reject(new Error('Failed to delete book audio'))
+    }
+  })
+}
+
+/**
+ * Update only startTime and duration for existing segments (no blob re-read).
+ * Used after generation to persist computed startTime values without touching blobs.
+ * Looks up each segment by its composite key [bookId, chapterId, index].
+ */
+export async function updateSegmentStartTimes(
+  bookId: number,
+  chapterId: string,
+  segments: Pick<AudioSegment, 'index' | 'startTime' | 'duration'>[]
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+
+    segments.forEach((seg) => {
+      const getReq = store.get([bookId, chapterId, seg.index])
+      getReq.onsuccess = () => {
+        const record = getReq.result
+        if (record) {
+          store.put({ ...record, startTime: seg.startTime, duration: seg.duration })
+        }
+      }
+    })
+
+    transaction.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+
+    transaction.onerror = () => {
+      db.close()
+      reject(new Error('Failed to update segment start times'))
     }
   })
 }

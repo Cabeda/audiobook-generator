@@ -14,6 +14,9 @@ import {
   deleteBookAudio,
   updateChapterLanguage,
   updateBookLanguage,
+  saveSegmentIndividually,
+  getChapterSegments,
+  updateSegmentStartTimes,
   type AudioGenerationSettings,
 } from './libraryDB'
 import type { Book } from './types/book'
@@ -315,6 +318,77 @@ describe('libraryDB', () => {
       expect(book?.language).toBe('de')
       expect(book?.chapters[0].language).toBe('es')
       expect(book?.chapters[1].language).toBe('fr')
+    })
+  })
+
+  describe('updateSegmentStartTimes', () => {
+    let bookId: number
+    const mockBlob = new Blob(['fake audio'], { type: 'audio/wav' })
+
+    beforeEach(async () => {
+      bookId = await addBook(mockBook)
+    })
+
+    it('should update startTime and duration for existing segments without touching blobs', async () => {
+      // Save two segments with startTime=0
+      const seg0 = {
+        id: 'seg-0',
+        chapterId: '1',
+        index: 0,
+        text: 'Hello',
+        audioBlob: mockBlob,
+        duration: 1.5,
+        startTime: 0,
+      }
+      const seg1 = {
+        id: 'seg-1',
+        chapterId: '1',
+        index: 1,
+        text: 'World',
+        audioBlob: mockBlob,
+        duration: 2.0,
+        startTime: 0,
+      }
+      await saveSegmentIndividually(bookId, '1', seg0)
+      await saveSegmentIndividually(bookId, '1', seg1)
+
+      // Now update start times as generationService would after computing cumulative offsets
+      await updateSegmentStartTimes(bookId, '1', [
+        { index: 0, startTime: 0, duration: 1.5 },
+        { index: 1, startTime: 1.5, duration: 2.0 },
+      ])
+
+      const segments = await getChapterSegments(bookId, '1')
+      expect(segments).toHaveLength(2)
+      expect(segments[0].startTime).toBe(0)
+      expect(segments[0].duration).toBe(1.5)
+      expect(segments[1].startTime).toBe(1.5)
+      expect(segments[1].duration).toBe(2.0)
+    })
+
+    it('should silently skip segment IDs that do not exist in DB', async () => {
+      const seg = {
+        id: 'seg-real',
+        chapterId: '1',
+        index: 0,
+        text: 'Hello',
+        audioBlob: mockBlob,
+        duration: 1.0,
+        startTime: 0,
+      }
+      await saveSegmentIndividually(bookId, '1', seg)
+
+      // Include a non-existent index — should not throw
+      await expect(
+        updateSegmentStartTimes(bookId, '1', [
+          { index: 0, startTime: 0, duration: 1.0 },
+          { index: 999, startTime: 1.0, duration: 0.5 },
+        ])
+      ).resolves.toBeUndefined()
+
+      const segments = await getChapterSegments(bookId, '1')
+      expect(segments).toHaveLength(1)
+      expect(segments[0].startTime).toBe(0)
     })
   })
 })
