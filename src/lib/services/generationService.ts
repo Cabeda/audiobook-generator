@@ -1225,9 +1225,9 @@ class GenerationService {
     const worker = getTTSWorker()
     const getParallelChunks = () =>
       Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
-    // On mobile flush after every segment (batchSize=1) so blobs are GC-eligible immediately.
-    // On desktop batch 10 segments for fewer DB transactions.
-    const batchSize = isMobileDevice() ? 1 : 10
+    // Always flush after every segment so a page refresh or crash never loses a completed segment.
+    // TTS generation time per segment far exceeds the IndexedDB write cost.
+    const batchSize = 1
     const batchHandler = new SegmentBatchHandler(bookId, ch.id, batchSize)
 
     // When resuming, load already-generated segments from DB and skip them.
