@@ -329,8 +329,9 @@
       }
     }
 
-    // Initial hash handling
-    handleHash()
+    // Initial hash handling — reset to landing so the app never auto-restores
+    // a previous book/reader session on page load.
+    location.hash = '#/'
 
     window.addEventListener('hashchange', handleHash)
     return () => window.removeEventListener('hashchange', handleHash)
@@ -369,7 +370,9 @@
       <SettingsPage
         onBack={() => {
           currentView = 'landing'
-          location.hash = '#/'
+          // Use replaceState instead of location.hash to avoid firing hashchange,
+          // which would re-run handleHash and potentially snap back to settings.
+          history.replaceState(null, '', '#/')
         }}
       />
     </div>

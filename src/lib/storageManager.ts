@@ -140,14 +140,11 @@ async function getCachedModels(): Promise<CachedModel[]> {
         try {
           const response = await cache.match(request)
           if (response) {
-            // Try content-length header first (fast)
+            // Only use content-length header — reading the full blob is too slow
+            // for large model files (hundreds of MB) and causes the UI to hang.
             const contentLength = response.headers.get('content-length')
             if (contentLength) {
               size = parseInt(contentLength, 10)
-            } else {
-              // Fall back to reading the blob size
-              const blob = await response.clone().blob()
-              size = blob.size
             }
           }
         } catch {

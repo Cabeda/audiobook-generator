@@ -236,7 +236,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     background: var(--landing-bg);
     padding: 20px;
     transition: background-color 0.3s;
