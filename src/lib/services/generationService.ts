@@ -689,10 +689,11 @@ class GenerationService {
     getParallelism: () => number,
     processor: (segment: T) => Promise<R>,
     onResult: (result: R) => Promise<void>,
-    onProgress: (completed: number, total: number) => void
+    onProgress: (completed: number, total: number) => void,
+    skipIndices?: Set<number>
   ) {
     const total = segments.length
-    const processed = new Set<number>()
+    const processed = new Set<number>(skipIndices)
     const failed = new Set<number>()
     let cursor = 0 // Start at beginning
 
@@ -1005,6 +1006,103 @@ class GenerationService {
   }
 
   /**
+   * Resume generation for chapters that were partially generated.
+   * Already-generated segments are loaded from DB and skipped; only missing
+   * segments are synthesised, then the chapter audio is re-concatenated.
+   */
+  async resumeChapters(chapters: Chapter[], explicitBookId?: number) {
+    if (this.running) {
+      logger.warn('Generation already running')
+      return
+    }
+    // Delegate to generateChapters but mark each chapter for resume inside the loop.
+    // We do this by temporarily tagging chapters so generateChapterAudio knows.
+    // Simplest approach: run the same loop as generateChapters with resume=true.
+    const model = get(selectedModel)
+    this.running = true
+    this.canceled = false
+    this.canceledChapters.clear()
+    this.autoPlayTriggered.clear()
+    isGenerating.set(true)
+
+    await this.requestWakeLock()
+    document.addEventListener('visibilitychange', this.handleVisibilityChange)
+    await this.startSilentAudio()
+    getTTSWorker()
+
+    try {
+      for (const ch of chapters) {
+        if (this.canceled) break
+        if (this.canceledChapters.has(ch.id)) continue
+
+        const currentBook = get(book)
+        const effectiveLanguage = currentBook
+          ? resolveChapterLanguageWithDetection(ch, currentBook)
+          : DEFAULT_LANGUAGE
+        const langDefaults = appSettings.getLanguageDefault(get(appSettings), effectiveLanguage)
+        let effectiveModel = ch.model || langDefaults?.model || model
+        if (effectiveModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
+          effectiveModel = 'piper'
+        }
+        const currentVoice = ch.voice || langDefaults?.voice || get(selectedVoice)
+        const currentQuantization = isMobileDevice() ? 'q4' : get(selectedQuantization)
+        const currentDevice = get(selectedDevice)
+        const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
+
+        if (!ch.content || !ch.content.trim()) continue
+
+        chapterStatus.update((m) => new Map(m).set(ch.id, 'processing'))
+
+        const effectiveVoice = await this.resolveEffectiveVoice(
+          ch,
+          effectiveModel,
+          effectiveLanguage,
+          false,
+          currentVoice
+        )
+
+        try {
+          const bookId = explicitBookId ?? getBookId()
+          const canceled = await this.generateChapterAudio(
+            ch,
+            effectiveModel,
+            effectiveVoice,
+            effectiveLanguage,
+            currentQuantization,
+            currentDevice,
+            currentAdvancedSettings,
+            bookId,
+            true // resume = true
+          )
+          if (canceled) break
+
+          throttledProgress.flush()
+          chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
+          chapterErrors.update((m) => {
+            const newMap = new Map(m)
+            newMap.delete(ch.id)
+            return newMap
+          })
+        } catch (err: unknown) {
+          if (this.canceled) break
+          if (this.canceledChapters.has(ch.id)) continue
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+          logger.error(`Resume failed for chapter ${ch.title}:`, err)
+          chapterStatus.update((m) => new Map(m).set(ch.id, 'error'))
+          chapterErrors.update((m) => new Map(m).set(ch.id, errorMsg))
+        }
+      }
+    } finally {
+      throttledProgress.flush()
+      this.running = false
+      isGenerating.set(false)
+      await this.stopSilentAudio()
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange)
+      await this.releaseWakeLock()
+    }
+  }
+
+  /**
    * Resolve the effective voice for a chapter, auto-selecting when needed.
    */
   private async resolveEffectiveVoice(
@@ -1090,7 +1188,8 @@ class GenerationService {
     currentQuantization: string,
     currentDevice: string,
     currentAdvancedSettings: Record<string, unknown>,
-    bookId: number
+    bookId: number,
+    resume = false
   ): Promise<boolean> {
     logger.info(`[generateChapters] Segmenting HTML for ${effectiveModel}`, {
       chapterId: ch.id,
@@ -1126,7 +1225,28 @@ class GenerationService {
     const worker = getTTSWorker()
     const getParallelChunks = () =>
       Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
-    const batchHandler = new SegmentBatchHandler(bookId, ch.id, 10)
+    // On mobile flush after every segment (batchSize=1) so blobs are GC-eligible immediately.
+    // On desktop batch 10 segments for fewer DB transactions.
+    const batchSize = isMobileDevice() ? 1 : 10
+    const batchHandler = new SegmentBatchHandler(bookId, ch.id, batchSize)
+
+    // When resuming, load already-generated segments from DB and skip them.
+    // When starting fresh, delete any stale segments from a previous interrupted run.
+    let skipIndices: Set<number> | undefined
+    if (resume && bookId) {
+      const { getChapterSegments } = await import('../libraryDB')
+      const existing = await getChapterSegments(bookId, ch.id)
+      if (existing.length > 0) {
+        skipIndices = new Set(existing.map((s) => s.index))
+        audioSegments.push(...existing)
+        logger.info(
+          `[Resume] Skipping ${existing.length} already-generated segments for chapter ${ch.id}`
+        )
+      }
+    } else if (bookId) {
+      const { deleteChapterSegments } = await import('../libraryDB')
+      await deleteChapterSegments(bookId, ch.id)
+    }
 
     await this.processSegmentsWithPriority(
       ch.id,
@@ -1197,7 +1317,8 @@ class GenerationService {
           total,
           message: `Generating segment ${completed}/${total}`,
         })
-      }
+      },
+      skipIndices
     )
 
     await batchHandler.flush()
@@ -1210,6 +1331,16 @@ class GenerationService {
     for (const s of audioSegments) {
       s.startTime = cumulativeTime
       cumulativeTime += s.duration || 0
+    }
+
+    // Persist updated startTime/duration back to DB so they survive app reload
+    if (bookId) {
+      const { updateSegmentStartTimes } = await import('../libraryDB')
+      await updateSegmentStartTimes(
+        bookId,
+        ch.id,
+        audioSegments.map((s) => ({ index: s.index, startTime: s.startTime, duration: s.duration }))
+      )
     }
 
     if (this.canceled || this.canceledChapters.has(ch.id)) return true

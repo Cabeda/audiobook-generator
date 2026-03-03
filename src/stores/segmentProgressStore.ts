@@ -104,6 +104,20 @@ export function markChapterGenerationComplete(chapterId: string) {
 }
 
 /**
+ * Mark a chapter as generating without clearing existing segment progress.
+ * Used when resuming a partially-generated chapter.
+ */
+export function setChapterGenerating(chapterId: string) {
+  segmentProgress.update((map) => {
+    const progress = map.get(chapterId)
+    if (!progress) return map
+    const newMap = new Map(map)
+    newMap.set(chapterId, { ...progress, isGenerating: true })
+    return newMap
+  })
+}
+
+/**
  * Clear segment progress for a chapter
  */
 export function clearChapterSegments(chapterId: string) {

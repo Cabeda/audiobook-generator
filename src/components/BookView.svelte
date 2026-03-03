@@ -35,6 +35,7 @@
     formatDurationShort,
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
+  import { segmentProgress } from '../stores/segmentProgressStore'
 
   let { onread }: { onread: (detail: { chapter: Chapter }) => void } = $props()
 
@@ -111,6 +112,20 @@
       : false
   )
 
+  let hasPartialChapters = $derived(
+    currentBook
+      ? currentBook.chapters.some((c) => {
+          const prog = $segmentProgress.get(c.id)
+          return (
+            prog &&
+            !prog.isGenerating &&
+            prog.generatedIndices.size > 0 &&
+            prog.generatedIndices.size < prog.totalSegments
+          )
+        })
+      : false
+  )
+
   // Actions
   onMount(() => {
     // Detect mobile screen size
@@ -122,7 +137,8 @@
     return () => window.removeEventListener('resize', checkMobile)
   })
 
-  // Load generated audio from IndexedDB on mount
+  // Load generated audio from IndexedDB on mount.
+  // Also restore partial segment progress for chapters that were interrupted mid-generation.
   $effect(() => {
     if (currentBook) {
       const bookId = get(currentLibraryBookId)
@@ -131,6 +147,22 @@
         ensureChaptersAudio(chapterIds).catch((err) => {
           console.warn('Failed to load chapter audio on mount:', err)
         })
+
+        // For each chapter that has no final audio but has saved segments,
+        // restore the partial progress so the UI shows "8/249" instead of nothing.
+        ;(async () => {
+          const { countChapterSegments } = await import('../lib/libraryDB')
+          const { loadChapterSegmentProgress } = await import('../stores/segmentProgressStore')
+          for (const ch of currentBook.chapters) {
+            const savedCount = await countChapterSegments(bookId, ch.id).catch(() => 0)
+            if (savedCount > 0) {
+              // Compute total segments from chapter content so we show "8/249"
+              const { segmentHtmlContent } = await import('../lib/services/generationService')
+              const { segments } = segmentHtmlContent(ch.id, ch.content ?? '')
+              await loadChapterSegmentProgress(bookId, ch.id).catch(() => {})
+            }
+          }
+        })()
       }
     }
   })
@@ -270,6 +302,38 @@
   function handleCancel() {
     generationService.cancel()
     isGenerating = false
+  }
+
+  async function handleResume(chapterId: string) {
+    if (!$book) return
+    const ch = $book.chapters.find((c) => c.id === chapterId)
+    if (!ch) return
+    isGenerating = true
+    try {
+      await generationService.resumeChapters([ch])
+    } finally {
+      isGenerating = false
+    }
+  }
+
+  async function handleResumeAll() {
+    if (!$book) return
+    const partialChapters = $book.chapters.filter((c) => {
+      const prog = $segmentProgress.get(c.id)
+      return (
+        prog &&
+        !prog.isGenerating &&
+        prog.generatedIndices.size > 0 &&
+        prog.generatedIndices.size < prog.totalSegments
+      )
+    })
+    if (partialChapters.length === 0) return
+    isGenerating = true
+    try {
+      await generationService.resumeChapters(partialChapters)
+    } finally {
+      isGenerating = false
+    }
   }
 
   function handleCancelChapter(id: string) {
@@ -426,6 +490,15 @@
       <div class="toolbar-right">
         {#if isGenerating}
           <button class="cancel-btn" onclick={handleCancel}>Cancel</button>
+        {/if}
+        {#if hasPartialChapters && !isGenerating}
+          <button
+            class="resume-all-btn"
+            onclick={handleResumeAll}
+            title="Continue generation for all partially-generated chapters"
+          >
+            ▶ Continue Partial
+          </button>
         {/if}
         <button
           class="primary-btn"
@@ -643,6 +716,7 @@
             onRead={handleRead}
             onRetry={handleRetry}
             onCancel={handleCancelChapter}
+            onResume={handleResume}
             onDownload={handleDownload}
             onModelChange={handleModelChange}
             onVoiceChange={handleVoiceChange}
@@ -1242,5 +1316,20 @@
   .cancel-btn:hover {
     background: var(--error-color);
     color: var(--bg-color);
+  }
+
+  .resume-all-btn {
+    background: var(--primary-color);
+    color: var(--bg-color);
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+  }
+
+  .resume-all-btn:hover {
+    background: var(--primary-hover);
   }
 </style>
