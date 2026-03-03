@@ -17,6 +17,8 @@ export interface CachedModel {
   size: number
   cacheName: string
   cacheKey: string
+  /** 'cache-api' | 'opfs' — determines which deletion path to use */
+  storageType?: 'cache-api' | 'opfs'
 }
 
 /**
@@ -110,6 +112,47 @@ function extractModelName(url: string): string {
 }
 
 /**
+ * Get Piper models stored in OPFS under the "piper" directory
+ */
+async function getOpfsPiperModels(): Promise<CachedModel[]> {
+  const models: CachedModel[] = []
+  try {
+    if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) return models
+    const root = await navigator.storage.getDirectory()
+    let piperDir: FileSystemDirectoryHandle
+    try {
+      piperDir = await root.getDirectoryHandle('piper')
+    } catch {
+      // Directory doesn't exist yet — no models downloaded
+      return models
+    }
+    for await (const [name, handle] of piperDir as unknown as AsyncIterable<
+      [string, FileSystemHandle]
+    >) {
+      if (handle.kind === 'file') {
+        let size = 0
+        try {
+          const file = await (handle as FileSystemFileHandle).getFile()
+          size = file.size
+        } catch {
+          // ignore
+        }
+        models.push({
+          name: `Piper / ${name}`,
+          size,
+          cacheName: 'opfs:piper',
+          cacheKey: `opfs:piper/${name}`,
+          storageType: 'opfs',
+        })
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to read OPFS piper models:', e)
+  }
+  return models
+}
+
+/**
  * Get list of cached TTS models from Cache API with sizes
  */
 async function getCachedModels(): Promise<CachedModel[]> {
@@ -140,8 +183,6 @@ async function getCachedModels(): Promise<CachedModel[]> {
         try {
           const response = await cache.match(request)
           if (response) {
-            // Only use content-length header — reading the full blob is too slow
-            // for large model files (hundreds of MB) and causes the UI to hang.
             const contentLength = response.headers.get('content-length')
             if (contentLength) {
               size = parseInt(contentLength, 10)
@@ -156,12 +197,17 @@ async function getCachedModels(): Promise<CachedModel[]> {
           size,
           cacheName,
           cacheKey: request.url,
+          storageType: 'cache-api',
         })
       }
     }
   } catch (e) {
     console.warn('Failed to get cached models:', e)
   }
+
+  // Also include Piper models stored in OPFS
+  const opfsModels = await getOpfsPiperModels()
+  models.push(...opfsModels)
 
   // Deduplicate by URL — the same file can appear in multiple caches
   // (e.g. both a versioned and an unversioned cache). Duplicate keys cause
@@ -182,7 +228,27 @@ async function getCachedModels(): Promise<CachedModel[]> {
 /**
  * Delete a single cached model entry
  */
-export async function deleteCachedModel(cacheName: string, cacheKey: string): Promise<void> {
+export async function deleteCachedModel(
+  cacheName: string,
+  cacheKey: string,
+  storageType?: 'cache-api' | 'opfs'
+): Promise<void> {
+  if (storageType === 'opfs' || cacheName === 'opfs:piper') {
+    // cacheKey is "opfs:piper/<filename>"
+    const filename = cacheKey.replace('opfs:piper/', '')
+    try {
+      const { remove } = await import('@diffusionstudio/vits-web')
+      // vits-web remove() expects the voiceId (filename without extension)
+      const voiceId = filename.replace(/\.(onnx|json)$/, '')
+      await remove(voiceId as Parameters<typeof remove>[0])
+    } catch {
+      // Fallback: delete directly from OPFS
+      const root = await navigator.storage.getDirectory()
+      const piperDir = await root.getDirectoryHandle('piper')
+      await piperDir.removeEntry(filename)
+    }
+    return
+  }
   if (typeof caches === 'undefined') return
   try {
     const cache = await caches.open(cacheName)
@@ -229,6 +295,23 @@ export async function clearModelCache(): Promise<void> {
         ) {
           await caches.delete(name)
         }
+      }
+    }
+
+    // Clear OPFS piper models
+    try {
+      const { flush } = await import('@diffusionstudio/vits-web')
+      await flush()
+    } catch {
+      // Fallback: remove directory directly
+      try {
+        const root = await navigator.storage.getDirectory()
+        const piperDir = await root.getDirectoryHandle('piper')
+        await (piperDir as unknown as { remove: (opts: object) => Promise<void> }).remove({
+          recursive: true,
+        })
+      } catch {
+        // Directory may not exist
       }
     }
   } catch (e) {

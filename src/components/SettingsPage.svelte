@@ -135,11 +135,16 @@
     }
   }
 
-  async function handleDeleteModel(cacheName: string, cacheKey: string, modelName: string) {
+  async function handleDeleteModel(
+    cacheName: string,
+    cacheKey: string,
+    modelName: string,
+    storageType?: 'cache-api' | 'opfs'
+  ) {
     if (!confirm(`Delete "${modelName}"? It will be re-downloaded when needed.`)) return
     deletingModel = cacheKey
     try {
-      await deleteCachedModel(cacheName, cacheKey)
+      await deleteCachedModel(cacheName, cacheKey, storageType)
       toastStore.show(`Deleted ${modelName}`, 'success')
       await loadStorageInfo()
     } catch {
@@ -341,7 +346,8 @@
               </div>
               <button
                 class="model-delete-btn"
-                onclick={() => handleDeleteModel(model.cacheName, model.cacheKey, model.name)}
+                onclick={() =>
+                  handleDeleteModel(model.cacheName, model.cacheKey, model.name, model.storageType)}
                 disabled={deletingModel === model.cacheKey}
                 title="Delete this cached file"
                 aria-label={`Delete ${model.name}`}
