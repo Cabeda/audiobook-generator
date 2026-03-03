@@ -861,6 +861,9 @@
   }
 
   function activateSegment(index: number) {
+    // User explicitly chose a segment — dismiss any resume prompt
+    showResumePrompt = false
+
     // Check if model has changed - if so, reload chapter with new settings
     const currentModel = audioService.getCurrentModel()
     if (currentModel !== localModel) {
