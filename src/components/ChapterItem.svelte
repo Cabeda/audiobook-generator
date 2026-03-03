@@ -43,6 +43,7 @@
     error,
     onRetry,
     onCancel,
+    onResume,
     progress,
     onModelChange,
     onVoiceChange,
@@ -60,6 +61,7 @@
     onDownload: (id: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') => void
     onRetry?: (id: string) => void
     onCancel?: (id: string) => void
+    onResume?: (id: string) => void
     progress?: { current: number; total: number; message?: string }
     onModelChange?: (chapterId: string, model: string | undefined) => void
     onVoiceChange?: (chapterId: string, voice: string | undefined) => void
@@ -361,6 +363,16 @@
       <span class="partial-progress-text">
         {segmentPercentage}% generated ({chapterSegmentProgress?.generatedIndices.size ?? 0} segments)
       </span>
+      {#if onResume}
+        <button
+          class="action-btn small resume-btn"
+          onclick={() => onResume(chapter.id)}
+          title="Continue generation from where it left off"
+          aria-label="Continue generating this chapter"
+        >
+          ▶ Continue
+        </button>
+      {/if}
       <button
         class="action-btn small"
         onclick={() => onRead(chapter)}
@@ -1034,6 +1046,18 @@
     font-size: 0.85rem;
     color: var(--success-color);
     font-weight: 500;
+  }
+
+  .resume-btn {
+    background: var(--primary-color);
+    color: var(--bg-color);
+    border: none;
+  }
+
+  .resume-btn:hover {
+    background: var(--primary-hover);
+    color: var(--bg-color);
+    border: none;
   }
 
   @keyframes spin {
