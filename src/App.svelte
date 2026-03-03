@@ -276,7 +276,10 @@
       if (!parsed) return
 
       if (parsed.view === 'landing') {
-        if (currentView !== 'landing' && !$book) {
+        // Always allow navigating back to landing from settings.
+        // The !$book guard exists to avoid resetting book/reader views on initial load,
+        // but settings should always be able to go back.
+        if (currentView === 'settings' || (currentView !== 'landing' && !$book)) {
           currentView = 'landing'
         }
         return
