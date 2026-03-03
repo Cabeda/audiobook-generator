@@ -1204,6 +1204,19 @@ class GenerationService {
     })
     ch.content = html
 
+    // Guard: if segmentation produced no text segments (e.g. image-only or
+    // code-only chapter with those options ignored), skip gracefully.
+    if (textSegments.length === 0) {
+      logger.info(`[Generation] No text segments for chapter "${ch.title}" (${ch.id}), skipping`)
+      chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
+      chapterErrors.update((m) => {
+        const newMap = new Map(m)
+        newMap.delete(ch.id)
+        return newMap
+      })
+      return false
+    }
+
     // 2. Persist segmented HTML
     if (bookId) {
       const { updateChapterContent } = await import('../libraryDB')
