@@ -647,6 +647,25 @@ export async function saveChapterAudio(
   audioBlob: Blob,
   settings?: AudioGenerationSettings
 ): Promise<void> {
+  // Guard against quota exhaustion before attempting the write.
+  // Warn when less than 200 MB of quota remains — a single fp32 chapter can be ~50 MB.
+  if (navigator.storage?.estimate) {
+    try {
+      const { quota = 0, usage = 0 } = await navigator.storage.estimate()
+      const remaining = quota - usage
+      const MIN_FREE_BYTES = 200 * 1024 * 1024 // 200 MB
+      if (remaining < MIN_FREE_BYTES) {
+        throw new Error(
+          `Storage quota nearly full (${Math.round(remaining / 1024 / 1024)} MB remaining). ` +
+            `Free up space in Settings before generating more audio.`
+        )
+      }
+    } catch (e) {
+      // Re-throw quota errors; swallow estimate API failures
+      if (e instanceof Error && e.message.includes('quota')) throw e
+    }
+  }
+
   const db = await openDB()
 
   const record: ChapterAudioRecord = {

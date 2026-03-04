@@ -23,15 +23,49 @@ export async function cacheResponse(url: string, res: Response): Promise<void> {
   }
 }
 
+/**
+ * Validate that a cached Response is complete by comparing its body size
+ * against the stored content-length header.
+ * Returns true when the response is intact or when content-length is absent
+ * (we can't validate without it).
+ */
+async function isCachedResponseIntact(res: Response): Promise<boolean> {
+  const contentLength = res.headers.get('content-length')
+  if (!contentLength) return true // can't validate — assume OK
+  const expected = parseInt(contentLength, 10)
+  if (isNaN(expected) || expected <= 0) return true
+  try {
+    const buf = await res.clone().arrayBuffer()
+    if (buf.byteLength !== expected) {
+      logger.warn(
+        `[modelCache] Cached response size mismatch: expected ${expected}, got ${buf.byteLength}`
+      )
+      return false
+    }
+    return true
+  } catch {
+    return true // can't read body — assume OK
+  }
+}
+
 export async function fetchAndCache(
   url: string,
   onprogress?: (loaded: number, total?: number) => void
 ): Promise<Response> {
-  const existing = await caches
-    .open(CACHE_NAME)
-    .then((c) => c.match(url))
-    .catch(() => null)
-  if (existing) return existing
+  const cache = await caches.open(CACHE_NAME).catch(() => null)
+
+  if (cache) {
+    const existing = await cache.match(url).catch(() => null)
+    if (existing) {
+      // Validate integrity — evict and re-fetch if the cached file is truncated
+      const intact = await isCachedResponseIntact(existing)
+      if (intact) {
+        return existing
+      }
+      logger.warn(`[modelCache] Evicting corrupt cached entry for ${url}`)
+      await cache.delete(url).catch(() => {})
+    }
+  }
 
   const res = await fetch(url)
   const contentLength = res.headers.get('content-length')

@@ -649,7 +649,11 @@ class GenerationService {
         } catch {
           // Ignore stop errors; oscillator may already be stopped
         }
-        this.silentOscillator.disconnect()
+        try {
+          this.silentOscillator.disconnect()
+        } catch {
+          // ignore
+        }
         this.silentOscillator = null
       }
 
@@ -663,6 +667,11 @@ class GenerationService {
       }
 
       if (this.audioContext) {
+        // Resume before closing — closing a suspended context can silently fail
+        // in some browsers, leaving the context (and its memory) alive.
+        if (this.audioContext.state === 'suspended') {
+          await this.audioContext.resume().catch(() => {})
+        }
         await this.audioContext.close().catch((e) => logger.warn('Failed to close AudioContext', e))
         this.audioContext = null
       }

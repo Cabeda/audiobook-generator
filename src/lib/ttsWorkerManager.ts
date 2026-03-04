@@ -63,6 +63,18 @@ const REQUEST_TIMEOUT_MS = 120_000
 /** Maximum number of queued requests before rejecting new ones */
 const MAX_QUEUE_DEPTH = 50
 
+/**
+ * Compute an adaptive timeout for a TTS request based on text length.
+ * Base: 2 minutes. Add 1 second per 10 characters beyond 200 chars, capped at 10 minutes.
+ * This prevents false timeouts on long sentences (e.g. 200-word run-ons) while
+ * still catching genuinely hung requests.
+ */
+function adaptiveTimeout(text: string): number {
+  const base = REQUEST_TIMEOUT_MS
+  const extra = Math.max(0, text.length - 200) * 100 // 100ms per char over 200
+  return Math.min(base + extra, 600_000) // cap at 10 minutes
+}
+
 function isMemoryError(msg: string): boolean {
   return (
     msg.includes('failed to allocate') ||
@@ -199,27 +211,35 @@ export class TTSWorkerManager {
 
   /**
    * Dispatch a request to the worker and return a promise that resolves with the result.
-   * Enforces queue depth limit and per-request timeout.
+   * Enforces queue depth limit (waits with backpressure instead of hard-rejecting) and
+   * uses an adaptive per-request timeout based on text length.
    */
-  private dispatch<T>(
+  private async dispatch<T>(
     request: Omit<WorkerRequest, 'id'>,
     options: Pick<GenerateOptions, 'onProgress' | 'onChunkProgress'>
   ): Promise<T> {
-    if (this.pendingRequests.size >= MAX_QUEUE_DEPTH) {
-      return Promise.reject(
-        new Error(`TTS worker queue full (max ${MAX_QUEUE_DEPTH} concurrent requests)`)
-      )
+    // Backpressure: wait until the queue has room rather than hard-rejecting.
+    // Poll every 500ms; give up after 60s to avoid infinite waits.
+    const backpressureStart = Date.now()
+    while (this.pendingRequests.size >= MAX_QUEUE_DEPTH) {
+      if (Date.now() - backpressureStart > 60_000) {
+        return Promise.reject(
+          new Error(`TTS worker queue full (max ${MAX_QUEUE_DEPTH}) — timed out waiting for slot`)
+        )
+      }
+      await new Promise((r) => setTimeout(r, 500))
     }
 
     const id = `req_${++this.requestCounter}`
+    const timeoutMs = adaptiveTimeout(request.text)
 
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id)
-          reject(new Error(`TTS request timed out after ${REQUEST_TIMEOUT_MS}ms`))
+          reject(new Error(`TTS request timed out after ${timeoutMs}ms`))
         }
-      }, REQUEST_TIMEOUT_MS)
+      }, timeoutMs)
 
       this.pendingRequests.set(id, {
         resolve: (result) => {
