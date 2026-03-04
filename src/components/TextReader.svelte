@@ -181,9 +181,10 @@
       })
 
       // On hard refresh the store may think the chapter is loaded while the service is empty.
-      const shouldInitialize = needsLoad || audioService.segments.length === 0
+      // Use untrack so that populating segments later doesn't re-trigger this effect.
+      const shouldInitialize = needsLoad || untrack(() => audioService.segments.length === 0)
       logger.info(
-        `[TextReader] needsLoad=${needsLoad}, audioService.segments.length=${audioService.segments.length}, shouldInitialize=${shouldInitialize}`
+        `[TextReader] needsLoad=${needsLoad}, audioService.segments.length=${untrack(() => audioService.segments.length)}, shouldInitialize=${shouldInitialize}`
       )
 
       if (shouldInitialize) {
@@ -328,14 +329,16 @@
             console.error('Failed to load chapter:', err)
           })
       } else {
-        // Ensure highlights are available on first paint even if we skipped loading
-        if (!segmentsLoaded && chapter?.content) {
+        // Ensure highlights are available on first paint even if we skipped loading.
+        // Use untrack for segmentsLoaded so setting it doesn't re-trigger this effect.
+        const alreadyLoaded = untrack(() => segmentsLoaded)
+        if (!alreadyLoaded && chapter?.content) {
           const { html: segmentedHtml, segments: computedSegments } = segmentHtmlContent(
             cId,
             chapter.content
           )
 
-          if (audioService.segments.length === 0 && computedSegments.length > 0) {
+          if (untrack(() => audioService.segments.length) === 0 && computedSegments.length > 0) {
             audioService.segments = computedSegments.map((s) => ({
               index: s.index,
               text: s.text,
@@ -347,14 +350,20 @@
         }
 
         isLoading = false
-        const store = get(audioPlayerStore)
-        const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
-        const savedProg2 = bookId ? loadProgress(String(bookId)) : null
-        const hasSavedProgress2 =
-          savedProg2 && savedProg2.chapterId === chapter.id && savedProg2.segmentIndex > 0
-        audioService.playFromSegment(startSeg, !hasSavedProgress2).catch((err) => {
-          console.error('Initial seek failed:', err)
-        })
+
+        // Only seek/play if we haven't already started — avoids restarting playback
+        // when reactive state changes (e.g. segmentsLoaded) re-trigger this effect.
+        const alreadyPlaying = untrack(() => audioService.isPlaying)
+        if (!alreadyPlaying) {
+          const store = get(audioPlayerStore)
+          const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
+          const savedProg2 = bookId ? loadProgress(String(bookId)) : null
+          const hasSavedProgress2 =
+            savedProg2 && savedProg2.chapterId === chapter.id && savedProg2.segmentIndex > 0
+          audioService.playFromSegment(startSeg, !hasSavedProgress2).catch((err) => {
+            console.error('Initial seek failed:', err)
+          })
+        }
       }
     }
   })

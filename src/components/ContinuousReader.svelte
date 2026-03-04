@@ -282,7 +282,12 @@
     const currentIndex = audioService.currentSegmentIndex
     if (currentIndex < 0) return
 
-    const segmentEl = document.getElementById(`seg-${currentIndex}`)
+    // Scope to the playing chapter's container to avoid matching seg-N in a different chapter
+    const playingChapterId = get(audioPlayerStore).chapterId
+    const chapterEl = playingChapterId ? chapterRefs.get(playingChapterId) : null
+    const segmentEl = chapterEl
+      ? (chapterEl.querySelector(`#seg-${currentIndex}`) as HTMLElement | null)
+      : document.getElementById(`seg-${currentIndex}`)
     if (!segmentEl) return
 
     const rect = segmentEl.getBoundingClientRect()
@@ -298,7 +303,13 @@
     if (index >= 0) {
       const active = document.querySelectorAll('.segment.active')
       active.forEach((el) => el.classList.remove('active'))
-      const el = document.getElementById(`seg-${index}`)
+
+      // Scope to the playing chapter's container to avoid cross-chapter ID collisions
+      const playingChapterId = get(audioPlayerStore).chapterId
+      const chapterEl = playingChapterId ? chapterRefs.get(playingChapterId) : null
+      const el = chapterEl
+        ? (chapterEl.querySelector(`#seg-${index}`) as HTMLElement | null)
+        : document.getElementById(`seg-${index}`)
       if (el) el.classList.add('active')
     }
   })
