@@ -22,12 +22,21 @@ test.describe('Sherlock Holmes — Kokoro WebGPU Full Pipeline', () => {
   // 45 minutes for the entire suite — full book with real TTS is slow
   test.describe.configure({ timeout: 2700000 })
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    // This test is only meaningful on desktop Chromium — skip Mobile Chrome project
+    test.skip(testInfo.project.name !== 'chromium', 'Skipping on non-desktop projects')
+
     await page.goto('/')
     await page.waitForLoadState('networkidle')
+    // Set TTS config BEFORE upload so no reload is needed
+    // Use wasm device — WebGPU is unavailable in headless Chromium without flags
+    // fp32 is the highest quality dtype regardless of device
     await page.evaluate(() => {
       localStorage.clear()
       sessionStorage.clear()
+      localStorage.setItem('audiobook_device', JSON.stringify('wasm'))
+      localStorage.setItem('audiobook_model', JSON.stringify('kokoro'))
+      localStorage.setItem('audiobook_quantization', JSON.stringify('fp32'))
     })
     page.on('console', (msg) => {
       console.log(`[PAGE ${msg.type()}] ${msg.text()}`)
@@ -61,48 +70,12 @@ test.describe('Sherlock Holmes — Kokoro WebGPU Full Pipeline', () => {
     console.log(`[TEST] Detected ${chapterCount} chapters`)
     expect(chapterCount).toBeGreaterThanOrEqual(12)
 
-    // ─── 2. Configure Kokoro TTS with WebGPU ───
-    console.log('[TEST] Configuring Kokoro TTS with WebGPU...')
-
-    // Select Kokoro model from toolbar
-    const modelSelect = page.locator('.toolbar select.premium-select').first()
-    await modelSelect.selectOption('kokoro')
-
-    // Open advanced settings to set WebGPU device
-    const settingsBtn = page.locator('button:has-text("Settings")')
-    if (await settingsBtn.isVisible().catch(() => false)) {
-      await settingsBtn.click()
-    }
-
-    // Set device to WebGPU + fp32 quality via localStorage (most reliable approach)
-    await page.evaluate(() => {
-      localStorage.setItem('audiobook_device', JSON.stringify('webgpu'))
-      localStorage.setItem('audiobook_model', JSON.stringify('kokoro'))
-      localStorage.setItem('audiobook_quantization', JSON.stringify('fp32'))
-    })
-
-    // Reload to pick up the settings
-    await page.reload()
-    await page.waitForLoadState('networkidle')
-
-    // Re-upload after reload (storage was cleared but book needs re-upload)
-    const fileInput2 = page.locator('input[type="file"]')
-    // If we're back on upload page, re-upload
-    if (await fileInput2.isVisible().catch(() => false)) {
-      await fileInput2.setInputFiles({
-        name: 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub',
-        mimeType: 'application/epub+zip',
-        buffer: epubBuffer,
-      })
-      await page.waitForSelector('text=/Sign of the Four/i', { timeout: 30000 })
-    }
-
-    // Verify settings are applied
+    // ─── 2. Verify TTS settings (set in beforeEach) ───
     const appliedDevice = await page.evaluate(() => {
       try {
-        return JSON.parse(localStorage.getItem('audiobook_device') || '"auto"')
+        return JSON.parse(localStorage.getItem('audiobook_device') || '"wasm"')
       } catch {
-        return 'auto'
+        return 'wasm'
       }
     })
     const appliedModel = await page.evaluate(() => {
@@ -122,12 +95,12 @@ test.describe('Sherlock Holmes — Kokoro WebGPU Full Pipeline', () => {
     console.log(
       `[TEST] Device: ${appliedDevice}, Model: ${appliedModel}, Quantization: ${appliedQuantization}`
     )
-    expect(appliedDevice).toBe('webgpu')
+    expect(appliedDevice).toBe('wasm')
     expect(appliedModel).toBe('kokoro')
     expect(appliedQuantization).toBe('fp32')
 
     // ─── 3. Select all chapters ───
-    const selectAllButton = page.getByRole('button', { name: 'Select all', exact: true })
+    const selectAllButton = page.getByRole('button', { name: 'Select All', exact: true })
     await selectAllButton.click()
 
     const allCheckboxes = page.locator('input[type="checkbox"]')
@@ -148,12 +121,16 @@ test.describe('Sherlock Holmes — Kokoro WebGPU Full Pipeline', () => {
     await page.waitForSelector('text=/Generating/i', { timeout: 120000 })
     console.log('[TEST] Generation started')
 
-    // Wait for generation to finish — export button becomes enabled
-    // Poll every 10 seconds, allow up to 30 minutes for full book
+    // Wait for ALL chapters to finish generating.
+    // Done when no per-chapter generate/cancel/continue buttons remain.
+    // Allow up to 30 minutes for the full book.
+    console.log('[TEST] Waiting for all chapters to finish generating...')
     await page.waitForFunction(
       () => {
-        const exportBtn = document.querySelector('.export-primary-btn.export-main:not(:disabled)')
-        return !!exportBtn
+        const pending = document.querySelectorAll(
+          '[aria-label="Generate this chapter"], [aria-label="Cancel this chapter"], [aria-label="Continue generating this chapter"]'
+        )
+        return pending.length === 0
       },
       { timeout: 1800000, polling: 10000 }
     )
