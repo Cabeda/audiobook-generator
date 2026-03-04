@@ -333,9 +333,9 @@
       }
     }
 
-    // Initial hash handling — reset to landing so the app never auto-restores
-    // a previous book/reader session on page load.
-    location.hash = '#/'
+    // Restore the current view from the URL hash on page load (e.g. after a
+    // reload). If there is no hash or it points to landing, we stay on landing.
+    handleHash()
 
     window.addEventListener('hashchange', handleHash)
     return () => window.removeEventListener('hashchange', handleHash)

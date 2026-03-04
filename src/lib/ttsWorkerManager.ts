@@ -29,7 +29,13 @@ type WorkerResponse =
   | { id: string; type: 'ready' }
   | { id: string; type: 'success'; data: ArrayBuffer }
   | { id: string; type: 'complete'; blob: Blob }
+  | { id: string; type: 'complete'; audioBuffer: ArrayBuffer }
   | { id: string; type: 'complete-segments'; segments: { text: string; blob: Blob }[] }
+  | {
+      id: string
+      type: 'complete-segments'
+      segmentBuffers: { text: string; buffer: ArrayBuffer }[]
+    }
   | { id: string; type: 'error'; error?: string }
   | { id: string; type: 'progress'; message?: string }
   | { id: string; type: 'chunk-progress'; chunkProgress: { current: number; total: number } }
@@ -126,13 +132,36 @@ export class TTSWorkerManager {
             }
             case 'complete': {
               const resp = data as Extract<WorkerResponse, { type: 'complete' }>
-              pending.resolve(resp.blob)
+              // Worker sends a transferable ArrayBuffer (zero-copy). Fall back to
+              // Blob for older builds that may still send the legacy shape.
+              let blob: Blob
+              if ('audioBuffer' in resp && resp.audioBuffer instanceof ArrayBuffer) {
+                blob = new Blob([resp.audioBuffer], { type: 'audio/wav' })
+              } else {
+                blob = (resp as Extract<WorkerResponse, { type: 'complete'; blob: Blob }>).blob
+              }
+              pending.resolve(blob)
               this.pendingRequests.delete(id)
               break
             }
             case 'complete-segments': {
               const resp = data as Extract<WorkerResponse, { type: 'complete-segments' }>
-              pending.resolve(resp.segments)
+              // Worker sends transferable ArrayBuffers. Fall back to Blob segments.
+              let segments: { text: string; blob: Blob }[]
+              if ('segmentBuffers' in resp && Array.isArray(resp.segmentBuffers)) {
+                segments = resp.segmentBuffers.map((s) => ({
+                  text: s.text,
+                  blob: new Blob([s.buffer], { type: 'audio/wav' }),
+                }))
+              } else {
+                segments = (
+                  resp as Extract<
+                    WorkerResponse,
+                    { type: 'complete-segments'; segments: { text: string; blob: Blob }[] }
+                  >
+                ).segments
+              }
+              pending.resolve(segments)
               this.pendingRequests.delete(id)
               break
             }
@@ -173,6 +202,27 @@ export class TTSWorkerManager {
         this.worker.onerror = (err) => {
           logger.error('TTS worker error event:', err)
           console.error('TTS worker internal error:', err.message, err.filename, err.lineno)
+          // Reject all pending requests immediately so callers don't hang until timeout.
+          // This is critical on Android where the worker can be killed by the OS OOM killer
+          // mid-request — without this, every pending request would silently wait up to
+          // 10 minutes before timing out.
+          const workerCrashError = new Error(
+            `TTS worker crashed: ${err.message || 'unknown error'}`
+          )
+          this.pendingRequests.forEach((p) => p.reject(workerCrashError))
+          this.pendingRequests.clear()
+          this.ready = false
+          // Terminate the dead worker and schedule a fresh one so the next request
+          // can succeed after the OS reclaims memory.
+          if (this.worker) {
+            try {
+              this.worker.terminate()
+            } catch {
+              // ignore — worker may already be dead
+            }
+            this.worker = null
+          }
+          this.readyPromise = this.initWorker()
         }
 
         setTimeout(() => {

@@ -18,7 +18,12 @@ import {
 } from '../../stores/bookStore'
 import { advancedSettings } from '../../stores/ttsStore'
 import { listVoices as listKokoroVoices } from '../kokoro/kokoroVoices'
-import { concatenateAudioChapters, downloadAudioFile, type AudioChapter } from '../audioConcat'
+import {
+  concatenateAudioChapters,
+  downloadAudioFile,
+  incrementalConcatWav,
+  type AudioChapter,
+} from '../audioConcat'
 import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
@@ -700,7 +705,7 @@ class GenerationService {
     onResult: (result: R) => Promise<void>,
     onProgress: (completed: number, total: number) => void,
     skipIndices?: Set<number>
-  ) {
+  ): Promise<{ failed: number; failedIndices: number[] }> {
     const total = segments.length
     const processed = new Set<number>(skipIndices)
     const failed = new Set<number>()
@@ -808,14 +813,14 @@ class GenerationService {
       onProgress(processed.size, total)
     }
 
+    const failedIndices = Array.from(failed)
     if (failed.size > 0) {
       logger.warn(
         `[processSegments] ${failed.size}/${total} segments failed for chapter ${chapterId}`,
-        {
-          failedIndices: Array.from(failed),
-        }
+        { failedIndices }
       )
     }
+    return { failed: failed.size, failedIndices }
   }
 
   /**
@@ -1206,6 +1211,15 @@ class GenerationService {
       contentPreview: ch.content.substring(0, 200),
     })
 
+    // Update progress to show segmentation phase
+    chapterProgress.update((m) =>
+      new Map(m).set(ch.id, {
+        current: 0,
+        total: 1,
+        message: 'Segmenting text...',
+      })
+    )
+
     // 1. Segment HTML
     const { html, segments: textSegments } = segmentHtmlContent(ch.id, ch.content, {
       ignoreCodeBlocks: Boolean(currentAdvancedSettings.ignoreCodeBlocks),
@@ -1234,13 +1248,12 @@ class GenerationService {
 
     initChapterSegments(ch.id, textSegments, resume)
 
-    chapterProgress.update((m) =>
-      new Map(m).set(ch.id, {
-        current: 0,
-        total: textSegments.length,
-        message: 'Initializing generation...',
-      })
-    )
+    // Helper to update the chapter progress message in the UI
+    const setProgress = (current: number, total: number, message: string) => {
+      throttledProgress.set(ch.id, { current, total, message })
+    }
+
+    setProgress(0, textSegments.length, 'Initializing generation...')
 
     // 3. Generate audio per segment
     const audioSegments: AudioSegment[] = []
@@ -1256,11 +1269,17 @@ class GenerationService {
     // When starting fresh, delete any stale segments from a previous interrupted run.
     let skipIndices: Set<number> | undefined
     if (resume && bookId) {
+      setProgress(0, textSegments.length, 'Loading previously generated segments...')
       const { getChapterSegments } = await import('../libraryDB')
       const existing = await getChapterSegments(bookId, ch.id)
       if (existing.length > 0) {
         skipIndices = new Set(existing.map((s) => s.index))
         audioSegments.push(...existing)
+        setProgress(
+          existing.length,
+          textSegments.length,
+          `Resuming from segment ${existing.length + 1}/${textSegments.length}...`
+        )
         logger.info(
           `[Resume] Skipping ${existing.length} already-generated segments for chapter ${ch.id}`
         )
@@ -1270,7 +1289,7 @@ class GenerationService {
       await deleteChapterSegments(bookId, ch.id)
     }
 
-    await this.processSegmentsWithPriority(
+    const { failed: failedCount, failedIndices } = await this.processSegmentsWithPriority(
       ch.id,
       textSegments,
       getParallelChunks,
@@ -1290,6 +1309,11 @@ class GenerationService {
           device: currentDevice as import('../../stores/ttsStore').Device,
           language: effectiveLanguage,
           advancedSettings: currentAdvancedSettings,
+          // Forward worker progress messages (model loading, preparing, etc.) to the UI
+          onProgress: (message) => {
+            const completed = audioSegments.length
+            setProgress(completed, textSegments.length, message)
+          },
         })
 
         return { segment, blob, duration: await parseWavDuration(blob) }
@@ -1310,6 +1334,14 @@ class GenerationService {
         // Release blob references for segments already persisted to IndexedDB.
         // This prevents accumulating all segment blobs in memory (OOM on Android).
         batchHandler.releaseBlobs()
+
+        // On mobile, yield to the event loop after each segment so the GC has a
+        // chance to reclaim the released blob memory before the next ONNX inference
+        // starts. Without this, Android's OOM killer can terminate the renderer
+        // process mid-generation when memory pressure builds up across segments.
+        if (isMobileDevice()) {
+          await new Promise((r) => setTimeout(r, 150))
+        }
 
         if (
           this.autoPlayEnabled &&
@@ -1334,11 +1366,7 @@ class GenerationService {
         }
       },
       (completed, total) => {
-        throttledProgress.set(ch.id, {
-          current: completed,
-          total,
-          message: `Generating segment ${completed}/${total}`,
-        })
+        setProgress(completed, total, `Generated ${completed} of ${total} segments`)
       },
       skipIndices
     )
@@ -1346,6 +1374,18 @@ class GenerationService {
     await batchHandler.flush()
     // Release remaining blob references from the final flush to free memory
     batchHandler.releaseBlobs()
+
+    // Surface failed segments to the user so they know the chapter is incomplete
+    if (failedCount > 0) {
+      const msg = `${failedCount} of ${textSegments.length} segments failed to generate`
+      setProgress(
+        textSegments.length - failedCount,
+        textSegments.length,
+        `Warning: ${msg}. You can retry with "Continue".`
+      )
+      logger.warn(`[generateChapterAudio] ${msg} for chapter ${ch.id}`, { failedIndices })
+      toastStore.warning(`${msg} — use "Continue" to retry missing segments`)
+    }
 
     // Fix start times (metadata only — blobs may have been released)
     audioSegments.sort((a, b) => a.index - b.index)
@@ -1357,6 +1397,7 @@ class GenerationService {
 
     // Persist updated startTime/duration back to DB so they survive app reload
     if (bookId) {
+      setProgress(textSegments.length, textSegments.length, 'Updating segment timing...')
       const { updateSegmentStartTimes } = await import('../libraryDB')
       await updateSegmentStartTimes(
         bookId,
@@ -1370,26 +1411,37 @@ class GenerationService {
     markChapterGenerationComplete(ch.id)
 
     // 4. Concatenate and persist merged audio
-    // Re-read segments from IndexedDB to avoid holding all blobs in memory simultaneously.
-    // The in-memory audioSegments array has had its blobs released after each batch flush.
-    let concatSegments: AudioSegment[]
-    if (bookId) {
-      concatSegments = await getChapterSegments(bookId, ch.id)
-    } else {
-      // No persistent storage — blobs are still in memory (releaseBlobs is a no-op without bookId)
-      concatSegments = audioSegments
-    }
-    const audioChapters: AudioChapter[] = concatSegments.map((s) => ({
-      id: s.id,
-      title: `Segment ${s.index}`,
-      blob: s.audioBlob,
-    }))
-    const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
-    // Release concat segments from memory immediately after concatenation
-    concatSegments.length = 0
+    // On mobile, use incremental concatenation that loads one segment at a time
+    // from IndexedDB to avoid the memory spike that causes Android's OOM killer
+    // to terminate Chrome's renderer process. Peak memory stays at ~1 segment
+    // instead of N segments.
+    if (isMobileDevice() && bookId) {
+      setProgress(
+        textSegments.length,
+        textSegments.length,
+        'Merging audio segments (mobile-safe)...'
+      )
+      logger.info(`[Mobile OOM mitigation] Using incremental concatenation for chapter ${ch.id}`)
+      const { countChapterSegments, getChapterSegmentByIndex, saveChapterAudio } =
+        await import('../libraryDB')
+      const segCount = await countChapterSegments(bookId, ch.id)
 
-    if (bookId) {
-      const { saveChapterAudio } = await import('../libraryDB')
+      const fullBlob = await incrementalConcatWav(
+        segCount,
+        async (index) => {
+          const seg = await getChapterSegmentByIndex(bookId, ch.id, index)
+          return seg?.audioBlob ?? null
+        },
+        (current, total) => {
+          setProgress(
+            textSegments.length,
+            textSegments.length,
+            `Merging segment ${current + 1} of ${total}...`
+          )
+        }
+      )
+
+      setProgress(textSegments.length, textSegments.length, 'Saving chapter audio...')
       await saveChapterAudio(bookId, ch.id, fullBlob, {
         model: effectiveModel,
         voice: effectiveVoice,
@@ -1397,14 +1449,58 @@ class GenerationService {
         device: currentDevice,
         language: effectiveLanguage,
       })
-    }
 
-    generatedAudio.update((m) => {
-      const newMap = new Map(m)
-      if (m.has(ch.id)) URL.revokeObjectURL(m.get(ch.id)!.url)
-      newMap.set(ch.id, { url: URL.createObjectURL(fullBlob), blob: fullBlob })
-      return newMap
-    })
+      // Release the blob from memory after persisting — it can be lazy-loaded later
+      generatedAudio.update((m) => {
+        const newMap = new Map(m)
+        if (m.has(ch.id)) URL.revokeObjectURL(m.get(ch.id)!.url)
+        newMap.delete(ch.id)
+        return newMap
+      })
+      logger.info(
+        `[Mobile OOM mitigation] Incremental concat complete for ${ch.id}, blob released from memory`
+      )
+    } else {
+      // Desktop path: concatenate segments into a single blob for smooth seeking
+      // Re-read segments from IndexedDB to avoid holding all blobs in memory simultaneously.
+      // The in-memory audioSegments array has had its blobs released after each batch flush.
+      setProgress(textSegments.length, textSegments.length, 'Loading segments for merge...')
+      let concatSegments: AudioSegment[]
+      if (bookId) {
+        concatSegments = await getChapterSegments(bookId, ch.id)
+      } else {
+        // No persistent storage — blobs are still in memory (releaseBlobs is a no-op without bookId)
+        concatSegments = audioSegments
+      }
+      setProgress(textSegments.length, textSegments.length, 'Merging audio segments...')
+      const audioChapters: AudioChapter[] = concatSegments.map((s) => ({
+        id: s.id,
+        title: `Segment ${s.index}`,
+        blob: s.audioBlob,
+      }))
+      const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
+      // Release concat segments from memory immediately after concatenation
+      concatSegments.length = 0
+
+      if (bookId) {
+        setProgress(textSegments.length, textSegments.length, 'Saving chapter audio...')
+        const { saveChapterAudio } = await import('../libraryDB')
+        await saveChapterAudio(bookId, ch.id, fullBlob, {
+          model: effectiveModel,
+          voice: effectiveVoice,
+          quantization: currentQuantization,
+          device: currentDevice,
+          language: effectiveLanguage,
+        })
+      }
+
+      generatedAudio.update((m) => {
+        const newMap = new Map(m)
+        if (m.has(ch.id)) URL.revokeObjectURL(m.get(ch.id)!.url)
+        newMap.set(ch.id, { url: URL.createObjectURL(fullBlob), blob: fullBlob })
+        return newMap
+      })
+    }
 
     return false
   }

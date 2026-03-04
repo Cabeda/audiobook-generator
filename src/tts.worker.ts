@@ -42,7 +42,10 @@ type WorkerResponse = {
     | 'complete-segments'
   data?: ArrayBuffer
   blob?: Blob
+  // Transferable alternatives to Blob — avoids copying on postMessage
+  audioBuffer?: ArrayBuffer
   segments?: { text: string; blob: Blob }[]
+  segmentBuffers?: { text: string; buffer: ArrayBuffer }[]
   error?: string
   message?: string
   chunkProgress?: ChunkProgress
@@ -116,12 +119,13 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         throw new Error('Generated audio is empty')
       }
 
-      // Send success response
-      self.postMessage({
-        id,
-        type: 'complete',
-        blob,
-      } as WorkerResponse)
+      // Send success response — transfer the ArrayBuffer (zero-copy) instead of
+      // posting a Blob, which would be serialised/copied on Android and double
+      // peak memory usage per segment.
+      const audioBuffer = await blob.arrayBuffer()
+      self.postMessage({ id, type: 'complete', audioBuffer } as WorkerResponse, {
+        transfer: [audioBuffer],
+      })
     } catch (error) {
       console.error('[Worker] Generation error:', error)
       // Send error response
@@ -173,11 +177,14 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         }
       )
 
-      self.postMessage({
-        id,
-        type: 'complete-segments',
-        segments,
-      } as WorkerResponse)
+      // Convert segment blobs to transferable ArrayBuffers (zero-copy on postMessage)
+      const segmentBuffers: { text: string; buffer: ArrayBuffer }[] = await Promise.all(
+        segments.map(async (s) => ({ text: s.text, buffer: await s.blob.arrayBuffer() }))
+      )
+      const transferList = segmentBuffers.map((s) => s.buffer)
+      self.postMessage({ id, type: 'complete-segments', segmentBuffers } as WorkerResponse, {
+        transfer: transferList,
+      })
     } catch (error) {
       console.error('[Worker] Segment generation error:', error)
       self.postMessage({

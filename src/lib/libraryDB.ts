@@ -854,6 +854,32 @@ export async function deleteChapterSegments(bookId: number, chapterId: string): 
 }
 
 /**
+ * Get a single audio segment by its index (loads only one blob at a time).
+ * Used for incremental concatenation on memory-constrained devices.
+ */
+export async function getChapterSegmentByIndex(
+  bookId: number,
+  chapterId: string,
+  index: number
+): Promise<AudioSegment | null> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    // Composite key: [bookId, chapterId, index]
+    const request = store.get([bookId, chapterId, index])
+
+    request.onsuccess = () => {
+      resolve((request.result as AudioSegment) || null)
+    }
+
+    request.onerror = () => reject(new Error(`Failed to get segment ${index}`))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
  * Get all audio segments for a chapter
  */
 export async function getChapterSegments(
