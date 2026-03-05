@@ -35,6 +35,10 @@ describe('hashRoutes', () => {
     expect(parseHash(undefined)).toEqual({ view: 'landing' })
   })
 
+  it('parses settings hash', () => {
+    expect(parseHash('#/settings')).toEqual({ view: 'settings' })
+  })
+
   it('returns null for invalid hashes', () => {
     expect(parseHash('#/unknown/route')).toBeNull()
     expect(parseHash('#/book/not-a-number/slug')).toBeNull()

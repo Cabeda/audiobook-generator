@@ -11,7 +11,7 @@
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
   import logger from '../lib/utils/logger'
-  import { saveProgress, loadProgress } from '../lib/progressStore'
+  import { saveProgress, loadProgress } from '../stores/progressStore'
   import { loadChapterSegmentProgress } from '../stores/segmentProgressStore'
   import { resolveChapterLanguageWithDetection } from '../lib/utils/languageResolver'
   import { getLanguageLabel } from '../lib/utils/languageResolver'
