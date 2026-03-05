@@ -12,7 +12,8 @@
     initChapterSegments,
     markSegmentGenerated,
   } from '../stores/segmentProgressStore'
-  import { segmentHtmlContent, generationService } from '../lib/services/generationService'
+  import { segmentHtmlContent } from '../lib/services/segmentationService'
+  import { generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
   import logger from '../lib/utils/logger'

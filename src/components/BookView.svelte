@@ -157,7 +157,7 @@
             const savedCount = await countChapterSegments(bookId, ch.id).catch(() => 0)
             if (savedCount > 0) {
               // Compute total segments from chapter content so we show "8/249"
-              const { segmentHtmlContent } = await import('../lib/services/generationService')
+              const { segmentHtmlContent } = await import('../lib/services/segmentationService')
               const { segments } = segmentHtmlContent(ch.id, ch.content ?? '')
               await loadChapterSegmentProgress(bookId, ch.id, segments.length).catch(() => {})
             }
