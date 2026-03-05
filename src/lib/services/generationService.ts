@@ -18,12 +18,7 @@ import {
 } from '../../stores/bookStore'
 import { advancedSettings } from '../../stores/ttsStore'
 import { listVoices as listKokoroVoices } from '../kokoro/kokoroVoices'
-import {
-  concatenateAudioChapters,
-  downloadAudioFile,
-  incrementalConcatWav,
-  type AudioChapter,
-} from '../audioConcat'
+import { concatenateAudioChapters, downloadAudioFile, type AudioChapter } from '../audioConcat'
 import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
@@ -996,6 +991,21 @@ class GenerationService {
             newMap.delete(ch.id)
             return newMap
           })
+
+          // On mobile, restart the TTS worker between chapters to reclaim WASM heap
+          // memory. The ONNX runtime's WASM heap grows with each inference and never
+          // shrinks — restarting the worker is the only way to release it. The model
+          // will be re-loaded on the next chapter's first segment (~2-3s overhead),
+          // but this prevents cumulative memory growth from crashing the renderer.
+          if (isMobileDevice()) {
+            logger.info(
+              `[Mobile OOM mitigation] Restarting TTS worker between chapters to reclaim WASM heap`
+            )
+            const worker = getTTSWorker()
+            worker.terminate()
+            // Yield to let the terminated worker's memory be reclaimed
+            await new Promise((r) => setTimeout(r, 1000))
+          }
         } catch (err: unknown) {
           if (this.canceled) break
           if (this.canceledChapters.has(ch.id)) continue
@@ -1097,6 +1107,16 @@ class GenerationService {
             newMap.delete(ch.id)
             return newMap
           })
+
+          // On mobile, restart the TTS worker between chapters to reclaim WASM heap
+          if (isMobileDevice()) {
+            logger.info(
+              `[Mobile OOM mitigation] Restarting TTS worker between chapters to reclaim WASM heap`
+            )
+            const worker = getTTSWorker()
+            worker.terminate()
+            await new Promise((r) => setTimeout(r, 1000))
+          }
         } catch (err: unknown) {
           if (this.canceled) break
           if (this.canceledChapters.has(ch.id)) continue
@@ -1274,14 +1294,28 @@ class GenerationService {
       const existing = await getChapterSegments(bookId, ch.id)
       if (existing.length > 0) {
         skipIndices = new Set(existing.map((s) => s.index))
-        audioSegments.push(...existing)
+        // On mobile, only keep lightweight metadata — release blob references immediately
+        // to avoid loading all previously-generated audio blobs into memory at once.
+        for (const seg of existing) {
+          audioSegments.push({
+            id: seg.id,
+            chapterId: seg.chapterId,
+            index: seg.index,
+            text: seg.text,
+            audioBlob: null as unknown as Blob, // blob is safely in IndexedDB
+            duration: seg.duration,
+            startTime: seg.startTime,
+          })
+        }
+        // Let GC reclaim the existing array and its blob references
+        existing.length = 0
         setProgress(
-          existing.length,
+          skipIndices.size,
           textSegments.length,
-          `Resuming from segment ${existing.length + 1}/${textSegments.length}...`
+          `Resuming from segment ${skipIndices.size + 1}/${textSegments.length}...`
         )
         logger.info(
-          `[Resume] Skipping ${existing.length} already-generated segments for chapter ${ch.id}`
+          `[Resume] Skipping ${skipIndices.size} already-generated segments for chapter ${ch.id}`
         )
       }
     } else if (bookId) {
@@ -1339,8 +1373,9 @@ class GenerationService {
         // chance to reclaim the released blob memory before the next ONNX inference
         // starts. Without this, Android's OOM killer can terminate the renderer
         // process mid-generation when memory pressure builds up across segments.
+        // 500ms gives the GC enough time to reclaim memory under heavy WASM load.
         if (isMobileDevice()) {
-          await new Promise((r) => setTimeout(r, 150))
+          await new Promise((r) => setTimeout(r, 500))
         }
 
         if (
@@ -1411,55 +1446,18 @@ class GenerationService {
     markChapterGenerationComplete(ch.id)
 
     // 4. Concatenate and persist merged audio
-    // On mobile, use incremental concatenation that loads one segment at a time
-    // from IndexedDB to avoid the memory spike that causes Android's OOM killer
-    // to terminate Chrome's renderer process. Peak memory stays at ~1 segment
-    // instead of N segments.
+    // On mobile, SKIP concatenation entirely to avoid OOM. The segments are already
+    // persisted in IndexedDB and the playback path has a working fallback that plays
+    // from per-segment blob URLs. Concatenation is only needed for download, which
+    // can be done on-demand later. This eliminates the memory spike from holding all
+    // segment data in the `parts` array during `incrementalConcatWav`.
     if (isMobileDevice() && bookId) {
-      setProgress(
-        textSegments.length,
-        textSegments.length,
-        'Merging audio segments (mobile-safe)...'
-      )
-      logger.info(`[Mobile OOM mitigation] Using incremental concatenation for chapter ${ch.id}`)
-      const { countChapterSegments, getChapterSegmentByIndex, saveChapterAudio } =
-        await import('../libraryDB')
-      const segCount = await countChapterSegments(bookId, ch.id)
-
-      const fullBlob = await incrementalConcatWav(
-        segCount,
-        async (index) => {
-          const seg = await getChapterSegmentByIndex(bookId, ch.id, index)
-          return seg?.audioBlob ?? null
-        },
-        (current, total) => {
-          setProgress(
-            textSegments.length,
-            textSegments.length,
-            `Merging segment ${current + 1} of ${total}...`
-          )
-        }
-      )
-
-      setProgress(textSegments.length, textSegments.length, 'Saving chapter audio...')
-      await saveChapterAudio(bookId, ch.id, fullBlob, {
-        model: effectiveModel,
-        voice: effectiveVoice,
-        quantization: currentQuantization,
-        device: currentDevice,
-        language: effectiveLanguage,
-      })
-
-      // Release the blob from memory after persisting — it can be lazy-loaded later
-      generatedAudio.update((m) => {
-        const newMap = new Map(m)
-        if (m.has(ch.id)) URL.revokeObjectURL(m.get(ch.id)!.url)
-        newMap.delete(ch.id)
-        return newMap
-      })
       logger.info(
-        `[Mobile OOM mitigation] Incremental concat complete for ${ch.id}, blob released from memory`
+        `[Mobile OOM mitigation] Skipping concatenation for chapter ${ch.id} — segments are in IndexedDB, playback uses per-segment fallback`
       )
+      setProgress(textSegments.length, textSegments.length, 'Chapter complete (segments saved)')
+      // Clear audioSegments to free metadata memory before next chapter
+      audioSegments.length = 0
     } else {
       // Desktop path: concatenate segments into a single blob for smooth seeking
       // Re-read segments from IndexedDB to avoid holding all blobs in memory simultaneously.
