@@ -57,6 +57,11 @@
     "vite-plugin-pwa": "^1.2.0",
     "vitest": "^4.0.18"
   },
+  "pnpm": {
+    "overrides": {
+      "@huggingface/transformers": "4.0.0-next.6"
+    }
+  },
   "dependencies": {
     "@diffusionstudio/vits-web": "^1.0.3",
     "@ffmpeg/ffmpeg": "^0.12.15",
