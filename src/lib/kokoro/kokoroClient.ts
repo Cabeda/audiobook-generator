@@ -3,7 +3,7 @@ import logger from '../utils/logger'
 import { retryWithBackoff, isRetryableError } from '../retryUtils'
 import { ModelLoadError, AudioGenerationError } from '../errors'
 import { MIN_TEXT_LENGTH } from '../audioConstants'
-import { createSilentWav } from '../audioConcat'
+import { createSilentWav } from '../wavUtils'
 import type { VoiceId } from './kokoroVoices'
 
 export type { VoiceId } from './kokoroVoices'

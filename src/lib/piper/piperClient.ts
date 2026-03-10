@@ -1,6 +1,6 @@
 import logger from '../utils/logger'
 import { MIN_TEXT_LENGTH } from '../audioConstants'
-import { createSilentWav } from '../audioConcat'
+import { createSilentWav } from '../wavUtils'
 import {
   getPiperChunkSize,
   getPiperThreadingMode,

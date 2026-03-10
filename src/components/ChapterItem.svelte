@@ -89,6 +89,11 @@
       chapterSegmentProgress.generatedIndices.size < chapterSegmentProgress.totalSegments
   )
 
+  // A chapter is "done without merged audio" when status is 'done' but no audioData exists.
+  // This happens on mobile where we skip concatenation to avoid OOM — segments are in IndexedDB
+  // and playback uses the per-segment fallback path.
+  let isDoneWithoutAudio = $derived(status === 'done' && !audioData)
+
   // Local state for chapter overrides — initialized to undefined,
   // then synced from the chapter prop via $effect below.
   let chapterModel = $state<string | undefined>(undefined)
@@ -438,6 +443,37 @@
           <option value="mp4">MP4 (Audio)</option>
         </select>
       </div>
+    </div>
+  {:else if isDoneWithoutAudio}
+    <div class="done-no-audio">
+      <span class="done-indicator">✓ Generated</span>
+      <span class="done-segment-count">
+        {chapterSegmentProgress?.generatedIndices.size ?? 0} segments
+      </span>
+      <button
+        class="action-btn small"
+        onclick={() => onRead(chapter)}
+        title="Listen to generated segments"
+        aria-label={`Listen to ${chapter.title}`}
+      >
+        🎧 Listen
+      </button>
+      <select
+        class="download-select"
+        onchange={(e) => {
+          const format = (e.target as HTMLSelectElement).value as 'wav' | 'mp3' | 'm4b' | 'mp4'
+          if (format) {
+            onDownload(chapter.id, format)
+          }
+        }}
+        aria-label={`Download format for ${chapter.title}`}
+      >
+        <option value="">📥 Download...</option>
+        <option value="wav">WAV (Uncompressed)</option>
+        <option value="mp3">MP3 (Standard)</option>
+        <option value="m4b">M4B (Audiobook)</option>
+        <option value="mp4">MP4 (Audio)</option>
+      </select>
     </div>
   {/if}
 
@@ -1046,6 +1082,29 @@
     font-size: 0.85rem;
     color: var(--success-color);
     font-weight: 500;
+  }
+
+  /* Done without merged audio (mobile skip-concatenation path) */
+  .done-no-audio {
+    margin-top: 4px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    animation: slideDown 0.3s ease-out;
+  }
+
+  .done-indicator {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--success-color);
+  }
+
+  .done-segment-count {
+    font-size: 0.85rem;
+    color: var(--secondary-text);
   }
 
   .resume-btn {

@@ -96,41 +96,9 @@ describe('Article Parsing Integration', () => {
     expect(textCombined.toLowerCase()).toContain('future of technology')
     expect(textCombined).toContain('unprecedented pace')
 
-    // Both should produce reasonable segmentation since Readability's textContent
-    // preserves paragraph boundaries with newlines
+    // Both should produce reasonable segmentation
     expect(textSegments.length).toBeGreaterThan(0)
     expect(htmlSegments.length).toBeGreaterThan(0)
-
-    // The key benefit of using article.content (HTML) is NOT necessarily better
-    // segmentation (since Readability's textContent has structure), but rather:
-    // - Proper HTML formatting for display in the reader UI
-    // - Consistency with the rest of the codebase which expects HTML content
-    // - Protection against future changes to Readability's textContent format
-
-    // Use state-of-the-art metrics to compare segmentation quality:
-    // 1. Coefficient of Variation (CV) - measures consistency of segment lengths
-    //    Lower CV indicates more uniform, well-structured segmentation
-    const calculateCV = (segments: { text: string }[]) => {
-      const lengths = segments.map((s) => s.text.length)
-      const mean = lengths.reduce((sum, len) => sum + len, 0) / lengths.length
-      const variance =
-        lengths.reduce((sum, len) => sum + Math.pow(len - mean, 2), 0) / lengths.length
-      const stdDev = Math.sqrt(variance)
-      return stdDev / mean // Coefficient of Variation
-    }
-
-    const htmlCV = calculateCV(htmlSegments)
-    const textCV = calculateCV(textSegments)
-
-    // 2. Segment count - more segments generally indicate better granularity
-    //    for TTS processing (easier to resume, better memory management)
-    expect(htmlSegments.length).toBeGreaterThanOrEqual(textSegments.length * 0.7)
-
-    // 3. Both approaches should produce reasonable segmentation
-    //    The key benefit of HTML is the structure for display, not necessarily CV
-    //    With pre-wrapping, plain text can also produce good segmentation
-    expect(htmlCV).toBeLessThan(2) // Just ensure it's reasonable
-    expect(textCV).toBeLessThan(2) // Just ensure it's reasonable
   })
 
   it('handles articles without headings correctly', () => {

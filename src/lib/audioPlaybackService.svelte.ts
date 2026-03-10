@@ -6,7 +6,7 @@ import { audioPlayerStore } from '../stores/audioPlayerStore'
 import { toastStore } from '../stores/toastStore'
 import type { Chapter } from './types/book'
 import { getChapterSegments, getChapterAudio } from './libraryDB'
-import { segmentHtmlContent } from './services/generationService'
+import { segmentHtmlContent } from './services/segmentationService'
 import type { AudioSegment } from './types/audio'
 import { selectPiperVoiceForLanguage, normalizeLanguageCode } from './utils/voiceSelector'
 import { getGeneratedSegment } from '../stores/segmentProgressStore'
@@ -507,8 +507,13 @@ class AudioPlaybackService {
 
     const segment = this.segments[index]
 
-    // If audio was loaded via loadChapter (single audio file with timing data), seek to segment position
-    if (this.audio && segment && segment.startTime !== undefined) {
+    // If audio was loaded via loadChapter (single merged audio file with timing data), seek to segment position.
+    // IMPORTANT: Check chapterAudioUrl to distinguish merged-audio mode from per-segment mode.
+    // Without this check, clicking a segment while a per-segment audio is playing would
+    // incorrectly seek the single-segment audio element (which only contains one segment's
+    // data) to the cumulative startTime, causing it to end immediately and advance to the
+    // next segment — resulting in an off-by-one bug.
+    if (this.chapterAudioUrl && this.audio && segment && segment.startTime !== undefined) {
       this.currentSegmentIndex = index
       this.audio.currentTime = segment.startTime
 

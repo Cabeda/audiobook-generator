@@ -85,8 +85,16 @@
   let isGenerating = $state(false)
   let heroCollapsed = $state(false)
 
+  // Scroll-linked hero collapse: progress goes from 0 (fully visible) to 1 (fully hidden).
+  // We drive transform + opacity directly from scroll position for smooth, jank-free animation.
+  let heroProgress = $state(0)
+  const HERO_SCROLL_DISTANCE = 200 // px of scroll to fully collapse the hero
+
   function handleContentScroll(e: Event) {
-    heroCollapsed = (e.currentTarget as HTMLElement).scrollTop > 60
+    const scrollTop = (e.currentTarget as HTMLElement).scrollTop
+    const progress = Math.min(1, Math.max(0, scrollTop / HERO_SCROLL_DISTANCE))
+    heroProgress = progress
+    heroCollapsed = progress >= 1
   }
   let showAdvanced = $state(false)
   let selectedFormat = $state<'mp3' | 'mp4' | 'm4b' | 'wav' | 'epub'>('mp3')
@@ -157,7 +165,7 @@
             const savedCount = await countChapterSegments(bookId, ch.id).catch(() => 0)
             if (savedCount > 0) {
               // Compute total segments from chapter content so we show "8/249"
-              const { segmentHtmlContent } = await import('../lib/services/generationService')
+              const { segmentHtmlContent } = await import('../lib/services/segmentationService')
               const { segments } = segmentHtmlContent(ch.id, ch.content ?? '')
               await loadChapterSegmentProgress(bookId, ch.id, segments.length).catch(() => {})
             }
@@ -440,10 +448,14 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <svelte:window onclick={() => (showFormatPicker = false)} />
 
-<div class="book-view" class:hero-collapsed={heroCollapsed} onscroll={handleContentScroll} in:fade>
+<div class="book-view" onscroll={handleContentScroll} in:fade>
   {#if currentBook}
-    <!-- Hero Header -->
-    <div class="hero-header">
+    <!-- Hero Header — scroll-linked collapse via transform (no layout shift) -->
+    <div
+      class="hero-header"
+      style="transform: translateY({-heroProgress * 100}%); opacity: {1 -
+        heroProgress}; pointer-events: {heroProgress >= 1 ? 'none' : 'auto'};"
+    >
       <div class="hero-bg" style="background-image: url({currentBook.cover || ''})"></div>
       <div class="hero-content">
         <div class="cover-wrapper">
@@ -750,20 +762,7 @@
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
     min-height: 200px;
     flex-shrink: 0;
-    transition:
-      min-height 0.3s ease,
-      padding 0.3s ease,
-      opacity 0.3s ease;
-  }
-
-  .hero-collapsed .hero-header {
-    min-height: 0;
-    padding: 0;
-    opacity: 0;
-    pointer-events: none;
-    overflow: hidden;
-    height: 0;
-    margin: 0;
+    will-change: transform, opacity;
   }
 
   .hero-bg {
