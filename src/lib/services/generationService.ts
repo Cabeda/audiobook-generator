@@ -1,7 +1,7 @@
 import { get } from 'svelte/store'
 import type { Chapter } from '../types/book'
 import type { VoiceId } from '../kokoro/kokoroVoices'
-import { getTTSWorker } from '../ttsWorkerManager'
+import { getTTSWorker, terminateTTSWorker } from '../ttsWorkerManager'
 import {
   selectedModel,
   selectedVoice,
@@ -578,8 +578,7 @@ class GenerationService {
             logger.info(
               `[OOM mitigation] Restarting TTS worker after chapter ${i + 1} to reclaim WASM heap`
             )
-            const worker = getTTSWorker()
-            worker.terminate()
+            terminateTTSWorker()
             // Yield to let the terminated worker's memory be reclaimed
             await new Promise((r) => setTimeout(r, isMobileDevice() ? 1000 : 500))
           }

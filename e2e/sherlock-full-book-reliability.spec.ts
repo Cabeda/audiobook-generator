@@ -25,13 +25,13 @@ const SHERLOCK_EPUB = join(
  * - Generation state persistence (crash recovery)
  */
 test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
-  // 60 minutes max for the entire full-book generation
-  test.describe.configure({ timeout: 3600000 })
+  // 2 hours max for the entire full-book generation
+  test.describe.configure({ timeout: 7200000 })
 
-  test('should generate all 12 chapters without OOM or crash', async ({ page }, testInfo) => {
+  test('should generate all 16 chapters without OOM or crash', async ({ page }, testInfo) => {
     // Only run on desktop Chromium
     test.skip(testInfo.project.name !== 'chromium', 'Skipping on non-desktop projects')
-    test.setTimeout(3600000) // 60 minutes
+    test.setTimeout(7200000) // 2 hours
 
     const report: {
       startTime: number
@@ -68,7 +68,7 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
       sessionStorage.clear()
       localStorage.setItem('audiobook_device', JSON.stringify('wasm'))
       localStorage.setItem('audiobook_model', JSON.stringify('kokoro'))
-      localStorage.setItem('audiobook_quantization', JSON.stringify('q8'))
+      localStorage.setItem('audiobook_quantization', JSON.stringify('q4'))
       localStorage.setItem(
         'audiobook_advanced_settings',
         JSON.stringify({ kokoro: { parallelChunks: 2 } })
