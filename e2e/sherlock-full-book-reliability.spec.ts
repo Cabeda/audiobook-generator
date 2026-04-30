@@ -49,6 +49,8 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
       avgMemoryMB?: number
       success: boolean
       workerRestarts?: number
+      exportedFile?: string
+      exportedFileSizeMB?: number
     } = {
       startTime: Date.now(),
       chapters: [],
@@ -66,7 +68,7 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
       sessionStorage.clear()
       localStorage.setItem('audiobook_device', JSON.stringify('wasm'))
       localStorage.setItem('audiobook_model', JSON.stringify('kokoro'))
-      localStorage.setItem('audiobook_quantization', JSON.stringify('q4'))
+      localStorage.setItem('audiobook_quantization', JSON.stringify('q8'))
       localStorage.setItem(
         'audiobook_advanced_settings',
         JSON.stringify({ kokoro: { parallelChunks: 2 } })
@@ -319,6 +321,10 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
     console.log(`  Avg memory:        ${report.avgMemoryMB?.toFixed(1) ?? 'N/A'} MB`)
     console.log(`  Memory samples:    ${report.memorySamples.length}`)
     console.log(`  Gen state cleared: ${generationStateCleared} (true = completed normally)`)
+    if (report.exportedFile) {
+      console.log(`  Exported file:     ${report.exportedFile}`)
+      console.log(`  Export size:       ${report.exportedFileSizeMB} MB`)
+    }
     console.log('═══════════════════════════════════════════════════════════\n')
 
     // ─── 10. Save report to file ───
@@ -358,7 +364,74 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
     await writeFile(summaryPath, summaryLines.join('\n'))
     console.log(`[TEST] Summary saved to: ${summaryPath}`)
 
-    // ─── 11. Assertions ───
+    // ─── 11. Export as EPUB with audio ───
+    console.log('[TEST] Exporting as EPUB with media overlays...')
+
+    // Select EPUB format from the dropdown
+    const formatToggle = page.locator('.export-toggle')
+    if (await formatToggle.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await formatToggle.click()
+      await page.waitForSelector('.export-format-menu', { timeout: 5000 })
+      const epubOption = page.locator('.format-option').filter({ hasText: 'EPUB' })
+      await epubOption.click()
+    }
+
+    // Click the export button and wait for download
+    const exportButton = page.locator('.export-primary-btn.export-main')
+    if (await exportButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await expect(exportButton).toBeEnabled({ timeout: 10000 })
+
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 600000 }), // 10 min for export
+        exportButton.click(),
+      ])
+
+      const epubFilename = download.suggestedFilename()
+      console.log(`[TEST] Download started: ${epubFilename}`)
+
+      // Save to test-results
+      const outputPath = join(reportDir, 'sherlock-holmes-audiobook.epub')
+      await download.saveAs(outputPath)
+      const fileStats = await readFile(outputPath)
+      console.log(
+        `[TEST] EPUB saved: ${outputPath} (${(fileStats.length / 1024 / 1024).toFixed(2)} MB)`
+      )
+
+      report.exportedFile = outputPath
+      report.exportedFileSizeMB = Math.round((fileStats.length / 1024 / 1024) * 100) / 100
+    } else {
+      console.log(
+        '[TEST] Export button not visible — skipping export (chapters may not be marked as done in UI)'
+      )
+
+      // Fallback: try MP3 export via the main export button
+      const anyExportBtn = page.locator('button:has-text("Export")')
+      if (
+        await anyExportBtn
+          .first()
+          .isVisible({ timeout: 3000 })
+          .catch(() => false)
+      ) {
+        console.log('[TEST] Found alternative export button, attempting MP3 export...')
+        const [download] = await Promise.all([
+          page.waitForEvent('download', { timeout: 600000 }),
+          anyExportBtn.first().click(),
+        ])
+        const mp3Filename = download.suggestedFilename()
+        const outputPath = join(reportDir, mp3Filename || 'sherlock-holmes-audiobook.mp3')
+        await download.saveAs(outputPath)
+        const fileStats = await readFile(outputPath)
+        console.log(
+          `[TEST] Audio saved: ${outputPath} (${(fileStats.length / 1024 / 1024).toFixed(2)} MB)`
+        )
+        report.exportedFile = outputPath
+        report.exportedFileSizeMB = Math.round((fileStats.length / 1024 / 1024) * 100) / 100
+      } else {
+        console.log('[TEST] No export button available — export skipped')
+      }
+    }
+
+    // ─── 12. Assertions ───
     // The primary assertion: generation completed without crash
     // Check that generation ran to completion (either state was cleared normally,
     // or all chapters were processed — the generation may have been auto-triggered
