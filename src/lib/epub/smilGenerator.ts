@@ -40,8 +40,11 @@ export function generateSmil(data: SmilData): string {
   // Get the XHTML document path from the first par (without the fragment)
   const xhtmlPath = data.pars[0]?.textSrc.split('#')[0] || ''
 
+  // Filter out zero-duration entries (clipBegin === clipEnd is invalid per EPUB spec)
+  const validPars = data.pars.filter((par) => par.clipEnd > par.clipBegin)
+
   // Generate all par elements
-  const parsXml = data.pars
+  const parsXml = validPars
     .map(
       (par, index) => `    <par id="par${index + 1}">
       <text src="${par.textSrc}"/>

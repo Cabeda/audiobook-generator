@@ -48,6 +48,63 @@ function getBookId(): number {
   return 0
 }
 
+/**
+ * Escape special XML characters in text content
+ */
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+/**
+ * Sanitize HTML content to produce valid XHTML for EPUB.
+ *
+ * Fixes:
+ * - Self-closing void elements (<br>, <img>, <hr>, <input>, <meta>, <link>)
+ * - &nbsp; → &#160;
+ * - Removes <img> tags referencing missing local resources (../images/*)
+ * - Rewrites internal links to non-bundled XHTML files as plain text
+ */
+function sanitizeXhtml(html: string): string {
+  let result = html
+
+  // Replace &nbsp; with numeric entity (valid in XHTML)
+  result = result.replace(/&nbsp;/g, '&#160;')
+
+  // Remove <img> tags that reference local images we don't bundle
+  // (e.g., ../images/titlepage.svg, ../images/logo.svg)
+  result = result.replace(/<img[^>]*src=["'][^"']*images\/[^"']*["'][^>]*>/gi, '')
+
+  // Rewrite internal links to non-bundled .xhtml files as plain text
+  // e.g., <a href="uncopyright.xhtml">text</a> → text
+  // Keep external links (http/https) and fragment links (#) intact
+  result = result.replace(
+    /<a\s+[^>]*href=["'](?!https?:\/\/)(?!#)([^"']*\.xhtml[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    '$2'
+  )
+
+  // Fix self-closing void elements: <br>, <hr>, <img>, <input>, <meta>, <link>, <col>, <area>, <base>
+  // Convert <br> to <br/>, <img ...> to <img .../>, etc.
+  const voidElements = ['br', 'hr', 'img', 'input', 'meta', 'link', 'col', 'area', 'base']
+  for (const tag of voidElements) {
+    // Match tags that are NOT already self-closed (don't end with />)
+    // Pattern: <tag ... > (without closing slash)
+    const openTagRegex = new RegExp(`<(${tag})(\\s[^>]*)?>(?!</${tag}>)`, 'gi')
+    result = result.replace(openTagRegex, (match) => {
+      // If already self-closed, leave it
+      if (match.endsWith('/>')) return match
+      // Otherwise, make it self-closing
+      return match.slice(0, -1) + '/>'
+    })
+  }
+
+  return result
+}
+
 export async function exportAudio(
   chapters: Chapter[],
   format: 'mp3' | 'm4b' | 'wav' = 'mp3',
@@ -166,9 +223,9 @@ export async function exportEpub(
           id: ch.id,
           title: ch.title,
           content: `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-<head><title>${ch.title}</title></head>
-<body><h1>${ch.title}</h1>${ch.content.replace(/&nbsp;/g, '&#160;')}</body></html>`,
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" epub:prefix="z3998: http://www.daisy.org/z3986/2012/vocab/structure/ se: https://standardebooks.org/vocab/1.0">
+<head><title>${escapeXml(ch.title)}</title></head>
+<body><h1>${escapeXml(ch.title)}</h1>${sanitizeXhtml(ch.content)}</body></html>`,
         })
         continue
       }
@@ -220,10 +277,10 @@ export async function exportEpub(
       const totalDuration = cumulativeTime
 
       // Generate XHTML with matching IDs
-      const sanitizedContent = ch.content.replace(/&nbsp;/g, '&#160;')
+      const sanitizedContent = sanitizeXhtml(ch.content)
       const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-<head><title>${ch.title}</title></head>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" epub:prefix="z3998: http://www.daisy.org/z3986/2012/vocab/structure/ se: https://standardebooks.org/vocab/1.0">
+<head><title>${escapeXml(ch.title)}</title></head>
 <body>
   ${sanitizedContent}
 </body>
