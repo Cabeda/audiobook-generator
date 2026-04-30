@@ -54,20 +54,47 @@ export async function exportAudio(
   bitrate = 192,
   bookInfo: { title: string; author: string }
 ) {
-  // Ensure audio is loaded for all chapters (lazy load from DB if needed)
+  const { getChapterSegments } = await import('../libraryDB')
+  const { incrementalConcatWav } = await import('../wavUtils')
+
+  // Try to load merged audio from the store first
   const { ensureChaptersAudio } = await import('../../stores/bookStore')
   await ensureChaptersAudio(chapters.map((ch) => ch.id))
 
   const generated = get(generatedAudio)
+  const bookId = getBookId()
 
   const audioChapters: AudioChapter[] = []
   for (const ch of chapters) {
     if (generated.has(ch.id)) {
+      // Merged audio already available (legacy path or previously concatenated)
       audioChapters.push({
         id: ch.id,
         title: ch.title,
         blob: generated.get(ch.id)!.blob,
       })
+    } else if (bookId) {
+      // No merged audio — concatenate from segments in IndexedDB on-demand
+      // This is the normal path since we now defer concatenation to export time
+      try {
+        const segments = await getChapterSegments(bookId, ch.id)
+        if (segments.length > 0) {
+          logger.info(
+            `[Export] Concatenating ${segments.length} segments for chapter "${ch.title}" on-demand`
+          )
+          const chapterBlob = await incrementalConcatWav(segments.length, async (index) => {
+            const seg = segments.find((s) => s.index === index)
+            return seg?.audioBlob ?? null
+          })
+          audioChapters.push({
+            id: ch.id,
+            title: ch.title,
+            blob: chapterBlob,
+          })
+        }
+      } catch (e) {
+        logger.warn(`[Export] Failed to concatenate segments for chapter ${ch.id}:`, e)
+      }
     }
   }
 

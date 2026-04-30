@@ -84,6 +84,12 @@
   let showSettings = $state(false)
   let isGenerating = $state(false)
   let heroCollapsed = $state(false)
+  let interruptedGeneration = $state<{
+    bookId: number
+    bookTitle: string
+    completedCount: number
+    totalCount: number
+  } | null>(null)
 
   // Scroll-linked hero collapse: progress goes from 0 (fully visible) to 1 (fully hidden).
   // We drive transform + opacity directly from scroll position for smooth, jank-free animation.
@@ -142,6 +148,21 @@
     }
     checkMobile()
     window.addEventListener('resize', checkMobile)
+
+    // Check for interrupted generation (crash recovery)
+    ;(async () => {
+      const { getInterruptedGeneration } = await import('../lib/services/generationStateStore')
+      const interrupted = getInterruptedGeneration()
+      if (interrupted) {
+        interruptedGeneration = {
+          bookId: interrupted.bookId,
+          bookTitle: interrupted.bookTitle,
+          completedCount: interrupted.completedChapterIds.length,
+          totalCount: interrupted.chapterIds.length,
+        }
+      }
+    })()
+
     return () => window.removeEventListener('resize', checkMobile)
   })
 
@@ -344,6 +365,43 @@
     }
   }
 
+  async function handleResumeInterrupted() {
+    if (!$book || !interruptedGeneration) return
+    const { getInterruptedGeneration, clearGenerationState } =
+      await import('../lib/services/generationStateStore')
+    const state = getInterruptedGeneration()
+    if (!state) {
+      interruptedGeneration = null
+      return
+    }
+
+    // Find chapters that weren't completed
+    const remainingChapterIds = state.chapterIds.filter(
+      (id) => !state.completedChapterIds.includes(id)
+    )
+    const chaptersToResume = $book.chapters.filter((c) => remainingChapterIds.includes(c.id))
+
+    if (chaptersToResume.length === 0) {
+      clearGenerationState()
+      interruptedGeneration = null
+      return
+    }
+
+    interruptedGeneration = null
+    isGenerating = true
+    try {
+      await generationService.resumeChapters(chaptersToResume)
+    } finally {
+      isGenerating = false
+    }
+  }
+
+  async function dismissInterrupted() {
+    const { clearGenerationState } = await import('../lib/services/generationStateStore')
+    clearGenerationState()
+    interruptedGeneration = null
+  }
+
   function handleCancelChapter(id: string) {
     generationService.cancelChapter(id)
   }
@@ -479,6 +537,23 @@
         </div>
       </div>
     </div>
+
+    <!-- Interrupted generation resume banner -->
+    {#if interruptedGeneration && interruptedGeneration.bookId === $currentLibraryBookId}
+      <div class="resume-banner" transition:fly={{ y: -20, duration: 200 }}>
+        <div class="resume-banner-content">
+          <span class="resume-banner-icon">⚠</span>
+          <span class="resume-banner-text">
+            Generation was interrupted ({interruptedGeneration.completedCount}/{interruptedGeneration.totalCount}
+            chapters completed)
+          </span>
+        </div>
+        <div class="resume-banner-actions">
+          <button class="btn-resume" onclick={handleResumeInterrupted}>Resume</button>
+          <button class="btn-dismiss" onclick={dismissInterrupted}>Dismiss</button>
+        </div>
+      </div>
+    {/if}
 
     <!-- Toolbar -->
     <div class="toolbar">
@@ -750,6 +825,69 @@
     overflow-y: auto;
     flex: 1;
     min-height: 0;
+  }
+
+  /* Resume banner for interrupted generation */
+  .resume-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--color-warning-bg, #fff3cd);
+    border: 1px solid var(--color-warning-border, #ffc107);
+    border-radius: 10px;
+    margin: 0 16px;
+  }
+
+  .resume-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .resume-banner-icon {
+    font-size: 1.2em;
+  }
+
+  .resume-banner-text {
+    font-size: 0.9rem;
+    color: var(--color-text, #333);
+  }
+
+  .resume-banner-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .btn-resume {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: none;
+    background: var(--color-primary, #4f46e5);
+    color: white;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .btn-resume:hover {
+    opacity: 0.9;
+  }
+
+  .btn-dismiss {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border, #ddd);
+    background: transparent;
+    color: var(--color-text-secondary, #666);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .btn-dismiss:hover {
+    background: var(--color-hover, #f5f5f5);
   }
 
   /* Hero Header */
