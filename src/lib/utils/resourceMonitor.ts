@@ -80,3 +80,29 @@ export async function canRunUpgrade(): Promise<boolean> {
 
   return true
 }
+
+/**
+ * Check whether the TTS worker should be restarted due to memory pressure.
+ * Returns true when:
+ *  - JS heap usage exceeds 70% of the limit (Chrome-only performance.memory API)
+ *  - Falls back to false on browsers without the API (Firefox, Safari)
+ *
+ * This is a proactive check — restart the worker BEFORE OOM rather than after.
+ */
+export async function shouldRestartWorkerForMemory(): Promise<boolean> {
+  try {
+    const perf = performance as Performance & {
+      memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
+    }
+    if (perf.memory) {
+      const ratio = perf.memory.usedJSHeapSize / perf.memory.jsHeapSizeLimit
+      if (ratio > 0.7) {
+        return true
+      }
+    }
+  } catch {
+    // API not available — ignore
+  }
+
+  return false
+}

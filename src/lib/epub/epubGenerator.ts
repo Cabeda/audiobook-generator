@@ -84,6 +84,7 @@ export class EpubGenerator {
 
     let manifestItems = ''
     let spineItems = ''
+    let durationMeta = ''
 
     // Nav
     manifestItems += `<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n`
@@ -93,6 +94,9 @@ export class EpubGenerator {
     if (hasCover) {
       manifestItems += `<item id="cover-image" href="cover.jpg" media-type="image/jpeg" properties="cover-image"/>\n`
     }
+
+    // Calculate total duration for all media overlays
+    let totalDuration = 0
 
     // Chapters
     this.chapters.forEach((chapter) => {
@@ -106,21 +110,32 @@ export class EpubGenerator {
       if (hasOverlay) {
         manifestItems += `<item id="${chapter.id}-audio" href="audio/${chapter.id}.mp3" media-type="audio/mpeg"/>\n`
         manifestItems += `<item id="${chapter.id}-smil" href="smil/${chapter.id}.smil" media-type="application/smil+xml"/>\n`
+
+        // Add per-item duration meta
+        const duration = chapter.smilData!.duration
+        totalDuration += duration
+        durationMeta += `    <meta property="media:duration" refines="#${chapter.id}-smil">${this.formatDuration(duration)}</meta>\n`
       }
 
       // Spine
       spineItems += `<itemref idref="${chapter.id}"/>\n`
     })
 
+    // Add global duration meta (required by EPUB spec when media overlays are present)
+    let globalDurationMeta = ''
+    if (totalDuration > 0) {
+      globalDurationMeta = `    <meta property="media:duration">${this.formatDuration(totalDuration)}</meta>\n`
+    }
+
     return `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id" version="3.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:title>${title}</dc:title>
-    <dc:creator>${author}</dc:creator>
+    <dc:title>${this.escapeXml(title)}</dc:title>
+    <dc:creator>${this.escapeXml(author)}</dc:creator>
     <dc:language>${language}</dc:language>
     <dc:identifier id="book-id">${identifier}</dc:identifier>
     <meta property="dcterms:modified">${new Date().toISOString().split('.')[0]}Z</meta>
-  </metadata>
+${globalDurationMeta}${durationMeta}  </metadata>
   <manifest>
     ${manifestItems}
   </manifest>
@@ -130,13 +145,35 @@ export class EpubGenerator {
 </package>`
   }
 
+  /**
+   * Format duration in seconds to SMIL clock value (HH:MM:SS.mmm)
+   */
+  private formatDuration(seconds: number): string {
+    const h = Math.floor(seconds / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    const s = seconds % 60
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toFixed(3).padStart(6, '0')}`
+  }
+
+  /**
+   * Escape XML special characters in metadata values
+   */
+  private escapeXml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
+  }
+
   private generateNcx(): string {
     const { title, identifier } = this.metadata
     const navPoints = this.chapters
       .map(
         (c, i) => `
     <navPoint id="navPoint-${i + 1}" playOrder="${i + 1}">
-      <navLabel><text>${c.title}</text></navLabel>
+      <navLabel><text>${this.escapeXml(c.title)}</text></navLabel>
       <content src="${c.id}.xhtml"/>
     </navPoint>`
       )
@@ -150,7 +187,7 @@ export class EpubGenerator {
     <meta name="dtb:totalPageCount" content="0"/>
     <meta name="dtb:maxPageNumber" content="0"/>
   </head>
-  <docTitle><text>${title}</text></docTitle>
+  <docTitle><text>${this.escapeXml(title)}</text></docTitle>
   <navMap>
     ${navPoints}
   </navMap>
@@ -160,12 +197,12 @@ export class EpubGenerator {
   private generateNav(): string {
     const { title } = this.metadata
     const lis = this.chapters
-      .map((c) => `<li><a href="${c.id}.xhtml">${c.title}</a></li>`)
+      .map((c) => `<li><a href="${c.id}.xhtml">${this.escapeXml(c.title)}</a></li>`)
       .join('\n')
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-  <head><title>${title}</title></head>
+  <head><title>${this.escapeXml(title)}</title></head>
   <body>
     <nav epub:type="toc" id="toc">
       <h1>Table of Contents</h1>

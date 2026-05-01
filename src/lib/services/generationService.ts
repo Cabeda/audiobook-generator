@@ -1,7 +1,7 @@
 import { get } from 'svelte/store'
 import type { Chapter } from '../types/book'
 import type { VoiceId } from '../kokoro/kokoroVoices'
-import { getTTSWorker } from '../ttsWorkerManager'
+import { getTTSWorker, terminateTTSWorker } from '../ttsWorkerManager'
 import {
   selectedModel,
   selectedVoice,
@@ -18,14 +18,14 @@ import {
 } from '../../stores/bookStore'
 import { advancedSettings } from '../../stores/ttsStore'
 import { listVoices as listKokoroVoices } from '../kokoro/kokoroVoices'
-import { concatenateAudioChapters, type AudioChapter } from '../audioConcat'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { appSettings } from '../../stores/appSettingsStore'
-import { getChapterSegments, type LibraryBook } from '../libraryDB'
+import { type LibraryBook } from '../libraryDB'
 import type { AudioSegment } from '../types/audio'
 import { resolveChapterLanguageWithDetection, DEFAULT_LANGUAGE } from '../utils/languageResolver'
 import { isMobileDevice } from '../utils/mobileDetect'
+import { shouldRestartWorkerForMemory } from '../utils/resourceMonitor'
 import { audioService } from '../audioPlaybackService.svelte'
 
 import {
@@ -47,6 +47,11 @@ import { segmentHtmlContent } from './segmentationService'
 import type { SegmentOptions } from './segmentationService'
 import { SegmentBatchHandler } from './segmentBatchHandler'
 import { exportAudio, exportEpub } from './exportService'
+import {
+  saveGenerationState,
+  markChapterCompleted,
+  clearGenerationState,
+} from './generationStateStore'
 
 // Re-export extracted modules for backward compatibility
 export { segmentHtmlContent, parseWavDuration }
@@ -444,6 +449,24 @@ class GenerationService {
     this.autoPlayTriggered.clear() // Reset auto-play triggers for new generation
     isGenerating.set(true)
 
+    // Persist generation state for crash recovery
+    const bookId = explicitBookId ?? getBookId()
+    const currentBook = get(book)
+    if (bookId) {
+      saveGenerationState({
+        bookId,
+        bookTitle: currentBook?.title || 'Unknown',
+        chapterIds: chapters.map((ch) => ch.id),
+        completedChapterIds: [],
+        currentChapterIndex: 0,
+        startedAt: Date.now(),
+        model,
+        voice: get(selectedVoice),
+        quantization: get(selectedQuantization),
+        device: get(selectedDevice),
+      })
+    }
+
     // Acquire wake lock to prevent device sleep
     await this.requestWakeLock()
     document.addEventListener('visibilitychange', this.handleVisibilityChange)
@@ -541,19 +564,23 @@ class GenerationService {
             return newMap
           })
 
-          // On mobile, restart the TTS worker between chapters to reclaim WASM heap
-          // memory. The ONNX runtime's WASM heap grows with each inference and never
-          // shrinks — restarting the worker is the only way to release it. The model
-          // will be re-loaded on the next chapter's first segment (~2-3s overhead),
-          // but this prevents cumulative memory growth from crashing the renderer.
-          if (isMobileDevice()) {
+          // Persist progress for crash recovery
+          markChapterCompleted(ch.id)
+
+          // Restart the TTS worker periodically to reclaim WASM heap memory.
+          // The ONNX runtime's WASM heap grows with each inference and never
+          // shrinks — restarting the worker is the only way to release it.
+          // Mobile: every chapter. Desktop: every 3 chapters or when memory pressure is high.
+          const shouldRestart = isMobileDevice()
+            ? true
+            : (i + 1) % 3 === 0 || (await shouldRestartWorkerForMemory())
+          if (shouldRestart) {
             logger.info(
-              `[Mobile OOM mitigation] Restarting TTS worker between chapters to reclaim WASM heap`
+              `[OOM mitigation] Restarting TTS worker after chapter ${i + 1} to reclaim WASM heap`
             )
-            const worker = getTTSWorker()
-            worker.terminate()
+            terminateTTSWorker()
             // Yield to let the terminated worker's memory be reclaimed
-            await new Promise((r) => setTimeout(r, 1000))
+            await new Promise((r) => setTimeout(r, isMobileDevice() ? 1000 : 500))
           }
         } catch (err: unknown) {
           if (this.canceled) break
@@ -568,6 +595,11 @@ class GenerationService {
       throttledProgress.flush()
       this.running = false
       isGenerating.set(false)
+
+      // Clear generation state on successful completion or cancellation
+      // (interrupted state is preserved for crash recovery — only cleared here
+      // because we reached the finally block normally, meaning no crash occurred)
+      clearGenerationState()
 
       // Clean up silent audio
       await this.stopSilentAudio()
@@ -657,14 +689,20 @@ class GenerationService {
             return newMap
           })
 
-          // On mobile, restart the TTS worker between chapters to reclaim WASM heap
-          if (isMobileDevice()) {
-            logger.info(
-              `[Mobile OOM mitigation] Restarting TTS worker between chapters to reclaim WASM heap`
-            )
+          // Persist progress for crash recovery
+          markChapterCompleted(ch.id)
+
+          // Restart the TTS worker periodically to reclaim WASM heap memory.
+          // Mobile: every chapter. Desktop: every 3 chapters or when memory pressure is high.
+          const chapterIdx = chapters.indexOf(ch)
+          const shouldRestart = isMobileDevice()
+            ? true
+            : (chapterIdx + 1) % 3 === 0 || (await shouldRestartWorkerForMemory())
+          if (shouldRestart) {
+            logger.info(`[OOM mitigation] Restarting TTS worker after chapter to reclaim WASM heap`)
             const worker = getTTSWorker()
             worker.terminate()
-            await new Promise((r) => setTimeout(r, 1000))
+            await new Promise((r) => setTimeout(r, isMobileDevice() ? 1000 : 500))
           }
         } catch (err: unknown) {
           if (this.canceled) break
@@ -679,6 +717,7 @@ class GenerationService {
       throttledProgress.flush()
       this.running = false
       isGenerating.set(false)
+      clearGenerationState()
       await this.stopSilentAudio()
       document.removeEventListener('visibilitychange', this.handleVisibilityChange)
       await this.releaseWakeLock()
@@ -994,53 +1033,26 @@ class GenerationService {
 
     markChapterGenerationComplete(ch.id)
 
-    // 4. Concatenate and persist merged audio
-    // On mobile, SKIP concatenation entirely to avoid OOM. The segments are already
-    // persisted in IndexedDB and the playback path has a working fallback that plays
-    // from per-segment blob URLs. Concatenation is only needed for download, which
-    // can be done on-demand later. This eliminates the memory spike from holding all
-    // segment data in the `parts` array during `incrementalConcatWav`.
-    if (isMobileDevice() && bookId) {
-      logger.info(
-        `[Mobile OOM mitigation] Skipping concatenation for chapter ${ch.id} — segments are in IndexedDB, playback uses per-segment fallback`
-      )
+    // 4. Skip concatenation during generation — defer to export time.
+    // Concatenation loads ALL segment blobs into memory simultaneously, causing
+    // OOM on long chapters (200+ segments). The segments are already persisted in
+    // IndexedDB and the playback service has a working per-segment fallback path
+    // that plays individual segment blobs sequentially. Concatenation is only
+    // needed for export (MP3/M4B/WAV download), which happens on-demand later.
+    if (bookId) {
       setProgress(textSegments.length, textSegments.length, 'Chapter complete (segments saved)')
-      // Clear audioSegments to free metadata memory before next chapter
-      audioSegments.length = 0
+      logger.info(
+        `[OOM mitigation] Skipping concatenation for chapter ${ch.id} — segments are in IndexedDB, playback uses per-segment fallback`
+      )
     } else {
-      // Desktop path: concatenate segments into a single blob for smooth seeking
-      // Re-read segments from IndexedDB to avoid holding all blobs in memory simultaneously.
-      // The in-memory audioSegments array has had its blobs released after each batch flush.
-      setProgress(textSegments.length, textSegments.length, 'Loading segments for merge...')
-      let concatSegments: AudioSegment[]
-      if (bookId) {
-        concatSegments = await getChapterSegments(bookId, ch.id)
-      } else {
-        // No persistent storage — blobs are still in memory (releaseBlobs is a no-op without bookId)
-        concatSegments = audioSegments
-      }
+      // No persistent storage — keep blobs in memory for playback
+      // This path is only hit when no book ID exists (e.g., URL-imported articles)
+      const { incrementalConcatWav } = await import('../wavUtils')
       setProgress(textSegments.length, textSegments.length, 'Merging audio segments...')
-      const audioChapters: AudioChapter[] = concatSegments.map((s) => ({
-        id: s.id,
-        title: `Segment ${s.index}`,
-        blob: s.audioBlob,
-      }))
-      const fullBlob = await concatenateAudioChapters(audioChapters, { format: 'wav' })
-      // Release concat segments from memory immediately after concatenation
-      concatSegments.length = 0
-
-      if (bookId) {
-        setProgress(textSegments.length, textSegments.length, 'Saving chapter audio...')
-        const { saveChapterAudio } = await import('../libraryDB')
-        await saveChapterAudio(bookId, ch.id, fullBlob, {
-          model: effectiveModel,
-          voice: effectiveVoice,
-          quantization: currentQuantization,
-          device: currentDevice,
-          language: effectiveLanguage,
-        })
-      }
-
+      const fullBlob = await incrementalConcatWav(audioSegments.length, async (index) => {
+        const seg = audioSegments.find((s) => s.index === index)
+        return seg?.audioBlob ?? null
+      })
       generatedAudio.update((m) => {
         const newMap = new Map(m)
         if (m.has(ch.id)) URL.revokeObjectURL(m.get(ch.id)!.url)
@@ -1048,6 +1060,8 @@ class GenerationService {
         return newMap
       })
     }
+    // Clear audioSegments to free metadata memory before next chapter
+    audioSegments.length = 0
 
     return false
   }

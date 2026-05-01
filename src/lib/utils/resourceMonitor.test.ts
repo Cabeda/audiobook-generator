@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { getDeviceTier, getStartingTier, getTargetTier, canRunUpgrade } from './resourceMonitor'
+import {
+  getDeviceTier,
+  getStartingTier,
+  getTargetTier,
+  canRunUpgrade,
+  shouldRestartWorkerForMemory,
+} from './resourceMonitor'
 
 // Mock mobileDetect utilities
 vi.mock('./mobileDetect', () => ({
@@ -103,5 +109,35 @@ describe('canRunUpgrade', () => {
     nav.getBattery = vi.fn().mockResolvedValue({ level: 0.1, charging: true })
     expect(await canRunUpgrade()).toBe(true)
     delete nav.getBattery
+  })
+})
+
+describe('shouldRestartWorkerForMemory', () => {
+  it('returns false when performance.memory is not available', async () => {
+    expect(await shouldRestartWorkerForMemory()).toBe(false)
+  })
+
+  it('returns true when heap usage exceeds 70%', async () => {
+    const perf = performance as Performance & {
+      memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
+    }
+    Object.defineProperty(perf, 'memory', {
+      value: { usedJSHeapSize: 800_000_000, jsHeapSizeLimit: 1_000_000_000 },
+      configurable: true,
+    })
+    expect(await shouldRestartWorkerForMemory()).toBe(true)
+    Object.defineProperty(perf, 'memory', { value: undefined, configurable: true })
+  })
+
+  it('returns false when heap usage is below 70%', async () => {
+    const perf = performance as Performance & {
+      memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
+    }
+    Object.defineProperty(perf, 'memory', {
+      value: { usedJSHeapSize: 500_000_000, jsHeapSizeLimit: 1_000_000_000 },
+      configurable: true,
+    })
+    expect(await shouldRestartWorkerForMemory()).toBe(false)
+    Object.defineProperty(perf, 'memory', { value: undefined, configurable: true })
   })
 })

@@ -908,6 +908,55 @@ export async function getChapterSegments(
 }
 
 /**
+ * Get a single audio segment by its index.
+ * More memory-efficient than getChapterSegments when you only need one segment
+ * (e.g., during streaming concatenation for export).
+ */
+export async function getSegmentByIndex(
+  bookId: number,
+  chapterId: string,
+  index: number
+): Promise<AudioSegment | null> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    // Composite key: [bookId, chapterId, index]
+    const request = store.get([bookId, chapterId, index])
+
+    request.onsuccess = () => {
+      resolve((request.result as AudioSegment) || null)
+    }
+
+    request.onerror = () => reject(new Error(`Failed to get segment ${index}`))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
+ * Get the count of segments for a chapter without loading blob data.
+ * Useful for progress display and streaming concatenation setup.
+ */
+export async function getChapterSegmentCount(bookId: number, chapterId: string): Promise<number> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    const index = store.index('chapterId')
+    const request = index.count(IDBKeyRange.only([bookId, chapterId]))
+
+    request.onsuccess = () => {
+      resolve(request.result || 0)
+    }
+
+    request.onerror = () => reject(new Error('Failed to count chapter segments'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+/**
  * Delete all audio for a specific book (including segments)
  */
 export async function deleteBookAudio(bookId: number): Promise<void> {
