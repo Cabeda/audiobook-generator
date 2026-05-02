@@ -63,29 +63,51 @@ function escapeXml(str: string): string {
 /**
  * Sanitize HTML content to produce valid XHTML for EPUB.
  *
- * Fixes:
+ * Handles common issues from various EPUB sources (Standard Ebooks,
+ * Project Gutenberg, Readeck, etc.):
  * - Self-closing void elements (<br>, <img>, <hr>, <input>, <meta>, <link>)
  * - &nbsp; → &#160;
  * - Removes <img> tags referencing missing local resources (../images/*)
  * - Rewrites internal links to non-bundled XHTML files as plain text
+ * - Strips XML processing instructions that may be embedded in content
+ * - Removes stray CDATA sections
+ * - Normalizes common HTML entities to their numeric equivalents
+ * - Removes empty anchor tags (<a id="..."></a> → <span id="..."></span>)
  */
 function sanitizeXhtml(html: string): string {
   let result = html
 
-  // Replace &nbsp; with numeric entity (valid in XHTML)
+  // Replace common named entities with numeric equivalents (valid in XHTML)
   result = result.replace(/&nbsp;/g, '&#160;')
+  result = result.replace(/&mdash;/g, '&#8212;')
+  result = result.replace(/&ndash;/g, '&#8211;')
+  result = result.replace(/&lsquo;/g, '&#8216;')
+  result = result.replace(/&rsquo;/g, '&#8217;')
+  result = result.replace(/&ldquo;/g, '&#8220;')
+  result = result.replace(/&rdquo;/g, '&#8221;')
+  result = result.replace(/&hellip;/g, '&#8230;')
+  result = result.replace(/&trade;/g, '&#8482;')
+  result = result.replace(/&copy;/g, '&#169;')
+  result = result.replace(/&reg;/g, '&#174;')
 
   // Remove <img> tags that reference local images we don't bundle
-  // (e.g., ../images/titlepage.svg, ../images/logo.svg)
-  result = result.replace(/<img[^>]*src=["'][^"']*images\/[^"']*["'][^>]*>/gi, '')
+  // (e.g., ../images/titlepage.svg, ../images/logo.svg, images/cover.jpg)
+  result = result.replace(/<img[^>]*src=["'][^"']*images\/[^"']*["'][^>]*\/?>/gi, '')
 
-  // Rewrite internal links to non-bundled .xhtml files as plain text
+  // Rewrite internal links to non-bundled .xhtml/.html files as plain text
   // e.g., <a href="uncopyright.xhtml">text</a> → text
   // Keep external links (http/https) and fragment links (#) intact
   result = result.replace(
-    /<a\s+[^>]*href=["'](?!https?:\/\/)(?!#)([^"']*\.xhtml[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    /<a\s+[^>]*href=["'](?!https?:\/\/)(?!#)([^"']*\.(?:xhtml|html)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi,
     '$2'
   )
+
+  // Strip XML processing instructions embedded in content (<?xml ...?>)
+  result = result.replace(/<\?xml[^?]*\?>/gi, '')
+
+  // Remove CDATA sections (sometimes left over from source EPUBs)
+  result = result.replace(/<!\[CDATA\[/g, '')
+  result = result.replace(/\]\]>/g, '')
 
   // Fix self-closing void elements: <br>, <hr>, <img>, <input>, <meta>, <link>, <col>, <area>, <base>
   // Convert <br> to <br/>, <img ...> to <img .../>, etc.
@@ -242,6 +264,9 @@ export async function exportEpub(
         bitrate: 128,
       })
 
+      // Generate sanitized XHTML content (needed before SMIL to check fragment IDs)
+      const sanitizedContent = sanitizeXhtml(ch.content)
+
       // Build SMIL timing data from segment durations
       let cumulativeTime = 0
       const smilPars = []
@@ -264,12 +289,17 @@ export async function exportEpub(
         const clipBegin = cumulativeTime
         const clipEnd = cumulativeTime + duration
 
-        smilPars.push({
-          textSrc: `../${ch.id}.xhtml#${s.id}`,
-          audioSrc: `../audio/${ch.id}.mp3`,
-          clipBegin,
-          clipEnd,
-        })
+        // Only include SMIL entry if the segment ID exists in the XHTML content.
+        // Some segments may have been skipped during generation (empty text, etc.)
+        // and their IDs won't be in the XHTML, causing epubcheck RSC-012 errors.
+        if (sanitizedContent.includes(`id="${s.id}"`)) {
+          smilPars.push({
+            textSrc: `../${ch.id}.xhtml#${s.id}`,
+            audioSrc: `../audio/${ch.id}.mp3`,
+            clipBegin,
+            clipEnd,
+          })
+        }
 
         cumulativeTime += duration
       }
@@ -277,7 +307,6 @@ export async function exportEpub(
       const totalDuration = cumulativeTime
 
       // Generate XHTML with matching IDs
-      const sanitizedContent = sanitizeXhtml(ch.content)
       const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" epub:prefix="z3998: http://www.daisy.org/z3986/2012/vocab/structure/ se: https://standardebooks.org/vocab/1.0">
 <head><title>${escapeXml(ch.title)}</title></head>
