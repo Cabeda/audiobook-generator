@@ -426,22 +426,30 @@
         aria-label={`Audio for ${chapter.title}`}
       ></audio>
       <div class="download-actions">
-        <select
-          class="download-select"
-          onchange={(e) => {
-            const format = (e.target as HTMLSelectElement).value as 'wav' | 'mp3' | 'm4b' | 'mp4'
-            if (format) {
-              onDownload(chapter.id, format)
-            }
-          }}
-          aria-label={`Download format for ${chapter.title}`}
+        <button
+          class="download-btn"
+          onclick={() => onDownload(chapter.id, 'wav')}
+          title="Download as WAV"
+          aria-label={`Download ${chapter.title} as WAV`}
         >
-          <option value="">📥 Download...</option>
-          <option value="wav">WAV (Uncompressed)</option>
-          <option value="mp3">MP3 (Standard)</option>
-          <option value="m4b">M4B (Audiobook)</option>
-          <option value="mp4">MP4 (Audio)</option>
-        </select>
+          📥 WAV
+        </button>
+        <button
+          class="download-btn"
+          onclick={() => onDownload(chapter.id, 'mp3')}
+          title="Download as MP3"
+          aria-label={`Download ${chapter.title} as MP3`}
+        >
+          MP3
+        </button>
+        <button
+          class="download-btn"
+          onclick={() => onDownload(chapter.id, 'm4b')}
+          title="Download as M4B"
+          aria-label={`Download ${chapter.title} as M4B`}
+        >
+          M4B
+        </button>
       </div>
     </div>
   {:else if isDoneWithoutAudio}
@@ -458,22 +466,30 @@
       >
         🎧 Listen
       </button>
-      <select
-        class="download-select"
-        onchange={(e) => {
-          const format = (e.target as HTMLSelectElement).value as 'wav' | 'mp3' | 'm4b' | 'mp4'
-          if (format) {
-            onDownload(chapter.id, format)
-          }
-        }}
-        aria-label={`Download format for ${chapter.title}`}
+      <button
+        class="download-btn"
+        onclick={() => onDownload(chapter.id, 'wav')}
+        title="Download as WAV"
+        aria-label={`Download ${chapter.title} as WAV`}
       >
-        <option value="">📥 Download...</option>
-        <option value="wav">WAV (Uncompressed)</option>
-        <option value="mp3">MP3 (Standard)</option>
-        <option value="m4b">M4B (Audiobook)</option>
-        <option value="mp4">MP4 (Audio)</option>
-      </select>
+        📥 WAV
+      </button>
+      <button
+        class="download-btn"
+        onclick={() => onDownload(chapter.id, 'mp3')}
+        title="Download as MP3"
+        aria-label={`Download ${chapter.title} as MP3`}
+      >
+        MP3
+      </button>
+      <button
+        class="download-btn"
+        onclick={() => onDownload(chapter.id, 'm4b')}
+        title="Download as M4B"
+        aria-label={`Download ${chapter.title} as M4B`}
+      >
+        M4B
+      </button>
     </div>
   {/if}
 
@@ -782,32 +798,30 @@
 
   .download-actions {
     display: flex;
-    gap: 8px;
+    gap: 4px;
   }
 
-  .download-select {
-    padding: 6px 12px;
+  .download-btn {
+    padding: 4px 10px;
     border: 1px solid var(--input-border);
     background: var(--surface-color);
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--text-color);
     cursor: pointer;
     transition:
       background-color 0.2s,
       border-color 0.2s;
-    min-width: 160px;
   }
 
-  .download-select:hover {
+  .download-btn:hover {
     background: var(--bg-color);
-    border-color: var(--text-color);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
   }
 
-  .download-select:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px var(--shadow-color);
+  .download-btn:active {
+    transform: scale(0.95);
   }
 
   audio {
@@ -1348,9 +1362,9 @@
       height: 36px;
     }
 
-    .download-select {
-      font-size: 0.85rem;
-      padding: 4px 8px;
+    .download-btn {
+      font-size: 0.75rem;
+      padding: 3px 6px;
     }
   }
 </style>
