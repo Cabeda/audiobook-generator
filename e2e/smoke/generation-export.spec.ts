@@ -79,7 +79,7 @@ test.describe('Generation & Export', () => {
     expect(download.suggestedFilename()).toMatch(/\.m4b$/i)
   })
 
-  test('should export as EPUB with media overlays', async ({ page }) => {
+  test('should export as EPUB with valid structure', async ({ page }) => {
     await page.getByRole('button', { name: 'Generate Selected' }).click()
     await expect(page.getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
 
@@ -92,5 +92,48 @@ test.describe('Generation & Export', () => {
       page.getByRole('button', { name: /Export EPUB/i }).click(),
     ])
     expect(download.suggestedFilename()).toMatch(/\.epub$/i)
+
+    // Validate EPUB structure
+    const fs = await import('fs/promises')
+    const JSZip = (await import('jszip')).default
+    const downloadPath = await download.path()
+    expect(downloadPath).toBeTruthy()
+
+    const buffer = await fs.readFile(downloadPath!)
+    const zip = await JSZip.loadAsync(buffer)
+
+    // Must have mimetype file with correct content
+    const mimetype = await zip.file('mimetype')?.async('string')
+    expect(mimetype).toBe('application/epub+zip')
+
+    // Must have container.xml
+    const container = await zip.file('META-INF/container.xml')?.async('string')
+    expect(container).toContain('rootfile')
+    expect(container).toContain('.opf')
+
+    // Must have OPF package file
+    const opfFiles = Object.keys(zip.files).filter((f) => f.endsWith('.opf'))
+    expect(opfFiles.length).toBeGreaterThanOrEqual(1)
+
+    const opf = await zip.file(opfFiles[0])?.async('string')
+    expect(opf).toContain('<package')
+    expect(opf).toContain('<manifest')
+    expect(opf).toContain('<spine')
+
+    // Must have at least one XHTML content file
+    const xhtmlFiles = Object.keys(zip.files).filter(
+      (f) => f.endsWith('.xhtml') || f.endsWith('.html')
+    )
+    expect(xhtmlFiles.length).toBeGreaterThanOrEqual(1)
+
+    // Must have SMIL files (media overlays) since we generated audio
+    const smilFiles = Object.keys(zip.files).filter((f) => f.endsWith('.smil'))
+    expect(smilFiles.length).toBeGreaterThanOrEqual(1)
+
+    // Must have audio files
+    const audioFiles = Object.keys(zip.files).filter(
+      (f) => f.endsWith('.mp3') || f.endsWith('.wav') || f.endsWith('.m4a')
+    )
+    expect(audioFiles.length).toBeGreaterThanOrEqual(1)
   })
 })
