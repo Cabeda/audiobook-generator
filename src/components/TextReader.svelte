@@ -16,6 +16,7 @@
   import { generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
+  import ReaderControls from './ReaderControls.svelte'
   import logger from '../lib/utils/logger'
   import { saveProgress, loadProgress } from '../stores/progressStore'
   import { loadChapterSegmentProgress } from '../stores/segmentProgressStore'
@@ -1264,141 +1265,22 @@
     {/if}
 
     <!-- Settings Menu -->
-    {#if showSettings}
-      <div class="settings-menu" transition:fade={{ duration: 100 }}>
-        <div class="settings-header">
-          <h3>Playback Settings</h3>
-          <button class="close-settings" onclick={() => (showSettings = false)}>✕</button>
-        </div>
-
-        <div class="setting-item">
-          <label for="speed-select">Speed</label>
-          <div class="speed-selector">
-            <button
-              class="speed-btn"
-              class:active={audioService.playbackSpeed === 0.75}
-              onclick={() => updateSpeed(0.75)}>0.75x</button
-            >
-            <button
-              class="speed-btn"
-              class:active={audioService.playbackSpeed === 1.0}
-              onclick={() => updateSpeed(1.0)}>1.0x</button
-            >
-            <button
-              class="speed-btn"
-              class:active={audioService.playbackSpeed === 1.25}
-              onclick={() => updateSpeed(1.25)}>1.25x</button
-            >
-            <button
-              class="speed-btn"
-              class:active={audioService.playbackSpeed === 1.5}
-              onclick={() => updateSpeed(1.5)}>1.5x</button
-            >
-            <button
-              class="speed-btn"
-              class:active={audioService.playbackSpeed === 2.0}
-              onclick={() => updateSpeed(2.0)}>2.0x</button
-            >
-          </div>
-        </div>
-
-        <div class="setting-item">
-          <span class="setting-label">Font Size</span>
-          <div class="font-size-selector">
-            <button
-              class="font-size-btn"
-              onclick={() => changeFontSize(-2)}
-              aria-label="Decrease font size">A−</button
-            >
-            <span class="font-size-value">{fontSize}px</span>
-            <button
-              class="font-size-btn"
-              onclick={() => changeFontSize(2)}
-              aria-label="Increase font size">A+</button
-            >
-          </div>
-        </div>
-
-        <div class="setting-item">
-          <label for="theme-select">Theme</label>
-          <div class="theme-selector">
-            <button
-              class="theme-btn"
-              class:active={currentTheme === 'light'}
-              onclick={() => changeTheme('light')}>☀️ Light</button
-            >
-            <button
-              class="theme-btn"
-              class:active={currentTheme === 'dark'}
-              onclick={() => changeTheme('dark')}>🌙 Dark</button
-            >
-            <button
-              class="theme-btn"
-              class:active={currentTheme === 'sepia'}
-              onclick={() => changeTheme('sepia')}>📖 Sepia</button
-            >
-          </div>
-        </div>
-
-        <div class="setting-item">
-          <label for="model-select">Model</label>
-          <select
-            id="model-select"
-            bind:value={localModel}
-            onchange={handleModelChange}
-            class="model-select"
-          >
-            <option value="web_speech">Web Speech API</option>
-            <option value="kokoro">Kokoro TTS</option>
-            <option value="piper">Piper TTS</option>
-          </select>
-          {#if localModel !== 'web_speech'}
-            <span class="hint">Changes sync with chapter settings</span>
-          {/if}
-        </div>
-
-        <div class="setting-item">
-          <label for="voice-select">Voice</label>
-          <select
-            id="voice-select"
-            bind:value={localVoice}
-            onchange={handleVoiceChange}
-            class="model-select"
-          >
-            {#if localModel === 'kokoro'}
-              <option value="af_heart">af_heart (Female American)</option>
-              <option value="af_bella">af_bella (Female American)</option>
-              <option value="bf_emma">bf_emma (Female British)</option>
-              <option value="am_adam">am_adam (Male American)</option>
-              <option value="bm_george">bm_george (Male British)</option>
-            {:else if localModel === 'piper'}
-              {#each piperVoices as piperVoice}
-                <option value={piperVoice.key}>{piperVoice.name} ({piperVoice.language})</option>
-              {/each}
-            {:else}
-              {#each sortedWebSpeechVoices() as wsVoice}
-                <option value={wsVoice.name}>{wsVoice.name} ({wsVoice.lang})</option>
-              {/each}
-            {/if}
-          </select>
-          <span class="hint">Applied on next segment click</span>
-        </div>
-
-        <div class="setting-item info">
-          <div class="info-row">
-            <span class="label">Current:</span>
-            <span class="value">{localModel} / {voice}</span>
-          </div>
-        </div>
-
-        <div class="setting-item">
-          <label>
-            <input type="checkbox" bind:checked={autoScrollEnabled} />
-            Auto-scroll during playback
-          </label>
-        </div>
-      </div>
-    {/if}
+    <ReaderControls
+      bind:showSettings
+      bind:localModel
+      bind:localVoice
+      bind:autoScrollEnabled
+      bind:fontSize
+      bind:currentTheme
+      {voice}
+      {piperVoices}
+      {sortedWebSpeechVoices}
+      onSpeedChange={updateSpeed}
+      onFontSizeChange={changeFontSize}
+      onThemeChange={changeTheme}
+      onModelChange={handleModelChange}
+      onVoiceChange={handleVoiceChange}
+    />
   </div>
 </div>
 

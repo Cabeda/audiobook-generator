@@ -27,6 +27,7 @@
   import { generationService } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
+  import ExportPanel from './ExportPanel.svelte'
   import type { Chapter } from '../lib/types/book'
   import type { LibraryBook } from '../lib/libraryDB'
   import {
@@ -36,7 +37,7 @@
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
   import { segmentProgress } from '../stores/segmentProgressStore'
-  import { EXPORT_FORMATS, type ExportFormat } from '../lib/exportFormats'
+  import { type ExportFormat } from '../lib/exportFormats'
 
   let { onread }: { onread: (detail: { chapter: Chapter }) => void } = $props()
 
@@ -105,7 +106,6 @@
   }
   let showAdvanced = $state(false)
   let selectedFormat = $state<ExportFormat>('mp3')
-  let showFormatPicker = $state(false)
   let selectedBitrate = $state(192)
 
   // Responsive state
@@ -537,9 +537,6 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<svelte:window onclick={() => (showFormatPicker = false)} />
-
 <div class="book-view" onscroll={handleContentScroll} in:fade>
   {#if currentBook}
     <!-- Hero Header — scroll-linked collapse via transform (no layout shift) -->
@@ -634,46 +631,7 @@
           {/if}
         </button>
         {#if hasExportableChapters}
-          <div class="export-split-btn">
-            <button
-              class="export-primary-btn export-main"
-              onclick={handleExport}
-              disabled={isGenerating}
-              title="Export as {selectedFormat.toUpperCase()}"
-            >
-              Export {selectedFormat.toUpperCase()}
-            </button>
-            <div class="export-dropdown-wrapper">
-              <button
-                class="export-primary-btn export-toggle"
-                onclick={(e) => {
-                  e.stopPropagation()
-                  showFormatPicker = !showFormatPicker
-                }}
-                disabled={isGenerating}
-                aria-label="Choose export format"
-              >
-                ▾
-              </button>
-              {#if showFormatPicker}
-                <div class="export-format-menu" role="menu">
-                  {#each EXPORT_FORMATS as fmt}
-                    <button
-                      class="format-option"
-                      class:active={selectedFormat === fmt.value}
-                      role="menuitem"
-                      onclick={() => {
-                        selectedFormat = fmt.value
-                        showFormatPicker = false
-                      }}
-                    >
-                      {fmt.label}
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          </div>
+          <ExportPanel bind:selectedFormat {isGenerating} onExport={handleExport} />
         {/if}
       </div>
     </div>
