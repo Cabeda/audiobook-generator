@@ -11,14 +11,14 @@ import {
   Mp3OutputFormat,
   Mp4OutputFormat,
   canEncodeAudio,
-  type ALL_FORMATS,
+  WAVE,
 } from 'mediabunny'
 import { registerMp3Encoder } from '@mediabunny/mp3-encoder'
 import { registerAacEncoder } from '@mediabunny/aac-encoder'
 import logger from './utils/logger'
 
-// WAV format for input parsing
-const WAV_FORMATS: typeof ALL_FORMATS = ['wav'] as unknown as typeof ALL_FORMATS
+// Use the proper WAVE InputFormat constant
+const WAV_FORMATS = [WAVE]
 
 let codecsRegistered = false
 
