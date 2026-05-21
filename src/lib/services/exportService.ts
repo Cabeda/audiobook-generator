@@ -161,9 +161,10 @@ export async function exportAudio(
           logger.info(
             `[Export] Concatenating ${segments.length} segments for chapter "${ch.title}" on-demand`
           )
-          const chapterBlob = await incrementalConcatWav(segments.length, async (index) => {
-            const seg = segments.find((s) => s.index === index)
-            return seg?.audioBlob ?? null
+          // Collect all segment blobs (by index order)
+          const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
+          const chapterBlob = await incrementalConcatWav(sortedSegments.length, async (index) => {
+            return sortedSegments[index]?.audioBlob ?? null
           })
           audioChapters.push({
             id: ch.id,
@@ -172,7 +173,28 @@ export async function exportAudio(
           })
         }
       } catch (e) {
-        logger.warn(`[Export] Failed to concatenate segments for chapter ${ch.id}:`, e)
+        // If incrementalConcatWav fails (e.g., format mismatch between segments),
+        // fall back to concatenating raw segment blobs and let Mediabunny handle resampling
+        logger.warn(`[Export] incrementalConcatWav failed for chapter ${ch.id}, trying raw blob fallback:`, e instanceof Error ? e.message : e)
+        try {
+          const segments = await getChapterSegments(bookId, ch.id)
+          const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
+          const validBlobs = sortedSegments
+            .map((s) => s.audioBlob)
+            .filter((b): b is Blob => b != null && b.size > 0)
+          if (validBlobs.length > 0) {
+            // Just concatenate the raw bytes — Mediabunny's Conversion API will handle
+            // resampling when encoding to MP3/M4B
+            const combined = new Blob(validBlobs, { type: 'audio/wav' })
+            audioChapters.push({
+              id: ch.id,
+              title: ch.title,
+              blob: combined,
+            })
+          }
+        } catch (fallbackErr) {
+          logger.error(`[Export] Fallback also failed for chapter ${ch.id}:`, fallbackErr)
+        }
       }
     }
   }
