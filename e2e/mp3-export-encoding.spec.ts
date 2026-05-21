@@ -1,92 +1,73 @@
 /**
  * E2E test to reproduce MP3 export encoding error.
- * Uploads Sign of the Four, generates one chapter with Web Speech API,
- * then exports as MP3 to verify Mediabunny encoding works end-to-end.
+ * Uses the short test EPUB, generates one chapter with Kokoro,
+ * then exports as MP3 to verify Mediabunny encoding works.
  */
 import { test, expect } from '@playwright/test'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
-const SIGN_OF_FOUR_EPUB = join(
-  process.cwd(),
-  'books',
-  'arthur-conan-doyle_the-sign-of-the-four_advanced.epub'
-)
+const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
 test.describe('MP3 Export Encoding', () => {
   test('should export generated chapter as MP3 without encoding error', async ({ page }) => {
     test.setTimeout(120000)
 
-    // Capture console errors
-    const consoleErrors: string[] = []
+    const consoleMessages: string[] = []
     page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        consoleErrors.push(msg.text())
-      }
+      consoleMessages.push(`[${msg.type()}] ${msg.text()}`)
     })
 
     await page.goto('/')
     await page.waitForLoadState('networkidle')
 
-    // Upload Sign of the Four
-    const epubBuffer = await readFile(SIGN_OF_FOUR_EPUB)
+    // Upload short test EPUB
+    const epubBuffer = await readFile(SHORT_EPUB)
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles({
-      name: 'the-sign-of-the-four.epub',
+      name: 'test-short.epub',
       mimeType: 'application/epub+zip',
       buffer: epubBuffer,
     })
 
     // Wait for book to load
-    await page.waitForSelector('text=/sign of the four/i', { timeout: 15000 })
+    await page.waitForSelector('text=Short Test Book', { timeout: 10000 })
 
     // Deselect all, then select only first chapter
-    const deselectBtn = page.locator('button:has-text("Deselect all")')
-    if (await deselectBtn.isVisible()) {
-      await deselectBtn.click()
-    }
+    await page.locator('button:has-text("Deselect All")').click()
     const firstCheckbox = page.locator('input[type="checkbox"]').first()
     await firstCheckbox.check()
 
-    // Use Web Speech API (fastest, no model download)
-    const modelSelect = page.locator('select').filter({ hasText: /Web Speech|Kokoro|Piper/ })
-    if (await modelSelect.isVisible()) {
-      await modelSelect.selectOption({ label: 'Web Speech' })
-    }
+    // Generate the first chapter (Kokoro is default)
+    await page.locator('button:has-text("Generate Selected")').click()
 
-    // Open advanced options and select MP3 format
-    const advancedToggle = page.locator('button:has-text("Advanced Options")')
-    if (await advancedToggle.isVisible()) {
-      await advancedToggle.click()
-    }
-    const formatSelect = page.locator('label:has-text("Format") select')
-    if (await formatSelect.isVisible()) {
-      await formatSelect.selectOption('mp3')
-    }
+    // Wait for generation to complete
+    await page.waitForSelector('text=✓ Generated', { timeout: 90000 })
 
-    // Click generate
-    const generateBtn = page.locator('button:has-text("Generate")')
-    await generateBtn.click()
+    // Clear console messages before export
+    consoleMessages.length = 0
 
-    // Wait for generation to complete (Web Speech is fast)
-    await page.waitForSelector('text=/complete|done|generated/i', { timeout: 60000 })
+    // Click Export MP3
+    const exportBtn = page.locator('button:has-text("Export MP3")')
+    await expect(exportBtn).toBeVisible({ timeout: 5000 })
+    await exportBtn.click()
 
-    // Now export — click the download/export button
-    const exportBtn = page.locator('button:has-text("Download"), button:has-text("Export")')
-    if (await exportBtn.isVisible()) {
-      await exportBtn.click()
-    }
+    // Wait for export to process (check console for result)
+    await page.waitForTimeout(10000)
 
-    // Wait a moment for export to process
-    await page.waitForTimeout(5000)
+    // Check results
+    const hasEncodingError = consoleMessages.some((m) => m.includes('ENCODING_ERROR'))
+    const hasExportFailed = consoleMessages.some((m) => m.includes('Export failed'))
+    const hasSuccess = consoleMessages.some(
+      (m) => m.includes('download-trigger') || m.includes('Audiobook created')
+    )
 
-    // Check that no ENCODING_ERROR appeared in console
-    const encodingErrors = consoleErrors.filter((e) => e.includes('ENCODING_ERROR'))
-    expect(encodingErrors).toHaveLength(0)
+    // Log all messages for debugging
+    console.log('Console messages after export:', consoleMessages.filter((m) => m.includes('ERROR') || m.includes('Export') || m.includes('mediabunny') || m.includes('download')))
 
-    // Should not show "Export failed" in the UI
-    const exportFailed = page.locator('text=/Export failed/i')
-    await expect(exportFailed).not.toBeVisible()
+    expect(hasEncodingError).toBe(false)
+    expect(hasExportFailed).toBe(false)
+    expect(hasSuccess).toBe(true)
   })
 })
