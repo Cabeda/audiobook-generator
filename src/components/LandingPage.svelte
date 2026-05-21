@@ -1,7 +1,6 @@
 <script lang="ts">
   import UnifiedInput from './UnifiedInput.svelte'
   import LibraryView from './LibraryView.svelte'
-  import OnboardingBanner from './OnboardingBanner.svelte'
   import { onMount } from 'svelte'
   import { getBook, updateLastAccessed } from '../lib/libraryDB'
   import { libraryBooks } from '../stores/libraryStore'
@@ -97,7 +96,6 @@
 </script>
 
 <div class="landing-container">
-  <OnboardingBanner />
   <div class="hero">
     <div class="hero-content">
       <h1 class="title">Audiobook Generator</h1>

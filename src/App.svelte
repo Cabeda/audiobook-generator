@@ -12,7 +12,6 @@
   import ToastContainer from './components/ToastContainer.svelte'
   import ReloadPrompt from './components/ReloadPrompt.svelte'
   import ModelLoadingIndicator from './components/ModelLoadingIndicator.svelte'
-  import ErrorBoundary from './components/ErrorBoundary.svelte'
 
   // APIs & Logic
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroVoices'
@@ -356,99 +355,97 @@
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
 <main class="app-container" id="main-content">
-  <ErrorBoundary>
-    <Toast />
-    <ReloadPrompt />
-    <ToastContainer />
-    <ModelLoadingIndicator />
+  <Toast />
+  <ReloadPrompt />
+  <ToastContainer />
+  <ModelLoadingIndicator />
 
-    {#if currentView === 'landing'}
-      <div in:fade class="view-wrapper scrollable">
-        <LandingPage
-          onbookloaded={onBookLoaded}
-          onopensettings={() => {
-            currentView = 'settings'
-            location.hash = '#/settings'
+  {#if currentView === 'landing'}
+    <div in:fade class="view-wrapper scrollable">
+      <LandingPage
+        onbookloaded={onBookLoaded}
+        onopensettings={() => {
+          currentView = 'settings'
+          location.hash = '#/settings'
+        }}
+      />
+    </div>
+  {:else if currentView === 'settings'}
+    <div in:fade class="view-wrapper scrollable">
+      <SettingsPage
+        onBack={() => {
+          currentView = 'landing'
+          // Use replaceState instead of location.hash to avoid firing hashchange,
+          // which would re-run handleHash and potentially snap back to settings.
+          history.replaceState(null, '', '#/')
+        }}
+      />
+    </div>
+  {:else if currentView === 'book'}
+    <div in:fade class="view-wrapper">
+      <button class="back-link" onclick={() => (currentView = 'landing')}>← Library</button>
+      <BookView onread={(e) => navigateToReader(e.chapter)} />
+    </div>
+  {:else if currentView === 'reader' && currentChapter}
+    <div in:fade class="view-wrapper full-height">
+      <!-- Reader mode toggle -->
+      <div class="reader-mode-toggle">
+        <button
+          class="mode-btn"
+          class:active={readerMode === 'single'}
+          onclick={() => {
+            readerMode = 'single'
+            try {
+              localStorage.setItem('reader_mode', 'single')
+            } catch {
+              // localStorage unavailable
+            }
           }}
-        />
-      </div>
-    {:else if currentView === 'settings'}
-      <div in:fade class="view-wrapper scrollable">
-        <SettingsPage
-          onBack={() => {
-            currentView = 'landing'
-            // Use replaceState instead of location.hash to avoid firing hashchange,
-            // which would re-run handleHash and potentially snap back to settings.
-            history.replaceState(null, '', '#/')
+          aria-label="Single chapter view">Chapter</button
+        >
+        <button
+          class="mode-btn"
+          class:active={readerMode === 'continuous'}
+          onclick={() => {
+            readerMode = 'continuous'
+            try {
+              localStorage.setItem('reader_mode', 'continuous')
+            } catch {
+              // localStorage unavailable
+            }
           }}
-        />
+          aria-label="Continuous scroll view">Scroll</button
+        >
       </div>
-    {:else if currentView === 'book'}
-      <div in:fade class="view-wrapper">
-        <button class="back-link" onclick={() => (currentView = 'landing')}>← Library</button>
-        <BookView onread={(e) => navigateToReader(e.chapter)} />
-      </div>
-    {:else if currentView === 'reader' && currentChapter}
-      <div in:fade class="view-wrapper full-height">
-        <!-- Reader mode toggle -->
-        <div class="reader-mode-toggle">
-          <button
-            class="mode-btn"
-            class:active={readerMode === 'single'}
-            onclick={() => {
-              readerMode = 'single'
-              try {
-                localStorage.setItem('reader_mode', 'single')
-              } catch {
-                // localStorage unavailable
-              }
-            }}
-            aria-label="Single chapter view">Chapter</button
-          >
-          <button
-            class="mode-btn"
-            class:active={readerMode === 'continuous'}
-            onclick={() => {
-              readerMode = 'continuous'
-              try {
-                localStorage.setItem('reader_mode', 'continuous')
-              } catch {
-                // localStorage unavailable
-              }
-            }}
-            aria-label="Continuous scroll view">Scroll</button
-          >
-        </div>
 
-        {#if readerMode === 'continuous' && $book}
-          <ContinuousReader
-            chapters={$book.chapters}
-            bookId={$currentLibraryBookId}
-            bookTitle={$book.title}
-            book={$book}
-            voice={readerVoice}
-            quantization={$selectedQuantization}
-            device={$selectedDevice}
-            selectedModel={readerModel}
-            initialChapterId={currentChapter.id}
-            onBack={handleBackFromReader}
-          />
-        {:else}
-          <TextReader
-            chapter={currentChapter}
-            bookId={$currentLibraryBookId}
-            bookTitle={$book?.title ?? ''}
-            voice={readerVoice}
-            quantization={$selectedQuantization}
-            device={$selectedDevice}
-            selectedModel={readerModel}
-            chapters={$book?.chapters ?? []}
-            onBack={handleBackFromReader}
-          />
-        {/if}
-      </div>
-    {/if}
-  </ErrorBoundary>
+      {#if readerMode === 'continuous' && $book}
+        <ContinuousReader
+          chapters={$book.chapters}
+          bookId={$currentLibraryBookId}
+          bookTitle={$book.title}
+          book={$book}
+          voice={readerVoice}
+          quantization={$selectedQuantization}
+          device={$selectedDevice}
+          selectedModel={readerModel}
+          initialChapterId={currentChapter.id}
+          onBack={handleBackFromReader}
+        />
+      {:else}
+        <TextReader
+          chapter={currentChapter}
+          bookId={$currentLibraryBookId}
+          bookTitle={$book?.title ?? ''}
+          voice={readerVoice}
+          quantization={$selectedQuantization}
+          device={$selectedDevice}
+          selectedModel={readerModel}
+          chapters={$book?.chapters ?? []}
+          onBack={handleBackFromReader}
+        />
+      {/if}
+    </div>
+  {/if}
 </main>
 
 <style>

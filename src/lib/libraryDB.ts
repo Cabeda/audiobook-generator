@@ -1,35 +1,6 @@
 import type { Book } from './types/book'
 import type { AudioSegment } from './types/audio'
 import logger from './utils/logger'
-import { StorageQuotaError } from './errors'
-import { toastStore } from '../stores/toastStore'
-
-/**
- * Check if an error is a QuotaExceededError from IndexedDB
- */
-function isQuotaExceeded(error: unknown): boolean {
-  if (error instanceof DOMException) {
-    return error.name === 'QuotaExceededError' || error.code === 22
-  }
-  if (error instanceof Error) {
-    return error.message.toLowerCase().includes('quota')
-  }
-  return false
-}
-
-/**
- * Handle quota exceeded errors: log, show toast, and throw structured error
- */
-function handleQuotaError(operation: string, error: unknown): never {
-  const quotaError = new StorageQuotaError(
-    `Storage quota exceeded during ${operation}`,
-    operation,
-    error instanceof Error ? error : undefined
-  )
-  logger.error('[LibraryDB]', quotaError.message)
-  toastStore.error(quotaError.getUserMessage(), 5000)
-  throw quotaError
-}
 
 /**
  * Extended Book interface for library storage
@@ -140,11 +111,7 @@ export async function addBook(book: Book, sourceFile?: File, sourceUrl?: string)
       resolve(request.result as number)
     }
 
-    request.onerror = (event) => {
-      const error = (event.target as IDBRequest).error
-      if (isQuotaExceeded(error)) {
-        handleQuotaError('addBook', error)
-      }
+    request.onerror = () => {
       reject(new Error('Failed to add book to library'))
     }
 
@@ -715,13 +682,7 @@ export async function saveChapterAudio(
     const request = store.put(record)
 
     request.onsuccess = () => resolve()
-    request.onerror = (event) => {
-      const error = (event.target as IDBRequest).error
-      if (isQuotaExceeded(error)) {
-        handleQuotaError('saveChapterAudio', error)
-      }
-      reject(new Error('Failed to save chapter audio'))
-    }
+    request.onerror = () => reject(new Error('Failed to save chapter audio'))
     transaction.oncomplete = () => db.close()
   })
 }
@@ -836,11 +797,6 @@ export async function saveChapterSegments(
     }
 
     transaction.onerror = () => {
-      const error = transaction.error
-      if (isQuotaExceeded(error)) {
-        db.close()
-        handleQuotaError('saveChapterSegments', error)
-      }
       logger.error(`[saveChapterSegments] Transaction error:`, transaction.error)
       db.close()
       reject(new Error('Failed to save chapter segments'))
