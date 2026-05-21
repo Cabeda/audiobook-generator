@@ -192,7 +192,61 @@ export function getAudioDuration(blob: Blob): Promise<number> {
  * @param segmentCount - Total number of segments
  * @param getSegmentBlob - Async function that loads a single segment blob by index.
  *   The caller is responsible for releasing the blob after this function returns.
- * @param onProgress - Optional progress callback
+/**
+ * Resample a WAV blob's PCM data to match a target format.
+ * Uses linear interpolation. Returns a new WAV blob in the target format.
+ */
+async function resampleWavBlob(
+  blob: Blob,
+  srcInfo: { fmt: { sampleRate: number; numChannels: number; bitsPerSample: number }; dataOffset: number; dataLength: number },
+  targetFmt: { sampleRate: number; numChannels: number; bitsPerSample: number; byteRate: number; blockAlign: number; audioFormat: number }
+): Promise<Blob> {
+  const srcData = new Int16Array(await blob.slice(srcInfo.dataOffset, srcInfo.dataOffset + srcInfo.dataLength).arrayBuffer())
+  const srcChannels = srcInfo.fmt.numChannels
+  const targetChannels = targetFmt.numChannels
+  const srcSampleRate = srcInfo.fmt.sampleRate
+  const targetSampleRate = targetFmt.sampleRate
+
+  const srcFrames = srcData.length / srcChannels
+  const ratio = targetSampleRate / srcSampleRate
+  const targetFrames = Math.round(srcFrames * ratio)
+  const targetData = new Int16Array(targetFrames * targetChannels)
+
+  for (let i = 0; i < targetFrames; i++) {
+    const srcPos = i / ratio
+    const i0 = Math.floor(srcPos)
+    const i1 = Math.min(i0 + 1, srcFrames - 1)
+    const frac = srcPos - i0
+
+    for (let ch = 0; ch < targetChannels; ch++) {
+      const srcCh = Math.min(ch, srcChannels - 1)
+      const v0 = srcData[i0 * srcChannels + srcCh]
+      const v1 = srcData[i1 * srcChannels + srcCh]
+      targetData[i * targetChannels + ch] = Math.round(v0 + frac * (v1 - v0))
+    }
+  }
+
+  const targetDataLength = targetData.byteLength
+  const headerBuffer = new ArrayBuffer(44)
+  const view = new DataView(headerBuffer)
+  writeString(view, 0, 'RIFF')
+  view.setUint32(4, 36 + targetDataLength, true)
+  writeString(view, 8, 'WAVE')
+  writeString(view, 12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, targetFmt.audioFormat, true)
+  view.setUint16(22, targetChannels, true)
+  view.setUint32(24, targetSampleRate, true)
+  view.setUint32(28, targetFmt.byteRate, true)
+  view.setUint16(32, targetFmt.blockAlign, true)
+  view.setUint16(34, targetFmt.bitsPerSample, true)
+  writeString(view, 36, 'data')
+  view.setUint32(40, targetDataLength, true)
+
+  return new Blob([headerBuffer, targetData.buffer], { type: 'audio/wav' })
+}
+
+/** @param onProgress - Optional progress callback
  * @returns Combined WAV blob
  */
 export async function incrementalConcatWav(
@@ -226,18 +280,24 @@ export async function incrementalConcatWav(
 
     if (!referenceFmt) {
       referenceFmt = info.fmt
-    } else {
-      // Validate format compatibility
-      if (
-        info.fmt.audioFormat !== referenceFmt.audioFormat ||
-        info.fmt.numChannels !== referenceFmt.numChannels ||
-        info.fmt.sampleRate !== referenceFmt.sampleRate ||
-        info.fmt.bitsPerSample !== referenceFmt.bitsPerSample
-      ) {
-        throw new Error(
-          `Segment ${i} format mismatch (SR: ${info.fmt.sampleRate} vs ${referenceFmt.sampleRate}, CH: ${info.fmt.numChannels} vs ${referenceFmt.numChannels})`
-        )
-      }
+    } else if (
+      info.fmt.audioFormat !== referenceFmt.audioFormat ||
+      info.fmt.numChannels !== referenceFmt.numChannels ||
+      info.fmt.sampleRate !== referenceFmt.sampleRate ||
+      info.fmt.bitsPerSample !== referenceFmt.bitsPerSample
+    ) {
+      // Resample mismatched segment to match reference format
+      logger.warn(
+        `[incrementalConcat] Segment ${i} format mismatch (SR: ${info.fmt.sampleRate} vs ${referenceFmt.sampleRate}), resampling`
+      )
+      const resampled = await resampleWavBlob(blob, info, referenceFmt)
+      const resampledInfo = await parseWavHeaderFromBlob(resampled)
+      parts.push(
+        resampled.slice(resampledInfo.dataOffset, resampledInfo.dataOffset + resampledInfo.dataLength)
+      )
+      totalDataLength += resampledInfo.dataLength
+      await new Promise((r) => setTimeout(r, 0))
+      continue
     }
 
     // Blob.slice() is zero-copy — it creates a lightweight view, not a full copy.

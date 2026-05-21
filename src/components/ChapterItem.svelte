@@ -30,6 +30,7 @@
   } from '../lib/utils/voiceSelector'
   import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
   import { piperVoices } from '../stores/piperVoicesStore'
+  import { EXPORT_FORMATS, type ExportFormat } from '../lib/exportFormats'
 
   let {
     chapter,
@@ -58,7 +59,7 @@
     error?: string | null
     onToggle: (id: string) => void
     onRead: (chapter: Chapter) => void
-    onDownload: (id: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') => void
+    onDownload: (id: string, format: ExportFormat) => void
     onRetry?: (id: string) => void
     onCancel?: (id: string) => void
     onResume?: (id: string) => void
@@ -429,18 +430,18 @@
         <select
           class="download-select"
           onchange={(e) => {
-            const format = (e.target as HTMLSelectElement).value as 'wav' | 'mp3' | 'm4b' | 'mp4'
+            const format = (e.target as HTMLSelectElement).value as ExportFormat
             if (format) {
               onDownload(chapter.id, format)
+              ;(e.target as HTMLSelectElement).value = ''
             }
           }}
           aria-label={`Download format for ${chapter.title}`}
         >
           <option value="">📥 Download...</option>
-          <option value="wav">WAV (Uncompressed)</option>
-          <option value="mp3">MP3 (Standard)</option>
-          <option value="m4b">M4B (Audiobook)</option>
-          <option value="mp4">MP4 (Audio)</option>
+          {#each EXPORT_FORMATS as fmt}
+            <option value={fmt.value}>{fmt.label}</option>
+          {/each}
         </select>
       </div>
     </div>
@@ -461,18 +462,18 @@
       <select
         class="download-select"
         onchange={(e) => {
-          const format = (e.target as HTMLSelectElement).value as 'wav' | 'mp3' | 'm4b' | 'mp4'
+          const format = (e.target as HTMLSelectElement).value as ExportFormat
           if (format) {
             onDownload(chapter.id, format)
+            ;(e.target as HTMLSelectElement).value = ''
           }
         }}
         aria-label={`Download format for ${chapter.title}`}
       >
         <option value="">📥 Download...</option>
-        <option value="wav">WAV (Uncompressed)</option>
-        <option value="mp3">MP3 (Standard)</option>
-        <option value="m4b">M4B (Audiobook)</option>
-        <option value="mp4">MP4 (Audio)</option>
+        {#each EXPORT_FORMATS as fmt}
+          <option value={fmt.value}>{fmt.label}</option>
+        {/each}
       </select>
     </div>
   {/if}
@@ -782,32 +783,30 @@
 
   .download-actions {
     display: flex;
-    gap: 8px;
+    gap: 4px;
   }
 
   .download-select {
-    padding: 6px 12px;
-    border: 1px solid var(--input-border);
-    background: var(--surface-color);
-    border-radius: 6px;
-    font-size: 0.85rem;
+    background: var(--bg-color);
     color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
     cursor: pointer;
     transition:
-      background-color 0.2s,
-      border-color 0.2s;
-    min-width: 160px;
+      border-color 0.2s,
+      box-shadow 0.2s;
   }
 
   .download-select:hover {
-    background: var(--bg-color);
-    border-color: var(--text-color);
+    border-color: var(--primary-color);
   }
 
   .download-select:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px var(--shadow-color);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 20%, transparent);
   }
 
   audio {
@@ -1349,7 +1348,7 @@
     }
 
     .download-select {
-      font-size: 0.85rem;
+      font-size: 0.75rem;
       padding: 4px 8px;
     }
   }

@@ -7,6 +7,7 @@ import {
   CancellationError,
   ModelLoadError,
   AudioGenerationError,
+  EncodingError,
   FFmpegError,
 } from './errors'
 
@@ -165,8 +166,46 @@ describe('Retry Integration Tests', () => {
     })
   })
 
-  describe('FFmpeg operation scenarios', () => {
-    it('should retry transient FFmpeg errors', async () => {
+  describe('Encoding operation scenarios', () => {
+    it('should retry transient encoding errors', async () => {
+      let attempts = 0
+      const encodingOp = async () => {
+        attempts++
+        if (attempts < 2) {
+          throw new EncodingError('Temporary resource unavailable', 'encoding', true)
+        }
+        return new Blob(['audio'], { type: 'audio/mp3' })
+      }
+
+      const result = await retryWithBackoff(encodingOp, {
+        maxRetries: 3,
+        initialDelay: 10,
+        shouldRetry: isRetryableError,
+      })
+
+      expect(result).toBeInstanceOf(Blob)
+      expect(attempts).toBe(2)
+    })
+
+    it('should not retry permanent encoding errors', async () => {
+      let attempts = 0
+      const encodingOp = async () => {
+        attempts++
+        throw new EncodingError('Invalid codec', 'encoding', false)
+      }
+
+      await expect(
+        retryWithBackoff(encodingOp, {
+          maxRetries: 3,
+          initialDelay: 10,
+          shouldRetry: isRetryableError,
+        })
+      ).rejects.toThrow(EncodingError)
+
+      expect(attempts).toBe(1)
+    })
+
+    it('should work with deprecated FFmpegError alias', async () => {
       let attempts = 0
       const ffmpegOp = async () => {
         attempts++
@@ -184,24 +223,6 @@ describe('Retry Integration Tests', () => {
 
       expect(result).toBeInstanceOf(Blob)
       expect(attempts).toBe(2)
-    })
-
-    it('should not retry permanent FFmpeg errors', async () => {
-      let attempts = 0
-      const ffmpegOp = async () => {
-        attempts++
-        throw new FFmpegError('Invalid codec', 'encoding', false)
-      }
-
-      await expect(
-        retryWithBackoff(ffmpegOp, {
-          maxRetries: 3,
-          initialDelay: 10,
-          shouldRetry: isRetryableError,
-        })
-      ).rejects.toThrow(FFmpegError)
-
-      expect(attempts).toBe(1)
     })
   })
 

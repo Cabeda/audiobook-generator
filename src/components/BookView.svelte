@@ -36,6 +36,7 @@
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
   import { segmentProgress } from '../stores/segmentProgressStore'
+  import { EXPORT_FORMATS, type ExportFormat } from '../lib/exportFormats'
 
   let { onread }: { onread: (detail: { chapter: Chapter }) => void } = $props()
 
@@ -103,7 +104,7 @@
     heroCollapsed = progress >= 1
   }
   let showAdvanced = $state(false)
-  let selectedFormat = $state<'mp3' | 'mp4' | 'm4b' | 'wav' | 'epub'>('mp3')
+  let selectedFormat = $state<ExportFormat>('mp3')
   let showFormatPicker = $state(false)
   let selectedBitrate = $state(192)
 
@@ -454,15 +455,48 @@
     onread({ chapter })
   }
 
-  async function handleDownload(chapterId: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') {
+  async function handleDownload(chapterId: string, format: ExportFormat) {
     const chapter = $book?.chapters.find((c) => c.id === chapterId)
     if (!chapter) {
       toastStore.error('Chapter not found')
       return
     }
 
+    // EPUB export uses a different path
+    if (format === 'epub') {
+      await ensureChaptersAudio([chapterId])
+      await generationService.exportEpub([chapter], {
+        title: $book!.title,
+        author: $book!.author,
+      })
+      return
+    }
+
     // Lazy-load audio from DB if not already in memory
-    const audioData = audioMap.get(chapterId) || (await ensureChapterAudio(chapterId))
+    let audioData = audioMap.get(chapterId) || (await ensureChapterAudio(chapterId))
+
+    // If no merged audio, try concatenating segments from IndexedDB
+    if (!audioData) {
+      try {
+        const { getBookId } = await import('../lib/services/exportService')
+        const bookId = getBookId()
+        if (bookId) {
+          const { getChapterSegments } = await import('../lib/libraryDB')
+          const { incrementalConcatWav } = await import('../lib/wavUtils')
+          const segments = await getChapterSegments(bookId, chapterId)
+          if (segments.length > 0) {
+            const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
+            const blob = await incrementalConcatWav(sortedSegments.length, async (index) => {
+              return sortedSegments[index]?.audioBlob ?? null
+            })
+            audioData = { url: URL.createObjectURL(blob), blob }
+          }
+        }
+      } catch (e) {
+        console.warn('[handleDownload] Failed to concatenate segments:', e)
+      }
+    }
+
     if (!audioData) {
       toastStore.error('No audio data available for this chapter')
       return
@@ -623,13 +657,13 @@
               </button>
               {#if showFormatPicker}
                 <div class="export-format-menu" role="menu">
-                  {#each [{ value: 'mp3', label: 'MP3' }, { value: 'm4b', label: 'M4B Audiobook' }, { value: 'epub', label: 'EPUB' }, { value: 'mp4', label: 'MP4' }, { value: 'wav', label: 'WAV' }] as fmt}
+                  {#each EXPORT_FORMATS as fmt}
                     <button
                       class="format-option"
                       class:active={selectedFormat === fmt.value}
                       role="menuitem"
                       onclick={() => {
-                        selectedFormat = fmt.value as typeof selectedFormat
+                        selectedFormat = fmt.value
                         showFormatPicker = false
                       }}
                     >

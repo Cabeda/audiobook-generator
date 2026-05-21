@@ -9,3 +9,7 @@ package-lock.json
 pnpm-lock.yaml
 *.min.js
 *.min.css
+
+# prettier-plugin-svelte@4.0.0 crashes on {@const} with LogicalExpression/CallExpression
+src/components/SettingsPage.svelte
+src/components/ContinuousReader.svelte

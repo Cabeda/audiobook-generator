@@ -521,6 +521,12 @@ class GenerationService {
         // Validate content — skip empty chapters gracefully without an error
         if (!ch.content || !ch.content.trim()) {
           logger.info(`[Generation] Skipping empty chapter: ${ch.title} (${ch.id})`)
+          // Store a silent WAV so download/export still works
+          if (bookId) {
+            const { createSilentWav } = await import('../wavUtils')
+            const { saveChapterAudio } = await import('../libraryDB')
+            await saveChapterAudio(bookId, ch.id, createSilentWav(0))
+          }
           chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
           chapterErrors.update((m) => {
             const newMap = new Map(m)
@@ -839,6 +845,12 @@ class GenerationService {
     // code-only chapter with those options ignored), skip gracefully.
     if (textSegments.length === 0) {
       logger.info(`[Generation] No text segments for chapter "${ch.title}" (${ch.id}), skipping`)
+      // Store a silent WAV so download/export still works
+      if (bookId) {
+        const { createSilentWav } = await import('../wavUtils')
+        const { saveChapterAudio } = await import('../libraryDB')
+        await saveChapterAudio(bookId, ch.id, createSilentWav(0))
+      }
       chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
       chapterErrors.update((m) => {
         const newMap = new Map(m)

@@ -31,22 +31,6 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 250 * 1024 * 1024,
         clientsClaim: true,
         skipWaiting: false,
-        // Cache FFmpeg WASM core from CDN so export works offline after first use
-        runtimeCaching: [
-          {
-            urlPattern: /cdn\.jsdelivr\.net\/npm\/@ffmpeg/,
-            handler: 'CacheFirst' as const,
-            options: {
-              cacheName: 'ffmpeg-core',
-              expiration: {
-                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
-              },
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-            },
-          },
-        ],
       },
     }),
   ],
@@ -58,7 +42,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', 'pdfjs-dist'],
+    exclude: ['pdfjs-dist'],
     include: ['jszip'],
   },
   build: {
@@ -68,7 +52,6 @@ export default defineConfig({
           'piper-tts': ['onnxruntime-web', '@diffusionstudio/vits-web'],
           'pdf-parser': ['pdfjs-dist'],
           zip: ['jszip'],
-          ffmpeg: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
         },
       },
     },

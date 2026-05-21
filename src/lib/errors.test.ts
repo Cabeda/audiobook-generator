@@ -7,6 +7,7 @@ import {
   CancellationError,
   ModelLoadError,
   AudioGenerationError,
+  EncodingError,
   FFmpegError,
   isRetryableError,
   normalizeError,
@@ -134,23 +135,29 @@ describe('Error Classes', () => {
     })
   })
 
-  describe('FFmpegError', () => {
-    it('should create an FFmpegError', () => {
-      const error = new FFmpegError('Conversion failed', 'mp3-encoding', true)
-      expect(error).toBeInstanceOf(FFmpegError)
+  describe('EncodingError', () => {
+    it('should create an EncodingError', () => {
+      const error = new EncodingError('Conversion failed', 'mp3-encoding', true)
+      expect(error).toBeInstanceOf(EncodingError)
       expect(error.operation).toBe('mp3-encoding')
       expect(error.isTransient).toBe(true)
-      expect(error.code).toBe('FFMPEG_ERROR')
+      expect(error.code).toBe('ENCODING_ERROR')
     })
 
     it('should return appropriate user messages', () => {
-      const transient = new FFmpegError('Conversion failed', 'mp3-encoding', true)
+      const transient = new EncodingError('Conversion failed', 'mp3-encoding', true)
       expect(transient.getUserMessage()).toBe('Audio processing failed (mp3-encoding). Retrying...')
 
-      const permanent = new FFmpegError('Conversion failed', 'mp3-encoding', false)
+      const permanent = new EncodingError('Conversion failed', 'mp3-encoding', false)
       expect(permanent.getUserMessage()).toBe(
         'Audio processing failed (mp3-encoding). Please try again.'
       )
+    })
+
+    it('should be accessible via deprecated FFmpegError alias', () => {
+      const error = new FFmpegError('Conversion failed', 'mp3-encoding', true)
+      expect(error).toBeInstanceOf(EncodingError)
+      expect(error.operation).toBe('mp3-encoding')
     })
   })
 
@@ -170,8 +177,8 @@ describe('Error Classes', () => {
       expect(isRetryableError(error)).toBe(true)
     })
 
-    it('should identify transient FFmpegError as retryable', () => {
-      const error = new FFmpegError('Processing failed', 'conversion', true)
+    it('should identify transient EncodingError as retryable', () => {
+      const error = new EncodingError('Processing failed', 'conversion', true)
       expect(isRetryableError(error)).toBe(true)
     })
 

@@ -5,7 +5,20 @@ import {
   createChapterMarkers,
   type AudioChapter,
   resampleAndNormalizeAudioBuffers,
+  audioLikeToBlob,
+  convertWavToMp3,
+  audioBufferToMp3,
 } from './audioConcat.ts'
+
+// Mock mediabunnyEncoder so tests don't require WebCodecs
+vi.mock('./mediabunnyEncoder', () => ({
+  convertWavToMp3: vi.fn(
+    async (blob: Blob) => new Blob([await blob.arrayBuffer()], { type: 'audio/mpeg' })
+  ),
+  convertWavToM4b: vi.fn(
+    async (blob: Blob) => new Blob([await blob.arrayBuffer()], { type: 'audio/m4b' })
+  ),
+}))
 
 // Mock AudioContext for testing
 class MockAudioContext {
@@ -335,78 +348,10 @@ describe('audioConcat', () => {
   })
 
   describe('audioBufferToMp3 metadata handling', () => {
-    it('should write metadata.txt and include -map_metadata 1 when generating M4B', async () => {
-      // Mock @ffmpeg/ffmpeg so we can capture file write and run args
-      const writtenFiles: Record<string, Uint8Array> = {}
-      const runArgs: string[] = []
-
-      class MockFFmpeg {
-        fs: Record<string, Uint8Array> | undefined = {}
-        listeners: Record<string, Array<(msg: any) => void>> = {}
-        on(_event: string, cb: (m: unknown) => void) {
-          this.listeners['log'] = this.listeners['log'] || []
-          this.listeners['log'].push(cb)
-        }
-        async load() {
-          // Resolve immediately
-          return Promise.resolve()
-        }
-        writeFile(name: string, data: Uint8Array) {
-          writtenFiles[name] = data
-        }
-        async exec(args: string[]) {
-          runArgs.push(...args)
-          const out = args[args.length - 1]
-          this.fs = this.fs || {}
-          this.fs[out] = new Uint8Array([1, 2, 3])
-          // Resolve immediately
-          return Promise.resolve()
-        }
-        readFile(name: string) {
-          return (this.fs && this.fs[name]) || new Uint8Array()
-        }
-        FS(op: 'writeFile' | 'readFile' | 'unlink' | 'remove', name: string, data?: Uint8Array) {
-          if (op === 'writeFile') writtenFiles[name] = data as Uint8Array
-          if (op === 'readFile') return (this.fs && this.fs[name]) || new Uint8Array()
-        }
-      }
-
-      // Reset modules to ensure audioConcat will be re-imported with mocked ffmpeg
-      vi.resetModules()
-      // Do runtime module mock for FFmpeg (must be set before import)
-      vi.doMock('@ffmpeg/ffmpeg', () => ({ FFmpeg: MockFFmpeg }))
-      // Now import audioBufferToMp3 dynamically so it picks up the mocked FFmpeg
-      const { audioBufferToMp3 } = await import('./audioConcat.ts')
-
-      // Create a dummy AudioBuffer using the MockAudioContext
-      const audioCtx = new (
-        globalThis as unknown as { AudioContext: typeof MockAudioContext }
-      ).AudioContext()
-      const audioBuffer = audioCtx.createBuffer(2, 44100, 44100)
-
-      const chapters = [
-        { id: 'ch1', title: 'Intro', blob: new Blob(), duration: 1 },
-        { id: 'ch2', title: 'Main', blob: new Blob(), duration: 2 },
-      ]
-
-      // Call audioBufferToMp3 with m4b (which triggers metadata creation)
-      const m4b = await audioBufferToMp3(audioBuffer, 192, chapters as any, {
-        format: 'm4b',
-        bookTitle: 'Test Book',
-        bookAuthor: 'Test Author',
-      })
-
-      // Assert that metadata.txt was written and '-map_metadata' included
-      expect(Object.keys(writtenFiles)).toContain('metadata.txt')
-      expect(runArgs.join(' ')).toContain('-map_metadata')
-      // M4B Blob should be present
-      expect(m4b).toBeInstanceOf(Blob)
-
-      // Unmock FFmpeg so other tests are unaffected
-      vi.doUnmock('@ffmpeg/ffmpeg')
-      // Reset modules to clear our dynamic import mock state
-      vi.resetModules()
-    }, 10000) // Increase timeout to 10 seconds
+    it.skip('should be tested in E2E (requires WebCodecs/Mediabunny)', () => {
+      // MP3/M4B encoding now uses Mediabunny which requires WebCodecs (browser-only).
+      // Encoding tests have been moved to E2E Playwright specs.
+    })
   })
 
   describe('downloadAudioFile', () => {
@@ -683,6 +628,277 @@ describe('audioConcat', () => {
       const result = await concatenateAudioChapters(chapters, { format: 'wav' })
       expect(result).toBeInstanceOf(Blob)
       expect(result.type).toBe('audio/wav')
+    }, 15000)
+  })
+
+  describe('audioLikeToBlob', () => {
+    it('should return Blob as-is', async () => {
+      const blob = new Blob(['test'], { type: 'audio/wav' })
+      const result = await audioLikeToBlob(blob)
+      expect(result).toBe(blob)
+    })
+
+    it('should convert ArrayBuffer to Blob', async () => {
+      const buf = new ArrayBuffer(10)
+      const result = await audioLikeToBlob(buf)
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/wav')
+    })
+
+    it('should convert Uint8Array to Blob', async () => {
+      const arr = new Uint8Array([1, 2, 3])
+      const result = await audioLikeToBlob(arr)
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/wav')
+    })
+
+    it('should throw for null/undefined', async () => {
+      await expect(audioLikeToBlob(null)).rejects.toThrow('No audio provided')
+      await expect(audioLikeToBlob(undefined)).rejects.toThrow('No audio provided')
+    })
+
+    it('should throw for unsupported types', async () => {
+      await expect(audioLikeToBlob(42)).rejects.toThrow('Unsupported audio type')
+    })
+
+    it('should handle objects with arrayBuffer method', async () => {
+      const obj = {
+        arrayBuffer: async () => new ArrayBuffer(8),
+        type: 'audio/mp3',
+      }
+      const result = await audioLikeToBlob(obj)
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/mp3')
+    })
+
+    it('should handle objects with arrayBuffer method and no type', async () => {
+      const obj = {
+        arrayBuffer: async () => new ArrayBuffer(8),
+      }
+      const result = await audioLikeToBlob(obj)
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/wav')
+    })
+
+    it('should handle objects with failing arrayBuffer method and fall through', async () => {
+      const obj = {
+        arrayBuffer: async () => {
+          throw new Error('fail')
+        },
+      }
+      await expect(audioLikeToBlob(obj)).rejects.toThrow('Unsupported audio type')
+    })
+
+    it('should handle AudioBuffer-like objects', async () => {
+      const mockAudioBuffer = {
+        numberOfChannels: 1,
+        sampleRate: 44100,
+        length: 100,
+        duration: 100 / 44100,
+        getChannelData: () => new Float32Array(100),
+      }
+      const result = await audioLikeToBlob(mockAudioBuffer)
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/wav')
+    })
+
+    it('should resolve Promise-like objects', async () => {
+      const promise = Promise.resolve(new Blob(['data'], { type: 'audio/wav' }))
+      const result = await audioLikeToBlob(promise)
+      expect(result).toBeInstanceOf(Blob)
+    })
+
+    it('should handle objects already in seen set gracefully', async () => {
+      // The seen set check is wrapped in try/catch for exotic objects,
+      // so circular refs fall through to "unsupported type" error
+      const obj: any = {}
+      const seen = new WeakSet()
+      seen.add(obj)
+      await expect(audioLikeToBlob(obj, seen)).rejects.toThrow('Unsupported audio type')
+    })
+
+    it('should throw on excessive depth', async () => {
+      await expect(audioLikeToBlob({ something: true }, new WeakSet(), 13)).rejects.toThrow(
+        'Exceeded maximum audio wrapper unwrapping depth'
+      )
+    })
+
+    it('should handle JSHandle-like wrapper with value property', async () => {
+      class JSHandleWrapper {
+        value = new Blob(['data'], { type: 'audio/wav' })
+      }
+      const handle = new JSHandleWrapper()
+      const result = await audioLikeToBlob(handle)
+      expect(result).toBeInstanceOf(Blob)
+    })
+
+    it('should throw for JSHandle-like wrapper with error state', async () => {
+      class JSHandleMock {
+        toString() {
+          return 'JSHandle@error'
+        }
+        get [Symbol.toStringTag]() {
+          return 'JSHandle'
+        }
+      }
+      // Override constructor name
+      Object.defineProperty(JSHandleMock, 'name', { value: 'JSHandle' })
+      const handle = new JSHandleMock()
+      await expect(audioLikeToBlob(handle)).rejects.toThrow('JSHandle reported an error')
+    })
+
+    it('should throw for unresolvable JSHandle-like wrapper', async () => {
+      class JSHandleWrapper {
+        value = null
+        json = null
+      }
+      Object.defineProperty(JSHandleWrapper, 'name', { value: 'JSHandle' })
+      const handle = new JSHandleWrapper()
+      await expect(audioLikeToBlob(handle)).rejects.toThrow('Unsupported JSHandle-like wrapper')
+    })
+
+    it('should resolve Promise that wraps a Blob', async () => {
+      const blob = new Blob(['audio'], { type: 'audio/wav' })
+      const promise = Promise.resolve(blob)
+      const result = await audioLikeToBlob(promise)
+      expect(result).toBe(blob)
+    })
+
+    it('should handle failing Promise gracefully', async () => {
+      const promise = Promise.reject(new Error('network error'))
+      await expect(audioLikeToBlob(promise)).rejects.toThrow('Unsupported audio type')
+    })
+  })
+
+  describe('convertWavToMp3', () => {
+    it('should convert WAV blob to MP3 via mediabunny', async () => {
+      const wavBlob = new Blob([new ArrayBuffer(100)], { type: 'audio/wav' })
+      const result = await convertWavToMp3(wavBlob, 192)
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/mpeg')
+    })
+  })
+
+  describe('audioBufferToMp3', () => {
+    it('should convert AudioBuffer to MP3', async () => {
+      const audioCtx = new (
+        globalThis as unknown as { AudioContext: typeof MockAudioContext }
+      ).AudioContext()
+      const audioBuffer = audioCtx.createBuffer(1, 44100, 44100)
+      const chapters: AudioChapter[] = [{ id: 'ch1', title: 'Test', blob: new Blob() }]
+
+      const result = await audioBufferToMp3(audioBuffer, 192, chapters, { format: 'mp3' })
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/mpeg')
+    })
+
+    it('should convert AudioBuffer to M4B when format is m4b', async () => {
+      const audioCtx = new (
+        globalThis as unknown as { AudioContext: typeof MockAudioContext }
+      ).AudioContext()
+      const audioBuffer = audioCtx.createBuffer(1, 44100, 44100)
+      const chapters: AudioChapter[] = [{ id: 'ch1', title: 'Test', blob: new Blob() }]
+
+      const result = await audioBufferToMp3(audioBuffer, 192, chapters, { format: 'm4b' })
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/m4b')
+    })
+  })
+
+  describe('concatenateAudioChapters with encoding formats', () => {
+    it('should encode to MP3 format', async () => {
+      // Create valid WAV blobs
+      const wavHeader = new ArrayBuffer(44)
+      const view = new DataView(wavHeader)
+      // RIFF header
+      new Uint8Array(wavHeader).set([0x52, 0x49, 0x46, 0x46]) // RIFF
+      view.setUint32(4, 36 + 100, true) // file size
+      new Uint8Array(wavHeader).set([0x57, 0x41, 0x56, 0x45], 8) // WAVE
+      new Uint8Array(wavHeader).set([0x66, 0x6d, 0x74, 0x20], 12) // fmt
+      view.setUint32(16, 16, true) // chunk size
+      view.setUint16(20, 1, true) // PCM
+      view.setUint16(22, 1, true) // mono
+      view.setUint32(24, 44100, true) // sample rate
+      view.setUint32(28, 88200, true) // byte rate
+      view.setUint16(32, 2, true) // block align
+      view.setUint16(34, 16, true) // bits per sample
+      new Uint8Array(wavHeader).set([0x64, 0x61, 0x74, 0x61], 36) // data
+      view.setUint32(40, 100, true) // data size
+
+      const wavData = new Uint8Array(144)
+      wavData.set(new Uint8Array(wavHeader))
+
+      const chapters: AudioChapter[] = [
+        { id: 'ch1', title: 'Chapter 1', blob: new Blob([wavData], { type: 'audio/wav' }) },
+        { id: 'ch2', title: 'Chapter 2', blob: new Blob([wavData], { type: 'audio/wav' }) },
+      ]
+
+      const result = await concatenateAudioChapters(chapters, { format: 'mp3', bitrate: 192 })
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/mpeg')
+    })
+
+    it('should encode to M4B format', async () => {
+      const wavHeader = new ArrayBuffer(44)
+      const view = new DataView(wavHeader)
+      new Uint8Array(wavHeader).set([0x52, 0x49, 0x46, 0x46])
+      view.setUint32(4, 36 + 100, true)
+      new Uint8Array(wavHeader).set([0x57, 0x41, 0x56, 0x45], 8)
+      new Uint8Array(wavHeader).set([0x66, 0x6d, 0x74, 0x20], 12)
+      view.setUint32(16, 16, true)
+      view.setUint16(20, 1, true)
+      view.setUint16(22, 1, true)
+      view.setUint32(24, 44100, true)
+      view.setUint32(28, 88200, true)
+      view.setUint16(32, 2, true)
+      view.setUint16(34, 16, true)
+      new Uint8Array(wavHeader).set([0x64, 0x61, 0x74, 0x61], 36)
+      view.setUint32(40, 100, true)
+
+      const wavData = new Uint8Array(144)
+      wavData.set(new Uint8Array(wavHeader))
+
+      const chapters: AudioChapter[] = [
+        { id: 'ch1', title: 'Chapter 1', blob: new Blob([wavData], { type: 'audio/wav' }) },
+      ]
+
+      const result = await concatenateAudioChapters(chapters, { format: 'm4b' })
+      expect(result).toBeInstanceOf(Blob)
+      expect(result.type).toBe('audio/m4b')
+    })
+
+    it('should report progress during encoding', async () => {
+      const wavHeader = new ArrayBuffer(44)
+      const view = new DataView(wavHeader)
+      new Uint8Array(wavHeader).set([0x52, 0x49, 0x46, 0x46])
+      view.setUint32(4, 36 + 100, true)
+      new Uint8Array(wavHeader).set([0x57, 0x41, 0x56, 0x45], 8)
+      new Uint8Array(wavHeader).set([0x66, 0x6d, 0x74, 0x20], 12)
+      view.setUint32(16, 16, true)
+      view.setUint16(20, 1, true)
+      view.setUint16(22, 1, true)
+      view.setUint32(24, 44100, true)
+      view.setUint32(28, 88200, true)
+      view.setUint16(32, 2, true)
+      view.setUint16(34, 16, true)
+      new Uint8Array(wavHeader).set([0x64, 0x61, 0x74, 0x61], 36)
+      view.setUint32(40, 100, true)
+
+      const wavData = new Uint8Array(144)
+      wavData.set(new Uint8Array(wavHeader))
+
+      const chapters: AudioChapter[] = [
+        { id: 'ch1', title: 'Chapter 1', blob: new Blob([wavData], { type: 'audio/wav' }) },
+      ]
+
+      const progressUpdates: string[] = []
+      await concatenateAudioChapters(chapters, { format: 'mp3' }, (p) => {
+        progressUpdates.push(p.status)
+      })
+
+      expect(progressUpdates).toContain('concatenating')
+      expect(progressUpdates).toContain('encoding')
+      expect(progressUpdates).toContain('complete')
     })
   })
 })
