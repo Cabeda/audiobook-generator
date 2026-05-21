@@ -47,31 +47,52 @@ async function ensureCodecs(): Promise<void> {
 export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Promise<Blob> {
   await ensureCodecs()
 
-  const input = new Input({
-    source: new BlobSource(wavBlob),
-    formats: WAV_FORMATS,
-  })
+  logger.info('[mediabunny]', `Converting WAV (${wavBlob.size} bytes) to MP3 at ${bitrate}kbps`)
+
+  let input: InstanceType<typeof Input>
+  try {
+    input = new Input({
+      source: new BlobSource(wavBlob),
+      formats: WAV_FORMATS,
+    })
+  } catch (err) {
+    logger.error('[mediabunny]', 'Failed to create Input:', err)
+    throw new Error(`Failed to create Mediabunny Input: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+  }
 
   const output = new Output({
     format: new Mp3OutputFormat(),
     target: new BufferTarget(),
   })
 
-  const conversion = await Conversion.init({
-    input,
-    output,
-    audio: { bitrate: bitrate * 1000 },
-  })
-
-  if (!conversion.isValid) {
-    throw new Error(
-      `MP3 conversion not possible: ${conversion.discardedTracks.map((t) => t.reason).join(', ')}`
-    )
+  let conversion: Awaited<ReturnType<typeof Conversion.init>>
+  try {
+    conversion = await Conversion.init({
+      input,
+      output,
+      audio: { bitrate: bitrate * 1000 },
+    })
+  } catch (err) {
+    logger.error('[mediabunny]', 'Conversion.init failed:', err)
+    throw new Error(`MP3 Conversion.init failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
   }
 
-  await conversion.execute()
+  if (!conversion.isValid) {
+    const reasons = conversion.discardedTracks.map((t) => t.reason).join(', ')
+    logger.error('[mediabunny]', 'Conversion not valid:', reasons)
+    throw new Error(`MP3 conversion not possible: ${reasons}`)
+  }
+
+  try {
+    await conversion.execute()
+  } catch (err) {
+    logger.error('[mediabunny]', 'conversion.execute() failed:', err)
+    throw new Error(`MP3 encoding failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+  }
+
   const buffer = output.target.buffer
   if (!buffer) throw new Error('MP3 conversion produced no output')
+  logger.info('[mediabunny]', `MP3 conversion complete: ${buffer.byteLength} bytes`)
   return new Blob([buffer], { type: 'audio/mpeg' })
 }
 
@@ -81,31 +102,52 @@ export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Pro
 export async function convertWavToM4b(wavBlob: Blob, bitrate: number = 192): Promise<Blob> {
   await ensureCodecs()
 
-  const input = new Input({
-    source: new BlobSource(wavBlob),
-    formats: WAV_FORMATS,
-  })
+  logger.info('[mediabunny]', `Converting WAV (${wavBlob.size} bytes) to M4B at ${bitrate}kbps`)
+
+  let input: InstanceType<typeof Input>
+  try {
+    input = new Input({
+      source: new BlobSource(wavBlob),
+      formats: WAV_FORMATS,
+    })
+  } catch (err) {
+    logger.error('[mediabunny]', 'Failed to create Input:', err)
+    throw new Error(`Failed to create Mediabunny Input: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+  }
 
   const output = new Output({
     format: new Mp4OutputFormat(),
     target: new BufferTarget(),
   })
 
-  const conversion = await Conversion.init({
-    input,
-    output,
-    audio: { bitrate: bitrate * 1000 },
-  })
-
-  if (!conversion.isValid) {
-    throw new Error(
-      `M4B conversion not possible: ${conversion.discardedTracks.map((t) => t.reason).join(', ')}`
-    )
+  let conversion: Awaited<ReturnType<typeof Conversion.init>>
+  try {
+    conversion = await Conversion.init({
+      input,
+      output,
+      audio: { bitrate: bitrate * 1000 },
+    })
+  } catch (err) {
+    logger.error('[mediabunny]', 'Conversion.init failed:', err)
+    throw new Error(`M4B Conversion.init failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
   }
 
-  await conversion.execute()
+  if (!conversion.isValid) {
+    const reasons = conversion.discardedTracks.map((t) => t.reason).join(', ')
+    logger.error('[mediabunny]', 'Conversion not valid:', reasons)
+    throw new Error(`M4B conversion not possible: ${reasons}`)
+  }
+
+  try {
+    await conversion.execute()
+  } catch (err) {
+    logger.error('[mediabunny]', 'conversion.execute() failed:', err)
+    throw new Error(`M4B encoding failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+  }
+
   const buffer = output.target.buffer
   if (!buffer) throw new Error('M4B conversion produced no output')
+  logger.info('[mediabunny]', `M4B conversion complete: ${buffer.byteLength} bytes`)
   return new Blob([buffer], { type: 'audio/m4b' })
 }
 
