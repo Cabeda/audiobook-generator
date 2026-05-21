@@ -1,3 +1,72 @@
+/**
+ * Generation Service — TTS Audio Generation Orchestrator
+ *
+ * This is the central service that coordinates text-to-speech audio generation
+ * for book chapters. It manages the full lifecycle from text segmentation through
+ * audio synthesis to persistence.
+ *
+ * ## Overall Flow
+ *
+ * 1. **Segmentation** — Chapter HTML is split into sentences via DOM-based parsing
+ *    (`segmentationService`). The segmented HTML is persisted back to IndexedDB.
+ *
+ * 2. **Generation** — Each text segment is sent to the TTS worker (`ttsWorkerManager`)
+ *    which runs inference off-main-thread (Kokoro ONNX, Piper, or Web Speech API).
+ *    Segments are processed in parallel batches controlled by `parallelChunks`.
+ *
+ * 3. **Persistence** — Completed audio segments are immediately flushed to IndexedDB
+ *    via `SegmentBatchHandler` (batch size = 1 for crash safety). Blob references
+ *    are released after persistence to prevent OOM on mobile.
+ *
+ * 4. **Progressive Playback** — The first completed segment triggers auto-play
+ *    (if enabled). The `audioPlaybackService` chains segments as they arrive.
+ *
+ * 5. **Completion** — Segment start times are computed and persisted. Concatenation
+ *    is deferred to export time to avoid OOM from loading all blobs simultaneously.
+ *
+ * ## Key State Transitions
+ *
+ * - `idle` → `processing`: `generateChapters()` or `generateSingleChapterFromSegment()`
+ * - `processing` → `done`: All segments generated successfully
+ * - `processing` → `error`: One or more segments failed (partial results preserved)
+ * - `processing` → `idle`: `cancel()` or `cancelChapter()`
+ *
+ * ## Cancellation
+ *
+ * - `cancel()` — Stops all generation, resets processing chapters to 'pending'
+ * - `cancelChapter(chapterId)` — Cancels a single chapter; generation continues for others
+ * - Canceled state is checked between each segment batch
+ *
+ * ## Retry / Resume
+ *
+ * - `resumeChapters()` — Loads already-generated segments from IndexedDB, skips them,
+ *   and generates only missing segments. Used for crash recovery.
+ * - `generationStateStore` persists progress to localStorage for crash detection.
+ *
+ * ## OOM Handling
+ *
+ * - TTS worker is restarted periodically to reclaim WASM heap (every chapter on mobile,
+ *   every 3 chapters on desktop, or when `shouldRestartWorkerForMemory()` detects pressure)
+ * - Segment blobs are released from memory immediately after IndexedDB persistence
+ * - On mobile, a 500ms yield between segments allows GC to reclaim memory
+ * - Concatenation is skipped during generation (deferred to export)
+ *
+ * ## Relationships
+ *
+ * - **segmentBatchHandler** — Handles batched persistence of audio segments to IndexedDB.
+ *   Marks segments as generated in `segmentProgressStore` for real-time UI feedback.
+ *   Tracks flushed segments so blob references can be released.
+ *
+ * - **generationStateStore** — Persists generation progress to localStorage for crash
+ *   recovery. Stores book ID, chapter IDs, completed chapters, and TTS settings.
+ *   Cleared on successful completion or explicit cancellation.
+ *
+ * - **segmentProgressStore** — Tracks per-segment generation state for UI display.
+ *   Updated by both this service (init, processing index) and segmentBatchHandler (completion).
+ *
+ * @module generationService
+ */
+
 import { get } from 'svelte/store'
 import type { Chapter } from '../types/book'
 import type { VoiceId } from '../kokoro/kokoroVoices'
@@ -426,6 +495,17 @@ class GenerationService {
     await this.generateChapters([chapter], bookId)
   }
 
+  /**
+   * Generate audio for one or more chapters sequentially.
+   *
+   * For each chapter: resolves language/model/voice, segments HTML into sentences,
+   * generates audio per segment via TTS worker, persists to IndexedDB, and updates
+   * store state. Handles wake lock, silent audio (anti-throttling), and periodic
+   * worker restarts for OOM mitigation.
+   *
+   * @param chapters - Chapters to generate audio for
+   * @param explicitBookId - Optional book ID override (otherwise read from bookStore)
+   */
   async generateChapters(chapters: Chapter[], explicitBookId?: number) {
     logger.info('[generateChapters] Starting generation', {
       chapterCount: chapters.length,
@@ -1078,6 +1158,10 @@ class GenerationService {
     return false
   }
 
+  /**
+   * Cancel all active generation. Resets processing chapters to 'pending' status
+   * and terminates pending TTS worker tasks.
+   */
   cancel() {
     this.canceled = true
     const worker = getTTSWorker()
@@ -1128,6 +1212,7 @@ class GenerationService {
     markChapterGenerationComplete(chapterId)
   }
 
+  /** Returns true if generation is currently in progress. */
   isRunning() {
     return this.running
   }
