@@ -465,17 +465,21 @@
     let audioData = audioMap.get(chapterId) || (await ensureChapterAudio(chapterId))
 
     // If no merged audio, try concatenating segments from IndexedDB
-    if (!audioData && $book?.databaseId) {
+    if (!audioData) {
       try {
-        const { getChapterSegments } = await import('../lib/libraryDB')
-        const { incrementalConcatWav } = await import('../lib/wavUtils')
-        const segments = await getChapterSegments($book.databaseId, chapterId)
-        if (segments.length > 0) {
-          const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
-          const blob = await incrementalConcatWav(sortedSegments.length, async (index) => {
-            return sortedSegments[index]?.audioBlob ?? null
-          })
-          audioData = { url: URL.createObjectURL(blob), blob }
+        const { getBookId } = await import('../lib/services/exportService')
+        const bookId = getBookId()
+        if (bookId) {
+          const { getChapterSegments } = await import('../lib/libraryDB')
+          const { incrementalConcatWav } = await import('../lib/wavUtils')
+          const segments = await getChapterSegments(bookId, chapterId)
+          if (segments.length > 0) {
+            const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
+            const blob = await incrementalConcatWav(sortedSegments.length, async (index) => {
+              return sortedSegments[index]?.audioBlob ?? null
+            })
+            audioData = { url: URL.createObjectURL(blob), blob }
+          }
         }
       } catch (e) {
         console.warn('[handleDownload] Failed to concatenate segments:', e)

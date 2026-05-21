@@ -40,7 +40,7 @@ function hasBookId(book: unknown): book is LibraryBookWithId {
 /**
  * Helper function to safely extract the book ID from the book store.
  */
-function getBookId(): number {
+export function getBookId(): number {
   const currentBook = get(book)
   if (hasBookId(currentBook)) {
     return currentBook.id
