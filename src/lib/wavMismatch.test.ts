@@ -47,15 +47,19 @@ function createWavBlob(sampleRate: number, durationMs: number, channels = 1): Bl
 }
 
 describe('WAV segment format mismatch during export', () => {
-  it('incrementalConcatWav should throw on mismatched sample rates', async () => {
+  it('incrementalConcatWav should resample mismatched sample rates instead of throwing', async () => {
     const seg24k = createWavBlob(24000, 500)
     const seg44k = createWavBlob(44100, 500)
 
     const segments = [seg24k, seg44k]
 
-    await expect(
-      incrementalConcatWav(2, async (i) => segments[i])
-    ).rejects.toThrow(/format mismatch/)
+    const result = await incrementalConcatWav(2, async (i) => segments[i])
+    expect(result).toBeInstanceOf(Blob)
+    expect(result.type).toBe('audio/wav')
+
+    // Output should use the first segment's sample rate (24000)
+    const info = await parseWavHeaderFromBlob(result)
+    expect(info.fmt.sampleRate).toBe(24000)
   })
 
   it('concatenateAudioChapters should still succeed with mismatched WAV segments via WebAudio fallback', async () => {
