@@ -211,17 +211,17 @@
 
 ### Short-term (1-2 months)
 
-5. Better error handling
-6. Sentence-level navigation
-7. Mobile optimization
-8. Background playback
+5. ✅ Better error handling
+6. ✅ Sentence-level navigation
+7. ✅ Mobile optimization
+8. ✅ Background playback
 
 ### Medium-term (3-6 months)
 
 9. Bookmarks & highlights
 10. Reading statistics
-11. Themes & customization
-12. Performance optimization
+11. ✅ Themes & customization
+12. ✅ Performance optimization
 
 ### Long-term (6+ months)
 
@@ -368,16 +368,38 @@
 
 ## 🎯 Next Steps
 
-1. **Create GitHub issues** for top 10 improvements
-2. **Set up project board** with priority lanes
-3. **Write technical specs** for Phase 1 features
-4. **Create mockups** for UX improvements
-5. **Set up analytics** to track usage
-6. **Launch user survey** to validate priorities
-7. **Start with auto-scroll** - highest impact, clear scope
+1. **Bookmarks & highlights** — mark important sections for later
+2. **Reading statistics** — time spent, chapters completed, streaks
+3. **Export/import library backup** — portable library data
+4. **Batch processing** — multiple files at once
+5. **Adaptive quality** — mobile vs desktop audio quality tiers
+6. **Server-side TTS option** — for higher quality voices (see `docs/server-tts-plan.md`)
+
+---
+
+## ✅ Completed
+
+| Feature                        | Status | Notes                                                                      |
+| ------------------------------ | ------ | -------------------------------------------------------------------------- |
+| Auto-scroll during playback    | ✅     | Smooth scroll to current segment                                           |
+| Keyboard shortcuts             | ✅     | Space, arrows, F, ? for help                                               |
+| Progress persistence           | ✅     | Per-book position saved to localStorage/IndexedDB                          |
+| Skip forward/backward          | ✅     | Segment-level and time-based skip                                          |
+| Error handling & feedback      | ✅     | Toast notifications, retry buttons, progress bars                          |
+| Sentence-level navigation      | ✅     | Click any sentence to jump/generate from there                             |
+| Mobile optimization            | ✅     | Touch targets, OOM mitigation, q4 cap, worker restart                      |
+| Background playback            | ✅     | Wake lock, silent audio anti-throttling                                    |
+| Themes & customization         | ✅     | Light/dark/sepia, font size, reader settings                               |
+| Performance optimization       | ✅     | Lazy imports, virtual scrolling, worker restart, segment-based persistence |
+| Piper multilingual TTS         | ✅     | Auto-selects voice by detected language                                    |
+| EPUB3 Media Overlay export     | ✅     | Synchronized text highlighting in readers                                  |
+| Progressive playback           | ✅     | Listen while generating                                                    |
+| Local library with persistence | ✅     | IndexedDB, search, sort, storage indicator                                 |
+| Multi-format input             | ✅     | EPUB, PDF, HTML, TXT, URL                                                  |
 
 ---
 
 **Last Updated**: 2026-02-20  
-**Status**: Planning Phase  
-**Target**: Competitive with ElevenLabs Reader by Q2 2026
+**Last Verified**: 2026-05-21  
+**Status**: Active Development  
+**Target**: Competitive with ElevenLabs Reader by Q3 2026
