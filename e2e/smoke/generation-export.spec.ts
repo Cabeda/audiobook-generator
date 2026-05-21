@@ -73,7 +73,7 @@ test.describe('Generation & Export', () => {
     expect(download.suggestedFilename()).toMatch(/\.m4b$/i)
   })
 
-  test('should export valid EPUB with correct media overlay mapping', async ({ page }) => {
+  test('should export valid EPUB with correct structure and media overlays', async ({ page }) => {
     await page.getByRole('button', { name: 'Generate Selected' }).click()
     await expect(page.getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
 
@@ -170,6 +170,77 @@ test.describe('Generation & Export', () => {
         expect(clipEnd).toBeGreaterThan(clipBegin)
         expect(clipBegin).toBeGreaterThanOrEqual(lastClipEnd - 0.001) // float tolerance
         lastClipEnd = clipEnd
+      }
+    }
+  })
+
+  // Known bug: SMIL clip times are calculated from WAV segment durations,
+  // but the concatenated MP3 has different total duration due to encoding
+  // padding. This causes audio-text drift that worsens over longer chapters.
+  test.fail('should have SMIL timing match actual MP3 duration (drift bug)', async ({ page }) => {
+    await page.getByRole('button', { name: 'Generate Selected' }).click()
+    await expect(page.getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
+
+    await page.getByRole('button', { name: 'Choose export format' }).click()
+    await page.getByRole('menuitem', { name: 'EPUB' }).click()
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30000 }),
+      page.getByRole('button', { name: /Export EPUB/i }).click(),
+    ])
+
+    const fs = await import('fs/promises')
+    const JSZip = (await import('jszip')).default
+    const buffer = await fs.readFile((await download.path())!)
+    const zip = await JSZip.loadAsync(buffer)
+
+    const smilFiles = Object.keys(zip.files).filter((f) => f.endsWith('.smil'))
+    for (const smilPath of smilFiles) {
+      const smilContent = await zip.file(smilPath)!.async('string')
+      const audioRefs = [
+        ...smilContent.matchAll(
+          /<audio\s+src="([^"]+)"\s+clipBegin="([^"]+)"\s+clipEnd="([^"]+)"/g
+        ),
+      ]
+
+      // Get last clipEnd = total SMIL duration
+      const lastClipEnd = parseFloat(audioRefs[audioRefs.length - 1]?.[3] ?? '0')
+
+      // Parse MP3 duration from the audio file
+      const audioSrc = audioRefs[0][1]
+      const audioBasename = audioSrc.split('/').pop()!
+      const audioFile = Object.keys(zip.files).find((f) => f.endsWith(audioBasename))!
+      const audioBuffer = await zip.file(audioFile)!.async('uint8array')
+
+      let mp3Duration = 0
+      for (let i = 0; i < audioBuffer.length - 4; i++) {
+        if (audioBuffer[i] === 0xff && (audioBuffer[i + 1] & 0xe0) === 0xe0) {
+          const header =
+            (audioBuffer[i] << 24) |
+            (audioBuffer[i + 1] << 16) |
+            (audioBuffer[i + 2] << 8) |
+            audioBuffer[i + 3]
+          const bitrateIndex = (header >> 12) & 0x0f
+          const sampleRateIndex = (header >> 10) & 0x03
+          const mpegVersion = (header >> 19) & 0x03
+
+          if (bitrateIndex > 0 && bitrateIndex < 15 && sampleRateIndex < 3) {
+            const bitrates = [0, 32, 40, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0]
+            const sampleRates = mpegVersion === 3 ? [44100, 48000, 32000] : [22050, 24000, 16000]
+            const bitrate = bitrates[bitrateIndex] * 1000
+
+            if (bitrate > 0 && sampleRates[sampleRateIndex] > 0) {
+              mp3Duration = (audioBuffer.length - i) / (bitrate / 8)
+              break
+            }
+          }
+        }
+      }
+
+      // SMIL total duration should be within 5% of actual MP3 duration
+      if (mp3Duration > 0 && lastClipEnd > 0) {
+        const driftRatio = Math.abs(lastClipEnd - mp3Duration) / mp3Duration
+        expect(driftRatio).toBeLessThan(0.05)
       }
     }
   })
