@@ -198,10 +198,23 @@ export function getAudioDuration(blob: Blob): Promise<number> {
  */
 async function resampleWavBlob(
   blob: Blob,
-  srcInfo: { fmt: { sampleRate: number; numChannels: number; bitsPerSample: number }; dataOffset: number; dataLength: number },
-  targetFmt: { sampleRate: number; numChannels: number; bitsPerSample: number; byteRate: number; blockAlign: number; audioFormat: number }
+  srcInfo: {
+    fmt: { sampleRate: number; numChannels: number; bitsPerSample: number }
+    dataOffset: number
+    dataLength: number
+  },
+  targetFmt: {
+    sampleRate: number
+    numChannels: number
+    bitsPerSample: number
+    byteRate: number
+    blockAlign: number
+    audioFormat: number
+  }
 ): Promise<Blob> {
-  const srcData = new Int16Array(await blob.slice(srcInfo.dataOffset, srcInfo.dataOffset + srcInfo.dataLength).arrayBuffer())
+  const srcData = new Int16Array(
+    await blob.slice(srcInfo.dataOffset, srcInfo.dataOffset + srcInfo.dataLength).arrayBuffer()
+  )
   const srcChannels = srcInfo.fmt.numChannels
   const targetChannels = targetFmt.numChannels
   const srcSampleRate = srcInfo.fmt.sampleRate
@@ -293,7 +306,10 @@ export async function incrementalConcatWav(
       const resampled = await resampleWavBlob(blob, info, referenceFmt)
       const resampledInfo = await parseWavHeaderFromBlob(resampled)
       parts.push(
-        resampled.slice(resampledInfo.dataOffset, resampledInfo.dataOffset + resampledInfo.dataLength)
+        resampled.slice(
+          resampledInfo.dataOffset,
+          resampledInfo.dataOffset + resampledInfo.dataLength
+        )
       )
       totalDataLength += resampledInfo.dataLength
       await new Promise((r) => setTimeout(r, 0))

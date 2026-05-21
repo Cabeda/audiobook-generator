@@ -57,7 +57,10 @@ export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Pro
     })
   } catch (err) {
     logger.error('[mediabunny]', 'Failed to create Input:', err)
-    throw new Error(`Failed to create Mediabunny Input: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+    throw new Error(
+      `Failed to create Mediabunny Input: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
+    )
   }
 
   const output = new Output({
@@ -74,7 +77,10 @@ export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Pro
     })
   } catch (err) {
     logger.error('[mediabunny]', 'Conversion.init failed:', err)
-    throw new Error(`MP3 Conversion.init failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+    throw new Error(
+      `MP3 Conversion.init failed: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
+    )
   }
 
   if (!conversion.isValid) {
@@ -87,7 +93,9 @@ export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Pro
     await conversion.execute()
   } catch (err) {
     logger.error('[mediabunny]', 'conversion.execute() failed:', err)
-    throw new Error(`MP3 encoding failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+    throw new Error(`MP3 encoding failed: ${err instanceof Error ? err.message : String(err)}`, {
+      cause: err,
+    })
   }
 
   const buffer = output.target.buffer
@@ -112,7 +120,10 @@ export async function convertWavToM4b(wavBlob: Blob, bitrate: number = 192): Pro
     })
   } catch (err) {
     logger.error('[mediabunny]', 'Failed to create Input:', err)
-    throw new Error(`Failed to create Mediabunny Input: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+    throw new Error(
+      `Failed to create Mediabunny Input: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
+    )
   }
 
   const output = new Output({
@@ -129,7 +140,10 @@ export async function convertWavToM4b(wavBlob: Blob, bitrate: number = 192): Pro
     })
   } catch (err) {
     logger.error('[mediabunny]', 'Conversion.init failed:', err)
-    throw new Error(`M4B Conversion.init failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+    throw new Error(
+      `M4B Conversion.init failed: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
+    )
   }
 
   if (!conversion.isValid) {
@@ -142,7 +156,9 @@ export async function convertWavToM4b(wavBlob: Blob, bitrate: number = 192): Pro
     await conversion.execute()
   } catch (err) {
     logger.error('[mediabunny]', 'conversion.execute() failed:', err)
-    throw new Error(`M4B encoding failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
+    throw new Error(`M4B encoding failed: ${err instanceof Error ? err.message : String(err)}`, {
+      cause: err,
+    })
   }
 
   const buffer = output.target.buffer

@@ -64,7 +64,16 @@ test.describe('MP3 Export Encoding', () => {
     )
 
     // Log all messages for debugging
-    console.log('Console messages after export:', consoleMessages.filter((m) => m.includes('ERROR') || m.includes('Export') || m.includes('mediabunny') || m.includes('download')))
+    console.log(
+      'Console messages after export:',
+      consoleMessages.filter(
+        (m) =>
+          m.includes('ERROR') ||
+          m.includes('Export') ||
+          m.includes('mediabunny') ||
+          m.includes('download')
+      )
+    )
 
     expect(hasEncodingError).toBe(false)
     expect(hasExportFailed).toBe(false)
