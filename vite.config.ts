@@ -48,10 +48,16 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'piper-tts': ['onnxruntime-web', '@diffusionstudio/vits-web'],
-          'pdf-parser': ['pdfjs-dist'],
-          zip: ['jszip'],
+        manualChunks(id) {
+          if (id.includes('onnxruntime-web') || id.includes('@diffusionstudio/vits-web')) {
+            return 'piper-tts'
+          }
+          if (id.includes('pdfjs-dist')) {
+            return 'pdf-parser'
+          }
+          if (id.includes('jszip')) {
+            return 'zip'
+          }
         },
       },
     },
