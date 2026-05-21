@@ -462,7 +462,26 @@
     }
 
     // Lazy-load audio from DB if not already in memory
-    const audioData = audioMap.get(chapterId) || (await ensureChapterAudio(chapterId))
+    let audioData = audioMap.get(chapterId) || (await ensureChapterAudio(chapterId))
+
+    // If no merged audio, try concatenating segments from IndexedDB
+    if (!audioData && $book?.databaseId) {
+      try {
+        const { getChapterSegments } = await import('../lib/libraryDB')
+        const { incrementalConcatWav } = await import('../lib/wavUtils')
+        const segments = await getChapterSegments($book.databaseId, chapterId)
+        if (segments.length > 0) {
+          const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
+          const blob = await incrementalConcatWav(sortedSegments.length, async (index) => {
+            return sortedSegments[index]?.audioBlob ?? null
+          })
+          audioData = { url: URL.createObjectURL(blob), blob }
+        }
+      } catch (e) {
+        console.warn('[handleDownload] Failed to concatenate segments:', e)
+      }
+    }
+
     if (!audioData) {
       toastStore.error('No audio data available for this chapter')
       return
