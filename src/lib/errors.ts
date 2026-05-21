@@ -219,6 +219,23 @@ export function isRetryableError(error: unknown, additionalPatterns?: string[]):
 }
 
 /**
+ * Storage quota exceeded error - IndexedDB or Cache API ran out of space
+ */
+export class StorageQuotaError extends PermanentError {
+  constructor(
+    message: string = 'Storage quota exceeded',
+    public readonly operation?: string,
+    originalError?: Error
+  ) {
+    super(message, originalError, 'QUOTA_EXCEEDED')
+  }
+
+  getUserMessage(): string {
+    return 'Storage is full. Please delete some books or audio to free up space.'
+  }
+}
+
+/**
  * Helper to convert unknown errors to structured errors
  */
 export function normalizeError(error: unknown, context?: string): AppError {
