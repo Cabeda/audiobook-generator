@@ -96,8 +96,8 @@ export class PiperClient {
     // Validate and clean input text
     const cleanText = text.trim()
     if (!cleanText) {
-      logger.warn('Empty text provided to Piper generate')
-      throw new Error('Cannot generate audio from empty text')
+      logger.warn('Empty text provided to Piper generate, returning silent audio')
+      return createSilentWav(0)
     }
 
     logger.info(`Generating audio for text (${cleanText.length} chars)`)

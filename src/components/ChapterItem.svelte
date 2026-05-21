@@ -30,6 +30,7 @@
   } from '../lib/utils/voiceSelector'
   import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
   import { piperVoices } from '../stores/piperVoicesStore'
+  import { EXPORT_FORMATS, type ExportFormat } from '../lib/exportFormats'
 
   let {
     chapter,
@@ -58,7 +59,7 @@
     error?: string | null
     onToggle: (id: string) => void
     onRead: (chapter: Chapter) => void
-    onDownload: (id: string, format: 'wav' | 'mp3' | 'm4b' | 'mp4') => void
+    onDownload: (id: string, format: ExportFormat) => void
     onRetry?: (id: string) => void
     onCancel?: (id: string) => void
     onResume?: (id: string) => void
@@ -426,30 +427,22 @@
         aria-label={`Audio for ${chapter.title}`}
       ></audio>
       <div class="download-actions">
-        <button
-          class="download-btn"
-          onclick={() => onDownload(chapter.id, 'wav')}
-          title="Download as WAV"
-          aria-label={`Download ${chapter.title} as WAV`}
+        <select
+          class="download-select"
+          onchange={(e) => {
+            const format = (e.target as HTMLSelectElement).value as ExportFormat
+            if (format) {
+              onDownload(chapter.id, format)
+              ;(e.target as HTMLSelectElement).value = ''
+            }
+          }}
+          aria-label={`Download format for ${chapter.title}`}
         >
-          📥 WAV
-        </button>
-        <button
-          class="download-btn"
-          onclick={() => onDownload(chapter.id, 'mp3')}
-          title="Download as MP3"
-          aria-label={`Download ${chapter.title} as MP3`}
-        >
-          MP3
-        </button>
-        <button
-          class="download-btn"
-          onclick={() => onDownload(chapter.id, 'm4b')}
-          title="Download as M4B"
-          aria-label={`Download ${chapter.title} as M4B`}
-        >
-          M4B
-        </button>
+          <option value="">📥 Download...</option>
+          {#each EXPORT_FORMATS as fmt}
+            <option value={fmt.value}>{fmt.label}</option>
+          {/each}
+        </select>
       </div>
     </div>
   {:else if isDoneWithoutAudio}
@@ -466,30 +459,22 @@
       >
         🎧 Listen
       </button>
-      <button
-        class="download-btn"
-        onclick={() => onDownload(chapter.id, 'wav')}
-        title="Download as WAV"
-        aria-label={`Download ${chapter.title} as WAV`}
+      <select
+        class="download-select"
+        onchange={(e) => {
+          const format = (e.target as HTMLSelectElement).value as ExportFormat
+          if (format) {
+            onDownload(chapter.id, format)
+            ;(e.target as HTMLSelectElement).value = ''
+          }
+        }}
+        aria-label={`Download format for ${chapter.title}`}
       >
-        📥 WAV
-      </button>
-      <button
-        class="download-btn"
-        onclick={() => onDownload(chapter.id, 'mp3')}
-        title="Download as MP3"
-        aria-label={`Download ${chapter.title} as MP3`}
-      >
-        MP3
-      </button>
-      <button
-        class="download-btn"
-        onclick={() => onDownload(chapter.id, 'm4b')}
-        title="Download as M4B"
-        aria-label={`Download ${chapter.title} as M4B`}
-      >
-        M4B
-      </button>
+        <option value="">📥 Download...</option>
+        {#each EXPORT_FORMATS as fmt}
+          <option value={fmt.value}>{fmt.label}</option>
+        {/each}
+      </select>
     </div>
   {/if}
 
@@ -801,27 +786,27 @@
     gap: 4px;
   }
 
-  .download-btn {
-    padding: 4px 10px;
-    border: 1px solid var(--input-border);
-    background: var(--surface-color);
-    border-radius: 6px;
-    font-size: 0.8rem;
+  .download-select {
+    background: var(--bg-color);
     color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
     cursor: pointer;
     transition:
-      background-color 0.2s,
-      border-color 0.2s;
+      border-color 0.2s,
+      box-shadow 0.2s;
   }
 
-  .download-btn:hover {
-    background: var(--bg-color);
+  .download-select:hover {
     border-color: var(--primary-color);
-    color: var(--primary-color);
   }
 
-  .download-btn:active {
-    transform: scale(0.95);
+  .download-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 20%, transparent);
   }
 
   audio {
@@ -1362,9 +1347,9 @@
       height: 36px;
     }
 
-    .download-btn {
+    .download-select {
       font-size: 0.75rem;
-      padding: 3px 6px;
+      padding: 4px 8px;
     }
   }
 </style>
