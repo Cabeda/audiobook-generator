@@ -9,11 +9,11 @@ import { concatenateAudioChapters, type AudioChapter } from './audioConcat'
 
 // Mock mediabunnyEncoder
 vi.mock('./mediabunnyEncoder', () => ({
-  convertWavToMp3: vi.fn(async (blob: Blob) =>
-    new Blob([await blob.arrayBuffer()], { type: 'audio/mpeg' })
+  convertWavToMp3: vi.fn(
+    async (blob: Blob) => new Blob([await blob.arrayBuffer()], { type: 'audio/mpeg' })
   ),
-  convertWavToM4b: vi.fn(async (blob: Blob) =>
-    new Blob([await blob.arrayBuffer()], { type: 'audio/m4b' })
+  convertWavToM4b: vi.fn(
+    async (blob: Blob) => new Blob([await blob.arrayBuffer()], { type: 'audio/m4b' })
   ),
 }))
 
@@ -108,7 +108,7 @@ describe('WAV segment format mismatch during export', () => {
     // Simulate what Kokoro produces: 24000 Hz mono 16-bit WAV segments
     const seg1 = createWavBlob(24000, 1000) // 1 second
     const seg2 = createWavBlob(24000, 1000) // 1 second
-    const seg3 = createWavBlob(24000, 500)  // 0.5 seconds
+    const seg3 = createWavBlob(24000, 500) // 0.5 seconds
 
     const result = await incrementalConcatWav(3, async (i) => [seg1, seg2, seg3][i])
 

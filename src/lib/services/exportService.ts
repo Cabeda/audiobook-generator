@@ -175,7 +175,10 @@ export async function exportAudio(
       } catch (e) {
         // If incrementalConcatWav fails (e.g., format mismatch between segments),
         // fall back to concatenating raw segment blobs and let Mediabunny handle resampling
-        logger.warn(`[Export] incrementalConcatWav failed for chapter ${ch.id}, trying raw blob fallback:`, e instanceof Error ? e.message : e)
+        logger.warn(
+          `[Export] incrementalConcatWav failed for chapter ${ch.id}, trying raw blob fallback:`,
+          e instanceof Error ? e.message : e
+        )
         try {
           const segments = await getChapterSegments(bookId, ch.id)
           const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
