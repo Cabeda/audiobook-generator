@@ -136,16 +136,16 @@ export class AudioGenerationError extends AppError {
 }
 
 /**
- * FFmpeg error - failure during audio processing
+ * Encoding error - failure during audio processing (encoding/conversion)
  */
-export class FFmpegError extends AppError {
+export class EncodingError extends AppError {
   constructor(
     message: string,
     public readonly operation: string,
     public readonly isTransient: boolean = false,
     originalError?: Error
   ) {
-    super(message, 'FFMPEG_ERROR', { operation, originalError })
+    super(message, 'ENCODING_ERROR', { operation, originalError })
   }
 
   getUserMessage(): string {
@@ -155,6 +155,11 @@ export class FFmpegError extends AppError {
     return `Audio processing failed (${this.operation}). Please try again.`
   }
 }
+
+/**
+ * @deprecated Use `EncodingError` instead. This alias exists for backward compatibility.
+ */
+export const FFmpegError = EncodingError
 
 /**
  * Default patterns that indicate a transient (retryable) error
@@ -194,7 +199,7 @@ export function isRetryableError(error: unknown, additionalPatterns?: string[]):
     return true
   }
 
-  if (error instanceof FFmpegError && error.isTransient) {
+  if (error instanceof EncodingError && error.isTransient) {
     return true
   }
 

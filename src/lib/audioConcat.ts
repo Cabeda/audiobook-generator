@@ -3,12 +3,13 @@
  *
  * Pure WAV helpers (createSilentWav, parseWavHeaderFromBlob, audioBufferToWav, etc.)
  * live in ./wavUtils.ts.  This module re-exports them for backward compatibility.
+ *
+ * Encoding (MP3/M4B) is handled by Mediabunny via ./mediabunnyEncoder.ts.
  */
-import { FFmpeg } from '@ffmpeg/ffmpeg'
 import logger from './utils/logger'
-import { retryWithBackoff, isRetryableError } from './retryUtils'
-import { FFmpegError } from './errors'
-import { writeString, audioBufferToWav, createSilentWav } from './wavUtils'
+import { EncodingError } from './errors'
+import { writeString, audioBufferToWav } from './wavUtils'
+import { convertWavToMp3 as mediabunnyConvertWavToMp3, convertWavToM4b } from './mediabunnyEncoder'
 
 // Re-export WAV utilities so existing consumers don't break
 export {
@@ -22,209 +23,6 @@ export {
   incrementalConcatWav,
   downloadAudioFile,
 } from './wavUtils'
-
-// Singleton FFmpeg instance
-let ffmpegInstance: FFmpeg | null = null
-let ffmpegLoaded = false
-
-/**
- * Get or create FFmpeg instance with retry logic
- */
-async function getFFmpeg(): Promise<FFmpeg> {
-  if (ffmpegInstance && ffmpegLoaded) {
-    return ffmpegInstance
-  }
-
-  if (!ffmpegInstance) {
-    ffmpegInstance = new FFmpeg()
-
-    // Enable logging for debugging
-    ffmpegInstance.on('log', ({ message }) => {
-      logger.info('[FFmpeg]', message)
-      if (message.includes('Aborted()')) {
-        logger.warn('[FFmpeg]', 'Detected Abort! Resetting instance.')
-        ffmpegLoaded = false
-        ffmpegInstance = null
-      }
-    })
-  }
-
-  if (!ffmpegLoaded) {
-    await retryWithBackoff(
-      async () => {
-        // Use ESM build from jsdelivr with direct URLs (no toBlobURL needed)
-        const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm'
-        logger.info('[FFmpeg]', 'Loading FFmpeg core from:', baseURL)
-
-        await ffmpegInstance!.load({
-          coreURL: `${baseURL}/ffmpeg-core.js`,
-          wasmURL: `${baseURL}/ffmpeg-core.wasm`,
-        })
-
-        logger.info('[FFmpeg]', 'Successfully loaded')
-        ffmpegLoaded = true
-      },
-      {
-        maxRetries: 2,
-        initialDelay: 1000,
-        maxDelay: 5000,
-        shouldRetry: isRetryableError,
-        onRetry: (attempt, maxRetries, error) => {
-          logger.warn(`[FFmpeg] Load retry ${attempt}/${maxRetries}:`, error.message)
-        },
-      }
-    ).catch((err) => {
-      logger.error('[FFmpeg]', 'Failed to load after retries:', err)
-      // Reset instance so it can be retried
-      ffmpegInstance = null
-      ffmpegLoaded = false
-      throw new FFmpegError(
-        `Failed to load FFmpeg: ${err instanceof Error ? err.message : String(err)}`,
-        'load',
-        isRetryableError(err),
-        err instanceof Error ? err : undefined
-      )
-    })
-  }
-
-  return ffmpegInstance
-}
-
-// Compatibility wrappers for different @ffmpeg/ffmpeg builds/APIs
-type FFmpegFS = {
-  FS?: (
-    op: 'writeFile' | 'readFile' | 'unlink' | 'remove',
-    filename: string,
-    data?: Uint8Array
-  ) => Uint8Array | void
-}
-
-async function ffWriteFile(ffmpeg: FFmpeg, filename: string, data: Uint8Array) {
-  const asWithWrite = ffmpeg as unknown as {
-    writeFile?: (name: string, d: Uint8Array) => Promise<void> | void
-  } & FFmpegFS
-
-  if (typeof asWithWrite.writeFile === 'function') {
-    // some builds return a promise
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore - allow calling possible promise-returning API
-    return await asWithWrite.writeFile(filename, data)
-  }
-
-  if (typeof asWithWrite.FS === 'function') {
-    return asWithWrite.FS('writeFile', filename, data)
-  }
-
-  throw new Error('FFmpeg write API not available')
-}
-
-async function ffRun(ffmpeg: FFmpeg, args: string[]) {
-  const asWithRun = ffmpeg as unknown as {
-    exec?: (a: string[]) => Promise<unknown>
-    run?: (...a: string[]) => Promise<unknown>
-  }
-
-  try {
-    if (typeof asWithRun.exec === 'function') {
-      logger.info('[FFmpeg]', 'Executing with exec():', args.join(' '))
-      const result = await asWithRun.exec(args)
-      logger.info('[FFmpeg]', 'Execution completed successfully')
-      return result
-    }
-
-    if (typeof asWithRun.run === 'function') {
-      logger.info('[FFmpeg]', 'Executing with run():', args.join(' '))
-      try {
-        const result = await asWithRun.run(...args)
-        logger.info('[FFmpeg]', 'Execution completed successfully')
-        return result
-      } catch {
-        // fallback: some builds accept an array as single arg
-        // The call signature may not match compile-time types; ignore here with explanation.
-        logger.info('[FFmpeg]', 'Retrying with array argument')
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore: calling run with an array is required for some FFmpeg builds
-        const result = await asWithRun.run(args)
-        logger.info('[FFmpeg]', 'Execution completed successfully')
-        return result
-      }
-    }
-
-    throw new Error('FFmpeg run/exec API not available')
-  } catch (err) {
-    logger.error('[FFmpeg] Execution failed:', err)
-    throw err
-  }
-}
-
-async function ffReadFile(ffmpeg: FFmpeg, filename: string): Promise<Uint8Array> {
-  const asWithRead = ffmpeg as unknown as {
-    readFile?: (name: string) => Promise<Uint8Array | string> | Uint8Array | string
-  } & FFmpegFS
-
-  try {
-    if (typeof asWithRead.readFile === 'function') {
-      const result = asWithRead.readFile(filename)
-      const data = result instanceof Promise ? await result : result
-
-      if (!data) {
-        throw new Error(
-          `File '${filename}' not found in FFmpeg virtual filesystem (readFile returned null/undefined)`
-        )
-      }
-
-      if (typeof data === 'string') {
-        return new TextEncoder().encode(data)
-      }
-      return data
-    }
-
-    if (typeof asWithRead.FS === 'function') {
-      const data = asWithRead.FS('readFile', filename) as Uint8Array
-      if (!data) {
-        throw new Error(
-          `File '${filename}' not found in FFmpeg virtual filesystem (FS returned null/undefined)`
-        )
-      }
-      return data
-    }
-
-    throw new Error('FFmpeg read API not available')
-  } catch (err) {
-    logger.error(`[FFmpeg] Error reading file '${filename}':`, err)
-    throw new Error(
-      `Failed to read file '${filename}' from FFmpeg: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err }
-    )
-  }
-}
-
-async function ffDeleteFile(ffmpeg: FFmpeg, filename: string) {
-  const asWithDelete = ffmpeg as unknown as FFmpegFS & {
-    deleteFile?: (name: string) => Promise<void> | void
-  }
-
-  if (typeof asWithDelete.deleteFile === 'function') {
-    // Some FFmpeg builds expose deleteFile with a different signature; ignore types here.
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore: call deleteFile when available
-    return await asWithDelete.deleteFile(filename)
-  }
-
-  if (typeof asWithDelete.FS === 'function') {
-    try {
-      return asWithDelete.FS('unlink', filename)
-    } catch {
-      try {
-        return asWithDelete.FS('remove', filename)
-      } catch {
-        // best-effort cleanup; ignore errors
-      }
-    }
-  }
-
-  // nothing to do
-}
 
 export type AudioFormat = 'wav' | 'mp3' | 'm4b' | 'mp4'
 
@@ -258,27 +56,19 @@ export function resampleAndNormalizeAudioBuffers(
   const targetNumChannels = Math.max(...buffers.map((b) => b.numberOfChannels))
 
   return buffers.map((buf) => {
-    // 1) Convert channel count if necessary
     let converted = buf
     if (buf.numberOfChannels !== targetNumChannels) {
       converted = convertChannels(buf, targetNumChannels, audioContext)
     }
-
-    // 2) Resample if necessary
     if (converted.sampleRate !== targetSampleRate) {
       converted = resampleBuffer(converted, targetSampleRate, audioContext)
     }
-
     return converted
   })
 }
 
 /**
- * Convert various audio-like objects into a WAV Blob. This helper accepts:
- * - Blob -> returned as-is
- * - ArrayBuffer / Uint8Array -> wrapped in Blob
- * - Objects with arrayBuffer() -> await and wrap in Blob
- * - AudioBuffer-like objects (with numberOfChannels and getChannelData) -> convert to WAV via audioBufferToWav
+ * Convert various audio-like objects into a WAV Blob.
  */
 export async function audioLikeToBlob(
   audio: unknown,
@@ -286,7 +76,6 @@ export async function audioLikeToBlob(
   _depth = 0
 ): Promise<Blob> {
   if (!audio) throw new Error('No audio provided')
-  // Prevent infinite recursion on self-referencing wrapper values
   try {
     if (typeof audio === 'object' && audio !== null) {
       if (_seen.has(audio)) {
@@ -298,16 +87,11 @@ export async function audioLikeToBlob(
     // Some host wrappers might throw when used as map keys; ignore
   }
 
-  // If already a Blob
   if (audio instanceof Blob) return audio
-
-  // If it's an ArrayBuffer
   if (audio instanceof ArrayBuffer) return new Blob([audio], { type: 'audio/wav' })
-
   if (audio instanceof Uint8Array)
     return new Blob([new Uint8Array(audio).buffer], { type: 'audio/wav' })
 
-  // Type guards
   function hasArrayBufferMethod(
     a: unknown
   ): a is { arrayBuffer: () => Promise<ArrayBuffer>; type?: string } {
@@ -323,7 +107,6 @@ export async function audioLikeToBlob(
     )
   }
 
-  // If it has arrayBuffer() method (e.g., Response or other wrappers)
   if (hasArrayBufferMethod(audio)) {
     try {
       const arr = await audio.arrayBuffer()
@@ -334,22 +117,18 @@ export async function audioLikeToBlob(
     }
   }
 
-  // If it looks like an AudioBuffer-like object
   if (isAudioBufferLike(audio)) {
     try {
-      // Use internal converter
       return audioBufferToWav(audio as AudioBuffer)
     } catch {
       // fall through
     }
   }
 
-  // Abort if we've unwrapped too many levels to avoid infinite recursion
   if (_depth > 12) {
     throw new Error('Exceeded maximum audio wrapper unwrapping depth')
   }
 
-  // If it's a Promise-like that resolves to something, await it and try again
   if (typeof (audio as any)?.then === 'function') {
     try {
       const resolved = await (audio as Promise<unknown>)
@@ -359,18 +138,14 @@ export async function audioLikeToBlob(
     }
   }
 
-  // If it's a JSHandle-like wrapper exported from e.g. Playwright, attempt to find underlying value
   const ctorName = (audio as any)?.constructor?.name
   if (typeof ctorName === 'string' && ctorName.includes('JSHandle')) {
-    // Try common unwrapping patterns, including Playwright's jsonValue/getter style
     const candidates = [
       (audio as any).value,
       (audio as any).json,
       (audio as any).toJSON,
       (audio as any).payload,
-      // Playwright's JSHandle exposes jsonValue() which returns a Promise
       typeof (audio as any).jsonValue === 'function' ? (audio as any).jsonValue() : undefined,
-      // Some wrappers may expose a getter like .get() or .valueOf()
       typeof (audio as any).get === 'function' ? (audio as any).get() : undefined,
       typeof (audio as any).valueOf === 'function' ? (audio as any).valueOf() : undefined,
     ]
@@ -378,9 +153,6 @@ export async function audioLikeToBlob(
     for (const cand of candidates) {
       if (cand == null) continue
       try {
-        // If candidate is a Promise, await it
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore - runtime checks will ensure safety
         const resolved = typeof (cand as any)?.then === 'function' ? await cand : cand
         const maybe = await audioLikeToBlob(resolved, _seen, _depth + 1)
         return maybe
@@ -388,28 +160,23 @@ export async function audioLikeToBlob(
         // try next candidate
       }
     }
-    // If none of the unwrapping attempts returned something useful, inspect representation
     const repr = String(audio?.toString?.() ?? audio)
     if (repr.includes('JSHandle@error')) {
-      // Explicit error returned from the wrapper; surface as failure for consumer to handle
-      // Log a warning for tests to assert on
       logger.warn('[audioLikeToBlob] JSHandle reported an error state:', repr)
       throw new Error('JSHandle reported an error when attempting to convert to Blob')
     }
     logger.warn(
       '[audioLikeToBlob] Detected JSHandle-like wrapper but could not unwrap it. Throwing strict error.'
     )
-    // Strict mode: do not fallback to a fake blob; throw and let caller handle the error.
     throw new Error('Unsupported JSHandle-like wrapper; could not convert to Blob')
   }
 
-  // If we reach here we cannot convert
   throw new Error(
     `Unsupported audio type for conversion: ${String(audio?.constructor?.name || typeof audio)}`
   )
 }
 
-// Convert number of channels by duplicating or mixing channels
+// Convert number of channels
 function convertChannels(
   buffer: AudioBuffer,
   targetChannels: number,
@@ -423,15 +190,13 @@ function convertChannels(
     if (ch < buffer.numberOfChannels) {
       outData.set(buffer.getChannelData(ch))
     } else {
-      // Duplicate last channel if fewer channels than target
       outData.set(buffer.getChannelData(buffer.numberOfChannels - 1))
     }
   }
-
   return out
 }
 
-// Resample AudioBuffer to the target sample rate using linear interpolation
+// Resample AudioBuffer using linear interpolation
 function resampleBuffer(
   buffer: AudioBuffer,
   targetSampleRate: number,
@@ -451,21 +216,14 @@ function resampleBuffer(
       const i0 = Math.floor(srcIndex)
       const i1 = Math.min(i0 + 1, input.length - 1)
       const frac = srcIndex - i0
-      const v0 = input[i0]
-      const v1 = input[i1]
-      output[i] = v0 + frac * (v1 - v0)
+      output[i] = input[i0] + frac * (input[i1] - input[i0])
     }
   }
-
   return out
 }
 
 /**
- * Concatenate multiple audio blobs into a single audio file
- * @param chapters - Array of audio chapters with metadata
- * @param options - Concatenation options including format
- * @param onProgress - Optional progress callback
- * @returns Combined audio blob with chapter markers
+ * Concatenate multiple audio blobs into a single audio file.
  */
 export async function concatenateAudioChapters(
   chapters: AudioChapter[],
@@ -477,188 +235,36 @@ export async function concatenateAudioChapters(
     throw new Error('No chapters to concatenate')
   }
 
-  // Optimize: If all inputs are WAV and output is WAV, use efficient Blob composition
-  // This avoids loading the entire audiobook into memory (AudioContext or FFmpeg FS)
+  // Single WAV chapter shortcut
+  if (chapters.length === 1 && format === 'wav' && chapters[0].blob.type === 'audio/wav') {
+    return chapters[0].blob
+  }
+
+  // Optimized WAV concatenation path (zero-copy Blob composition)
   if (format === 'wav' && chapters.every((c) => c.blob.type.includes('wav'))) {
     try {
       logger.info('[audioConcat]', 'Using optimized WAV concatenation')
       return await concatWavBlobs(chapters)
     } catch (err) {
       logger.warn('[audioConcat]', 'Optimized WAV concat failed, falling back:', err)
-      // Fallthrough to other methods
     }
   }
 
-  // Note: Even with single chapter, we still process it to ensure correct format
-  if (chapters.length === 1 && format === 'wav' && chapters[0].blob.type === 'audio/wav') {
-    return chapters[0].blob
-  }
-
-  // For MP3/M4B/MP4 formats, prioritize FFmpeg-based concatenation to avoid
-  // loading the entire audiobook into memory as an AudioBuffer (which can cause
-  // RangeError: Array buffer allocation failed for long audiobooks).
-  // FFmpeg's concat demuxer is memory-efficient for these formats.
-  // Only use this optimization if we have multiple chapters or non-empty blobs
-  if (
-    (format === 'mp3' || format === 'm4b' || format === 'mp4') &&
-    chapters.length > 0 &&
-    chapters.some((c) => c.blob.size > 0)
-  ) {
-    try {
-      logger.info('[audioConcat]', `Using FFmpeg-based concatenation for ${format.toUpperCase()}`)
-      return await ffmpegConcatenateBlobs(chapters, format, bitrate, options, onProgress)
-    } catch (err) {
-      logger.warn(
-        '[audioConcat]',
-        `FFmpeg concatenation for ${format} failed, falling back to Web Audio:`,
-        err
-      )
-      // Fallthrough to Web Audio path
-    }
-  }
-
-  // Create audio context for processing when available. Some environments
-  // (e.g., Web Workers, headless) may not expose `AudioContext` or
-  // `OfflineAudioContext`. When Web Audio is unavailable, we fall back to an
-  // FFmpeg-based concatenation which works in both workers and main thread.
-  let audioContext: AudioContext | OfflineAudioContext | null = null
-  if (typeof (globalThis as any).AudioContext === 'function') {
-    audioContext = new (globalThis as any).AudioContext()
-    logger.info('[audioConcat] Using AudioContext')
-  } else if (typeof (globalThis as any).OfflineAudioContext === 'function') {
-    // Use a minimal offline context for decoding and resampling in worker contexts
-    audioContext = new (globalThis as any).OfflineAudioContext(2, 1, 44100)
-    logger.info('[audioConcat] Using OfflineAudioContext (worker fallback)')
-  } else if (typeof (globalThis as any).webkitAudioContext === 'function') {
-    audioContext = new (globalThis as any).webkitAudioContext()
-    logger.info('[audioConcat] Using webkitAudioContext')
-  }
-  const sampleRate = (audioContext as any)?.sampleRate || 44100
-  logger.info(
-    `[audioConcat] audioContext: ${audioContext?.constructor?.name || 'unknown'}; sampleRate: ${sampleRate}`
-  )
-
+  // For MP3/M4B/MP4: concatenate WAV blobs first, then encode with Mediabunny
   onProgress?.({
     current: 0,
     total: chapters.length,
-    status: 'loading',
-    message: 'Loading audio chapters...',
-  })
-
-  // If we couldn't create a WebAudio context, fallback to FFmpeg-based
-  // concatenation which doesn't rely on Web Audio APIs and works in worker
-  // contexts. This is particularly useful for headless CI and the web worker
-  // where AudioContext is missing.
-  if (!audioContext) {
-    logger.warn('[audioConcat] Web Audio API unavailable — attempting FFmpeg-based concat fallback')
-    try {
-      return await ffmpegConcatenateBlobs(chapters, format, bitrate, options, onProgress)
-    } catch (err) {
-      logger.warn('[audioConcat] FFmpeg fallback failed:', err)
-      // Try a lightweight WAV-only concatenation if all inputs are WAV PCM with matching params
-      try {
-        return await concatWavBlobs(chapters)
-      } catch (wavErr) {
-        logger.error('[audioConcat] WAV-only concatenation fallback failed:', wavErr)
-        throw new Error(
-          'Web Audio API not available and FFmpeg fallback failed; cannot concatenate audio',
-          { cause: wavErr }
-        )
-      }
-    }
-  }
-
-  // Decode all audio blobs to AudioBuffers
-  const audioBuffers: AudioBuffer[] = []
-  for (let i = 0; i < chapters.length; i++) {
-    onProgress?.({
-      current: i + 1,
-      total: chapters.length,
-      status: 'decoding',
-      message: `Decoding chapter ${i + 1}/${chapters.length}: ${chapters[i].title}`,
-    })
-
-    // Yield to UI thread to prevent blocking
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    try {
-      const blob = chapters[i].blob
-      logger.info(`[audioConcat] Decoding chapter ${i + 1}: size=${blob.size}, type=${blob.type}`)
-
-      // Validate blob size
-      if (blob.size === 0) {
-        logger.warn(
-          `[audioConcat] Chapter ${i + 1} "${chapters[i].title}" has empty audio blob. Generating 1s silence.`
-        )
-        // Create 1 second of silence
-        const silence = audioContext.createBuffer(1, sampleRate, sampleRate)
-        audioBuffers.push(silence)
-        continue
-      }
-
-      const arrayBuffer = await blob.arrayBuffer()
-
-      // Log first few bytes to help diagnose format issues
-      const view = new Uint8Array(arrayBuffer.slice(0, 12))
-      const header = String.fromCharCode(...view.slice(0, 4))
-      logger.info(
-        `[audioConcat] Chapter ${i + 1} header: "${header}" (bytes: ${Array.from(view.slice(0, 12)).join(',')})`
-      )
-
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-      audioBuffers.push(audioBuffer)
-    } catch (err) {
-      logger.error(`[audioConcat] Failed to decode chapter ${i + 1} "${chapters[i].title}":`, err)
-      // Instead of failing the entire process, try to add silence for failed chapters too
-      try {
-        logger.warn(`[audioConcat] Generating silence for failed chapter ${i + 1}`)
-        const silence = audioContext.createBuffer(1, sampleRate, sampleRate)
-        audioBuffers.push(silence)
-      } catch {
-        throw new Error(
-          `Failed to decode audio for chapter ${i + 1} "${chapters[i].title}": ${err instanceof Error ? err.message : String(err)}`
-        )
-      }
-    }
-  }
-
-  // Normalize sample rate / channel count across decoded buffers
-  const normalizedBuffers = resampleAndNormalizeAudioBuffers(audioContext, audioBuffers)
-
-  onProgress?.({
-    current: 0,
-    total: 1,
     status: 'concatenating',
-    message: 'Concatenating audio chapters...',
+    message: 'Concatenating chapters...',
   })
 
-  // Calculate total length
-  const totalLength = normalizedBuffers.reduce((sum, buffer) => sum + buffer.length, 0)
-  const numberOfChannels = normalizedBuffers[0].numberOfChannels
-
-  // Create output buffer
-  const outputBuffer = audioContext.createBuffer(numberOfChannels, totalLength, sampleRate)
-
-  // Copy all audio data into output buffer
-  let offset = 0
-  for (let i = 0; i < normalizedBuffers.length; i++) {
-    const buffer = normalizedBuffers[i]
-
-    // Yield before processing each chapter to keep UI responsive. In Web Workers
-    // requestAnimationFrame may not exist, so fall back to setTimeout.
-    await new Promise((resolve) =>
-      typeof requestAnimationFrame === 'function'
-        ? requestAnimationFrame(() => setTimeout(resolve, 0))
-        : setTimeout(resolve, 0)
-    )
-
-    for (let channel = 0; channel < numberOfChannels; channel++) {
-      const outputData = outputBuffer.getChannelData(channel)
-      const inputData = buffer.getChannelData(channel)
-      outputData.set(inputData, offset)
-    }
-
-    offset += buffer.length
+  // First, produce a single WAV blob from all chapters
+  let wavBlob: Blob
+  try {
+    wavBlob = await concatWavBlobs(chapters)
+  } catch {
+    // If optimized concat fails (format mismatch), fall back to WebAudio decode path
+    wavBlob = await webAudioConcatToWav(chapters, onProgress)
   }
 
   onProgress?.({
@@ -668,25 +274,28 @@ export async function concatenateAudioChapters(
     message: `Encoding to ${format.toUpperCase()}...`,
   })
 
-  // Convert to requested format
   let outputBlob: Blob
-
-  switch (format) {
-    case 'mp3':
-      outputBlob = await audioBufferToMp3(outputBuffer, bitrate, chapters, options)
-      break
-    case 'm4b':
-      // M4B uses AAC encoding with .m4b extension and chapter metadata
-      outputBlob = await audioBufferToMp3(outputBuffer, bitrate, chapters, options)
-      break
-    case 'mp4':
-      // MP4 uses AAC encoding with .mp4 extension and chapter metadata
-      outputBlob = await audioBufferToMp3(outputBuffer, bitrate, chapters, options)
-      break
-    case 'wav':
-    default:
-      outputBlob = audioBufferToWav(outputBuffer)
-      break
+  try {
+    switch (format) {
+      case 'mp3':
+        outputBlob = await mediabunnyConvertWavToMp3(wavBlob, bitrate)
+        break
+      case 'm4b':
+      case 'mp4':
+        outputBlob = await convertWavToM4b(wavBlob, bitrate)
+        break
+      case 'wav':
+      default:
+        outputBlob = wavBlob
+        break
+    }
+  } catch (err) {
+    throw new EncodingError(
+      `Failed to encode to ${format}: ${err instanceof Error ? err.message : String(err)}`,
+      format,
+      false,
+      err instanceof Error ? err : undefined
+    )
   }
 
   onProgress?.({
@@ -696,105 +305,41 @@ export async function concatenateAudioChapters(
     message: 'Audiobook created successfully!',
   })
 
-  // Close audio context to free resources if the method exists
-  if (typeof (audioContext as any).close === 'function') {
-    try {
-      await (audioContext as any).close()
-    } catch {
-      // Swallow errors closing contexts in some environments
-    }
-  }
-
   return outputBlob
 }
 
 /**
- * Convert AudioBuffer to MP3, M4B, or MP4 blob using FFmpeg
+ * Convert WAV blob to MP3 blob using Mediabunny.
+ */
+export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Promise<Blob> {
+  return mediabunnyConvertWavToMp3(wavBlob, bitrate)
+}
+
+/**
+ * Convert AudioBuffer to encoded blob (MP3/M4B/MP4).
+ * Kept for backward compatibility — converts to WAV first, then encodes.
  */
 export async function audioBufferToMp3(
   audioBuffer: AudioBuffer,
   bitrate: number,
-  chapters: AudioChapter[],
+  _chapters: AudioChapter[],
   options: ConcatenationOptions
 ): Promise<Blob> {
-  // First convert AudioBuffer to WAV
   const wavBlob = audioBufferToWav(audioBuffer)
+  const format = options.format || 'mp3'
 
-  // Then convert WAV to MP3, M4B, or MP4 using FFmpeg
-  const ffmpeg = await getFFmpeg()
-
-  // Determine output format and file (declare here so finally can reference)
-  const isM4B = options.format === 'm4b'
-  const isMP4 = options.format === 'mp4'
-  const outputFile = isM4B ? 'output.m4b' : isMP4 ? 'output.mp4' : 'output.mp3'
-  const codec = isM4B || isMP4 ? 'aac' : 'libmp3lame'
-
-  try {
-    // Write input WAV file
-    const wavData = new Uint8Array(await wavBlob.arrayBuffer())
-    logger.info(`[audioConcat] Writing input WAV: ${wavData.length} bytes`)
-    await ffWriteFile(ffmpeg, 'input.wav', wavData)
-
-    // Build FFmpeg command
-    // Order matters: inputs first, then output options, then output file
-    const args: string[] = ['-i', 'input.wav']
-
-    // Add metadata input if available (for chapters)
-    if ((isM4B || isMP4) && chapters.length > 0) {
-      const metadata = createFFmpegMetadata(chapters, audioBuffer.duration)
-      await ffWriteFile(ffmpeg, 'metadata.txt', new TextEncoder().encode(metadata))
-      // Note: second input (index 1) contains metadata
-      args.push('-i', 'metadata.txt', '-map_metadata', '1')
-    }
-
-    // Output options
-    args.push('-c:a', codec, '-b:a', `${bitrate}k`)
-
-    // Add metadata tags
-    if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
-    if (options.bookAuthor) args.push('-metadata', `artist=${options.bookAuthor}`)
-
-    // Overwrite output file
-    args.push('-y', outputFile)
-
-    logger.info(`[audioConcat] Running FFmpeg with args:`, args)
-
-    // Execute FFmpeg
-    await ffRun(ffmpeg, args)
-
-    logger.info(`[audioConcat] Reading output file: ${outputFile}`)
-
-    // Read output file
-    const data = await ffReadFile(ffmpeg, outputFile)
-    logger.info(`[audioConcat] Output file size: ${data.length} bytes`)
-
-    if (data.length === 0) {
-      throw new Error('FFmpeg produced an empty output file')
-    }
-
-    const mimeType = isM4B ? 'audio/m4b' : isMP4 ? 'audio/mp4' : 'audio/mpeg'
-    return new Blob([new Uint8Array(data)], { type: mimeType })
-  } catch (err) {
-    throw new Error(
-      `Failed to convert audio buffer to ${options.format || 'mp3'}: ${String(err)}`,
-      { cause: err }
-    )
-  } finally {
-    // Best-effort cleanup
-    try {
-      await ffDeleteFile(ffmpeg, 'input.wav')
-      await ffDeleteFile(ffmpeg, outputFile)
-      if ((isM4B || isMP4) && chapters.length > 0) await ffDeleteFile(ffmpeg, 'metadata.txt')
-    } catch {
-      // swallow cleanup errors
-    }
+  switch (format) {
+    case 'm4b':
+    case 'mp4':
+      return convertWavToM4b(wavBlob, bitrate)
+    case 'mp3':
+    default:
+      return mediabunnyConvertWavToMp3(wavBlob, bitrate)
   }
 }
 
 /**
- * Lightweight WAV-only concatenation that does not require WebAudio or FFmpeg.
- * This supports only PCM/Float WAV files with identical sampleRate, channels, and bitDepth.
- * Optimized to use Blob composition to avoid large memory allocations.
+ * Lightweight WAV-only concatenation (zero-copy Blob composition).
  */
 async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
   if (!chapters || chapters.length === 0) throw new Error('No chapters')
@@ -802,9 +347,7 @@ async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
   const parts: BlobPart[] = []
   let totalDataLength = 0
 
-  // Helper to parse WAV header from a blob
   async function parseWavHeader(blob: Blob) {
-    // Read first 1024 bytes to be safe (headers are usually small)
     const headerData = new Uint8Array(await blob.slice(0, 1024).arrayBuffer())
     const view = new DataView(headerData.buffer)
 
@@ -841,24 +384,18 @@ async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
     }
 
     if (!fmt || dataOffset === -1) throw new Error('Invalid WAV: missing fmt or data chunk')
-
     return { fmt, dataOffset, dataLength }
   }
 
-  // Parse first chapter to establish format
   const firstInfo = await parseWavHeader(chapters[0].blob)
-
-  // Add first chapter's data
   parts.push(
     chapters[0].blob.slice(firstInfo.dataOffset, firstInfo.dataOffset + firstInfo.dataLength)
   )
   totalDataLength += firstInfo.dataLength
 
-  // Process remaining chapters
   for (let i = 1; i < chapters.length; i++) {
     const info = await parseWavHeader(chapters[i].blob)
 
-    // Validate format compatibility
     if (
       info.fmt.audioFormat !== firstInfo.fmt.audioFormat ||
       info.fmt.numChannels !== firstInfo.fmt.numChannels ||
@@ -874,7 +411,6 @@ async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
     totalDataLength += info.dataLength
   }
 
-  // Create new header
   const headerBuffer = new ArrayBuffer(44)
   const headerView = new DataView(headerBuffer)
 
@@ -892,186 +428,107 @@ async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
   writeString(headerView, 36, 'data')
   headerView.setUint32(40, totalDataLength, true)
 
-  // Prepend header to parts
   parts.unshift(headerBuffer)
-
   return new Blob(parts, { type: 'audio/wav' })
 }
 
 /**
- * FFmpeg-based concatenation fallback for environments without Web Audio
- * (e.g. Web Workers, headless). This writes each chapter blob into FFmpeg's
- * virtual filesystem, normalizes each file to a WAV with matching sample rate
- * and channels, concatenates using the concat demuxer or filter, and then
- * encodes to the requested format.
+ * WebAudio-based fallback: decode all chapters, normalize, and produce a WAV blob.
  */
-async function ffmpegConcatenateBlobs(
+async function webAudioConcatToWav(
   chapters: AudioChapter[],
-  format: AudioFormat,
-  bitrate: number,
-  options: ConcatenationOptions,
   onProgress?: (progress: ConcatenationProgress) => void
 ): Promise<Blob> {
-  const ffmpeg = await getFFmpeg()
+  let audioContext: AudioContext | OfflineAudioContext | null = null
+  if (typeof (globalThis as any).AudioContext === 'function') {
+    audioContext = new (globalThis as any).AudioContext()
+  } else if (typeof (globalThis as any).OfflineAudioContext === 'function') {
+    audioContext = new (globalThis as any).OfflineAudioContext(2, 1, 44100)
+  } else if (typeof (globalThis as any).webkitAudioContext === 'function') {
+    audioContext = new (globalThis as any).webkitAudioContext()
+  }
+
+  if (!audioContext) {
+    throw new Error('Web Audio API not available and cannot concatenate audio')
+  }
+
+  const sampleRate = (audioContext as any)?.sampleRate || 44100
 
   onProgress?.({
     current: 0,
     total: chapters.length,
     status: 'loading',
-    message: 'Loading audio via FFmpeg...',
+    message: 'Loading audio chapters...',
   })
 
-  const tmpFiles: string[] = []
-  let concatList = ''
-
+  const audioBuffers: AudioBuffer[] = []
   for (let i = 0; i < chapters.length; i++) {
-    const c = chapters[i]
-    // Use .wav extension as we expect WAV inputs from TTS
-    const filename = `input_${i}.wav`
-    const data = new Uint8Array(await c.blob.arrayBuffer())
-
-    if (data.length === 0) {
-      logger.warn(
-        `[audioConcat] Chapter ${i + 1} "${c.title}" has empty audio blob. Generating 1s silence for FFmpeg.`
-      )
-      // Create a silent WAV file
-      const silenceBlob = createSilentWav(1)
-      const silenceData = new Uint8Array(await silenceBlob.arrayBuffer())
-      await ffWriteFile(ffmpeg, filename, silenceData)
-    } else {
-      await ffWriteFile(ffmpeg, filename, data)
-    }
-
-    tmpFiles.push(filename)
-    concatList += `file '${filename}'\n`
-
     onProgress?.({
       current: i + 1,
       total: chapters.length,
-      status: 'decoding', // technically just writing to FS
-      message: `Prepared ${c.title}`,
+      status: 'decoding',
+      message: `Decoding chapter ${i + 1}/${chapters.length}: ${chapters[i].title}`,
     })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    try {
+      const blob = chapters[i].blob
+      if (blob.size === 0) {
+        const silence = audioContext.createBuffer(1, sampleRate, sampleRate)
+        audioBuffers.push(silence)
+        continue
+      }
+      const arrayBuffer = await blob.arrayBuffer()
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      audioBuffers.push(audioBuffer)
+    } catch (err) {
+      logger.error(`[audioConcat] Failed to decode chapter ${i + 1} "${chapters[i].title}":`, err)
+      try {
+        const silence = audioContext.createBuffer(1, sampleRate, sampleRate)
+        audioBuffers.push(silence)
+      } catch {
+        throw new Error(
+          `Failed to decode audio for chapter ${i + 1} "${chapters[i].title}": ${err instanceof Error ? err.message : String(err)}`
+        )
+      }
+    }
   }
 
-  // Write list file for concat demuxer
-  await ffWriteFile(ffmpeg, 'list.txt', new TextEncoder().encode(concatList))
+  const normalizedBuffers = resampleAndNormalizeAudioBuffers(audioContext, audioBuffers)
 
   onProgress?.({
     current: 0,
     total: 1,
     status: 'concatenating',
-    message: 'Concatenating and encoding...',
+    message: 'Concatenating audio chapters...',
   })
 
-  // Determine output filename and args
-  const isM4B = format === 'm4b'
-  const isMP4 = format === 'mp4'
-  const ext = isM4B ? 'm4b' : isMP4 ? 'mp4' : format === 'mp3' ? 'mp3' : 'wav'
-  const outFile = `output.${ext}`
+  const totalLength = normalizedBuffers.reduce((sum, buffer) => sum + buffer.length, 0)
+  const numberOfChannels = normalizedBuffers[0].numberOfChannels
+  const outputBuffer = audioContext.createBuffer(numberOfChannels, totalLength, sampleRate)
 
-  // Use concat demuxer
-  const args = ['-f', 'concat', '-safe', '0', '-i', 'list.txt']
-
-  // Add metadata input if available (for chapters)
-  if ((isM4B || isMP4) && chapters.length > 0) {
-    // Calculate total duration roughly
-    const totalDuration = chapters.reduce((sum, c) => sum + (c.duration || 0), 0)
-    const metadata = createFFmpegMetadata(chapters, totalDuration)
-    await ffWriteFile(ffmpeg, 'metadata.txt', new TextEncoder().encode(metadata))
-    args.push('-i', 'metadata.txt', '-map_metadata', '1')
-  }
-
-  // Encoding options
-  // Note: concat demuxer just streams packets. If we want to encode to MP3/AAC, we specify codecs.
-  if (format === 'mp3') {
-    args.push('-c:a', 'libmp3lame', '-b:a', `${bitrate}k`)
-  } else if (isM4B || isMP4) {
-    args.push('-c:a', 'aac', '-b:a', `${bitrate}k`)
-  } else {
-    // WAV: copy if inputs are WAV, or re-encode to PCM
-    // -c:a copy works if inputs are same format.
-    // But to be safe against minor differences, let's use pcm_s16le
-    args.push('-c:a', 'pcm_s16le')
-  }
-
-  // Metadata tags
-  if (options.bookTitle) args.push('-metadata', `title=${options.bookTitle}`)
-  if (options.bookAuthor) args.push('-metadata', `artist=${options.bookAuthor}`)
-
-  args.push('-y', outFile)
-
-  logger.info('[audioConcat] Running FFmpeg concat:', args)
-  await ffRun(ffmpeg, args)
-
-  // Read output
-  const data = await ffReadFile(ffmpeg, outFile)
-  const mime =
-    format === 'wav'
-      ? 'audio/wav'
-      : format === 'mp3'
-        ? 'audio/mpeg'
-        : isM4B
-          ? 'audio/m4b'
-          : 'audio/mp4'
-
-  // Cleanup temporary files
-  try {
-    for (const f of tmpFiles) await ffDeleteFile(ffmpeg, f)
-    await ffDeleteFile(ffmpeg, 'list.txt')
-    if ((isM4B || isMP4) && chapters.length > 0) {
-      await ffDeleteFile(ffmpeg, 'metadata.txt')
+  let offset = 0
+  for (const buffer of normalizedBuffers) {
+    for (let channel = 0; channel < numberOfChannels; channel++) {
+      outputBuffer.getChannelData(channel).set(buffer.getChannelData(channel), offset)
     }
-    await ffDeleteFile(ffmpeg, outFile)
-  } catch {
-    // best effort
+    offset += buffer.length
   }
 
-  onProgress?.({
-    current: 1,
-    total: 1,
-    status: 'complete',
-    message: 'FFmpeg concatenation complete',
-  })
+  if (typeof (audioContext as any).close === 'function') {
+    try {
+      await (audioContext as any).close()
+    } catch {
+      // Swallow
+    }
+  }
 
-  return new Blob([new Uint8Array(data)], { type: mime })
-}
-
-function _inferExtensionFromMime(mime: string): string {
-  if (!mime) return 'bin'
-  if (mime.includes('wav')) return 'wav'
-  if (mime.includes('mpeg') || mime.includes('mp3')) return 'mp3'
-  if (mime.includes('webm')) return 'webm'
-  if (mime.includes('ogg')) return 'ogg'
-  if (mime.includes('m4a') || mime.includes('m4b')) return 'm4a'
-  return 'bin'
+  return audioBufferToWav(outputBuffer)
 }
 
 /**
- * Create FFmpeg metadata file for chapters
- */
-function createFFmpegMetadata(chapters: AudioChapter[], totalDuration: number): string {
-  let metadata = ';FFMETADATA1\n'
-  let currentTime = 0
-
-  for (let i = 0; i < chapters.length; i++) {
-    const duration = chapters[i].duration || totalDuration / chapters.length
-    const startMs = Math.floor(currentTime * 1000)
-    const endMs = Math.floor((currentTime + duration) * 1000)
-
-    metadata += '\n[CHAPTER]\n'
-    metadata += 'TIMEBASE=1/1000\n'
-    metadata += `START=${startMs}\n`
-    metadata += `END=${endMs}\n`
-    metadata += `title=${chapters[i].title}\n`
-
-    currentTime += duration
-  }
-
-  return metadata
-}
-
-/**
- * Create chapter markers metadata (for future M4B/MP3 support)
+ * Create chapter markers metadata (for future M4B support)
  */
 export function createChapterMarkers(
   chapters: AudioChapter[],
@@ -1093,9 +550,6 @@ export function createChapterMarkers(
   return markers.join('\n')
 }
 
-/**
- * Format timestamp for chapter markers (HH:MM:SS.mmm)
- */
 function formatTimestamp(seconds: number): string {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
@@ -1103,75 +557,4 @@ function formatTimestamp(seconds: number): string {
   const ms = Math.floor((seconds % 1) * 1000)
 
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
-}
-
-/**
- * Convert WAV blob to MP3 blob using FFmpeg
- * @param wavBlob - WAV audio blob
- * @param bitrate - MP3 bitrate (default: 192 kbps)
- * @returns MP3 blob
- */
-export async function convertWavToMp3(wavBlob: Blob, bitrate: number = 192): Promise<Blob> {
-  const ffmpeg = await getFFmpeg()
-  const outFile = 'output.mp3'
-
-  try {
-    // Write input WAV file
-    const wavData = new Uint8Array(await wavBlob.arrayBuffer())
-    logger.info(`[convertWavToMp3] Writing input WAV: ${wavData.length} bytes`)
-    await ffWriteFile(ffmpeg, 'input.wav', wavData)
-
-    // Convert to MP3 with -y flag to overwrite
-    await ffRun(ffmpeg, [
-      '-i',
-      'input.wav',
-      '-c:a',
-      'libmp3lame',
-      '-b:a',
-      `${bitrate}k`,
-      '-y',
-      outFile,
-    ])
-
-    logger.info('[convertWavToMp3] Conversion complete, attempting to read output file')
-
-    // Try to list files to debug
-    try {
-      const asWithList = ffmpeg as any
-      if (typeof asWithList.listDir === 'function') {
-        const files = await asWithList.listDir('/')
-        logger.info('[convertWavToMp3] Files in FFmpeg FS:', files)
-      } else if (typeof asWithList.FS === 'function') {
-        try {
-          const files = asWithList.FS('readdir', '/')
-          logger.info('[convertWavToMp3] Files in FFmpeg FS (via FS):', files)
-        } catch {
-          // Ignore listing errors
-        }
-      }
-    } catch (err) {
-      logger.warn('[convertWavToMp3] Could not list FFmpeg filesystem:', err)
-    }
-
-    // Read output file
-    const data = await ffReadFile(ffmpeg, outFile)
-    logger.info(`[convertWavToMp3] Output file size: ${data?.length || 0} bytes`)
-
-    if (!data || data.length === 0) {
-      throw new Error('FFmpeg produced an empty MP3 file')
-    }
-
-    const mp3Blob = new Blob([new Uint8Array(data)], { type: 'audio/mpeg' })
-
-    return mp3Blob
-  } catch (err) {
-    throw new Error(`Failed to convert WAV to MP3: ${String(err)}`, { cause: err })
-  } finally {
-    try {
-      await ffDeleteFile(ffmpeg, 'input.wav')
-      await ffDeleteFile(ffmpeg, outFile)
-    } catch {
-      // ignore
-    }
-  }
 }
