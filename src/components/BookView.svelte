@@ -28,6 +28,7 @@
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
   import ExportPanel from './ExportPanel.svelte'
+  import Skeleton from './Skeleton.svelte'
   import type { Chapter } from '../lib/types/book'
   import type { LibraryBook } from '../lib/libraryDB'
   import {
@@ -805,6 +806,14 @@
         {/each}
       </div>
     </div>
+  {:else}
+    <div class="skeleton-loading">
+      <Skeleton variant="rect" width="120px" height="160px" />
+      <Skeleton variant="text" lines={2} height="1.2em" />
+      <Skeleton variant="rect" height="48px" />
+      <Skeleton variant="rect" height="48px" />
+      <Skeleton variant="rect" height="48px" />
+    </div>
   {/if}
 </div>
 
@@ -817,6 +826,13 @@
     overflow-y: auto;
     flex: 1;
     min-height: 0;
+  }
+
+  .skeleton-loading {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px;
   }
 
   /* Resume banner for interrupted generation */
