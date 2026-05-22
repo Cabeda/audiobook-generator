@@ -1,13 +1,19 @@
 import { defineConfig, devices } from '@playwright/test'
 import process from 'node:process'
 
+/**
+ * Nightly config — runs ALL e2e tests including expensive TTS generation tests.
+ * Usage: pnpm test:e2e:nightly
+ */
 export default defineConfig({
-  testDir: './e2e/smoke',
-  fullyParallel: true,
+  testDir: './e2e',
+  testIgnore: ['**/smoke/**'],
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  retries: 1,
+  workers: 1,
   reporter: 'list',
+  timeout: 300000, // 5 min per test
   use: {
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
@@ -18,6 +24,10 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'Mobile Chrome',
+      use: { ...devices['Pixel 5'] },
     },
   ],
 

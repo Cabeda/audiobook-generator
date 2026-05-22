@@ -17,6 +17,7 @@ import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { generatedAudio, book } from '../../stores/bookStore'
 import { parseWavDuration } from './wavParser'
+import { parseMp3Duration } from './mp3DurationParser'
 import type { LibraryBook } from '../libraryDB'
 
 /**
@@ -329,7 +330,21 @@ export async function exportEpub(
         cumulativeTime += duration
       }
 
-      const totalDuration = cumulativeTime
+      // Scale SMIL clip times to match actual MP3 duration.
+      // WAV-based durations drift from the encoded MP3 due to frame padding.
+      const wavTotalDuration = cumulativeTime
+      const mp3Duration = await parseMp3Duration(combinedBlob)
+      const scaleFactor =
+        mp3Duration > 0 && wavTotalDuration > 0 ? mp3Duration / wavTotalDuration : 1
+
+      if (scaleFactor !== 1) {
+        for (const par of smilPars) {
+          par.clipBegin *= scaleFactor
+          par.clipEnd *= scaleFactor
+        }
+      }
+
+      const totalDuration = mp3Duration > 0 ? mp3Duration : wavTotalDuration
 
       // Generate XHTML with matching IDs
       const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
