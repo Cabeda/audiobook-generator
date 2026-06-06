@@ -167,10 +167,12 @@ export async function exportAudio(
           const chapterBlob = await incrementalConcatWav(sortedSegments.length, async (index) => {
             return sortedSegments[index]?.audioBlob ?? null
           })
+          const chapterDuration = sortedSegments.reduce((sum, s) => sum + (s.duration || 0), 0)
           audioChapters.push({
             id: ch.id,
             title: ch.title,
             blob: chapterBlob,
+            duration: chapterDuration,
           })
         }
       } catch (e) {
