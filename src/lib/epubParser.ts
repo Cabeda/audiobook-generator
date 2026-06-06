@@ -23,7 +23,21 @@ export class EpubParser implements BookParser {
   }
 
   async parse(file: File, onProgress?: OnParseProgress): Promise<Book> {
-    return parseEpubFile(file, onProgress)
+    try {
+      return await parseEpubFile(file, onProgress)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // Detect specific failure patterns
+      if (msg.includes('encrypted') || msg.includes('DRM')) {
+        const { ParseError } = await import('./errors')
+        throw new ParseError(msg, 'EPUB', 'encrypted', err instanceof Error ? err : undefined)
+      }
+      if (msg.includes('container.xml not found') || msg.includes('not a valid zip')) {
+        const { ParseError } = await import('./errors')
+        throw new ParseError(msg, 'EPUB', 'corrupt', err instanceof Error ? err : undefined)
+      }
+      throw err
+    }
   }
 }
 

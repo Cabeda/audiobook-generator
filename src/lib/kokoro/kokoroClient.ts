@@ -77,6 +77,9 @@ function isThenable(obj: unknown): obj is PromiseLike<unknown> {
 // Singleton instance for model caching
 let ttsInstance: KokoroTTS | null = null
 
+// Mutex to serialize model loading — prevents concurrent fetch monkey-patches
+let modelLoadingPromise: Promise<KokoroTTS> | null = null
+
 /**
  * Initialize or retrieve the cached Kokoro TTS instance
  * @param modelId - HuggingFace model ID (default: onnx-community/Kokoro-82M-v1.0-ONNX)
@@ -108,8 +111,29 @@ function createFetchWithCache(originalFetch: typeof fetch) {
         const cachedResponse = await cache.match(input)
 
         if (cachedResponse) {
-          logger.info('[KokoroCache]', `Serving from cache: ${url}`)
-          return cachedResponse
+          // Validate cache integrity: check Content-Length matches actual body size
+          const contentLength = cachedResponse.headers.get('content-length')
+          if (contentLength) {
+            const clone = cachedResponse.clone()
+            const body = await clone.arrayBuffer()
+            if (body.byteLength !== parseInt(contentLength, 10)) {
+              logger.warn(
+                '[KokoroCache]',
+                `Corrupt cache entry (size mismatch), re-fetching: ${url}`
+              )
+              await cache.delete(input)
+            } else {
+              logger.info('[KokoroCache]', `Serving from cache: ${url}`)
+              return new Response(body, {
+                status: cachedResponse.status,
+                statusText: cachedResponse.statusText,
+                headers: cachedResponse.headers,
+              })
+            }
+          } else {
+            logger.info('[KokoroCache]', `Serving from cache: ${url}`)
+            return cachedResponse
+          }
         }
 
         logger.info('[KokoroCache]', `Fetching and caching: ${url}`)
@@ -152,12 +176,18 @@ async function getKokoroInstance(
     (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
     (globalThis as unknown as { __vitest__?: boolean }).__vitest__ === true
   if (!ttsInstance || isTestEnv) {
+    // Serialize concurrent model loading to avoid fetch monkey-patch races
+    if (modelLoadingPromise && !isTestEnv) {
+      ttsInstance = await modelLoadingPromise
+      return ttsInstance
+    }
+
     logger.info('[KokoroClient]', `Initializing instance. Model: ${modelId}`)
     logger.info('[KokoroClient]', `Loading Kokoro TTS model: ${modelId} (${dtype}, ${device})...`)
     if (onProgress) onProgress('Loading model...')
 
     // Use retry with backoff for model loading
-    ttsInstance = await retryWithBackoff(
+    const loadPromise = retryWithBackoff(
       async () => {
         // Intercept global fetch to enable caching for the model loading
         const originalFetch = globalThis.fetch
@@ -216,6 +246,15 @@ async function getKokoroInstance(
       if (onProgress) onProgress(modelError.getUserMessage())
       throw modelError
     })
+
+    if (!isTestEnv) {
+      modelLoadingPromise = loadPromise
+    }
+    try {
+      ttsInstance = await loadPromise
+    } finally {
+      modelLoadingPromise = null
+    }
   }
   return ttsInstance
 }

@@ -261,3 +261,32 @@ export function normalizeError(error: unknown, context?: string): AppError {
     error instanceof Error ? error : undefined
   )
 }
+
+/**
+ * Parse error for file parsing failures with user-friendly messages
+ */
+export class ParseError extends PermanentError {
+  constructor(
+    message: string,
+    public readonly format: string,
+    public readonly reason: 'encrypted' | 'corrupt' | 'unsupported' | 'empty' | 'unknown',
+    originalError?: Error
+  ) {
+    super(message, originalError, `PARSE_${reason.toUpperCase()}`)
+  }
+
+  getUserMessage(): string {
+    switch (this.reason) {
+      case 'encrypted':
+        return 'This file is DRM-protected or password-encrypted. Please use a DRM-free file.'
+      case 'corrupt':
+        return 'This file appears to be corrupted or damaged. Please try re-downloading it.'
+      case 'unsupported':
+        return `This ${this.format} format variant is not supported.`
+      case 'empty':
+        return 'This file contains no readable content.'
+      default:
+        return `Failed to parse ${this.format} file: ${this.message}`
+    }
+  }
+}

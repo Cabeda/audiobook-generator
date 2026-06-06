@@ -46,6 +46,7 @@ class AudioPlaybackService {
   private quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   private device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
   private selectedModel: 'kokoro' | 'piper' | 'web_speech' = 'kokoro'
+  private initAbort: AbortController | null = null
   playbackSpeed = $state(1.0)
 
   constructor() {
@@ -87,6 +88,10 @@ class AudioPlaybackService {
       startMinimized?: boolean
     }
   ) {
+    // Abort any in-flight initialization
+    this.initAbort?.abort()
+    this.initAbort = new AbortController()
+
     this.stop() // Stop previous playback
 
     this.voice = settings.voice

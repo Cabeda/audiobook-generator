@@ -119,7 +119,8 @@ export async function startFastPass(
   language: string,
   piperVoices: PiperVoice[],
   onSegmentReady: (segment: AudioSegment) => void,
-  skipWebSpeech = false
+  skipWebSpeech = false,
+  signal?: AbortSignal
 ): Promise<void> {
   const startingTier = getStartingTier()
   const ladder = resolveTierLadder(language, piperVoices)
@@ -143,6 +144,7 @@ export async function startFastPass(
   const worker = getTTSWorker()
 
   for (const seg of segments) {
+    if (signal?.aborted) return
     try {
       const blob = await worker.generateVoice({
         text: seg.text,

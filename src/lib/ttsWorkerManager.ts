@@ -226,7 +226,14 @@ export class TTSWorkerManager {
         }
 
         setTimeout(() => {
-          if (!this.ready) reject(new Error('Worker initialization timeout'))
+          if (!this.ready) {
+            // Terminate the hung worker to free resources
+            if (this.worker) {
+              this.worker.terminate()
+              this.worker = null
+            }
+            reject(new Error('Worker initialization timeout'))
+          }
         }, 30_000)
       } catch (err) {
         reject(err as Error)
@@ -304,7 +311,14 @@ export class TTSWorkerManager {
         onChunkProgress: options.onChunkProgress,
       })
 
-      this.worker!.postMessage({ id, ...request })
+      if (!this.worker) {
+        this.pendingRequests.delete(id)
+        clearTimeout(timer)
+        reject(new Error('TTS worker is not initialized'))
+        return
+      }
+
+      this.worker.postMessage({ id, ...request })
     })
   }
 
@@ -323,12 +337,15 @@ export class TTSWorkerManager {
           logger.warn(`[TTSWorkerManager] Memory error in ${label}, will retry with worker restart`)
           return true
         }
+        if (error.message === 'TTS worker is not initialized') {
+          return true
+        }
         return isRetryableError(error)
       },
       onRetry: async (attempt, maxRetries, error) => {
         logger.warn(`[TTSWorkerManager] ${label} retry ${attempt}/${maxRetries}:`, error.message)
-        if (isMemoryError(error.message)) {
-          logger.warn(`[TTSWorkerManager] Restarting worker due to memory error in ${label}`)
+        if (error.message === 'TTS worker is not initialized' || isMemoryError(error.message)) {
+          logger.warn(`[TTSWorkerManager] Restarting worker due to ${error.message} in ${label}`)
           await this.restartWorkerIfNeeded()
         }
         if (onProgress) onProgress(`Retrying... (attempt ${attempt}/${maxRetries})`)

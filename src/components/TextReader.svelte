@@ -122,6 +122,7 @@
     []
   )
   let pendingPlaySegment: number | null = null // Track segment waiting for generation to auto-play
+  let loadGeneration = 0 // Incremented per chapter load to detect stale async results
 
   // Sort voices to show detected language first
   let sortedWebSpeechVoices = $derived(() => {
@@ -196,6 +197,7 @@
       if (shouldInitialize) {
         isLoading = true
         loadError = false
+        const currentLoadId = ++loadGeneration
 
         // Load chapter from DB using pure playback method
         audioService
@@ -207,6 +209,8 @@
             playbackSpeed: initialSpeed,
           })
           .then((result) => {
+            // Stale load — chapter changed while loading
+            if (currentLoadId !== loadGeneration) return
             // Sync voice after loading (Piper may have auto-selected)
             localVoice = audioService.getVoice()
 
@@ -330,6 +334,7 @@
             }
           })
           .catch((err) => {
+            if (currentLoadId !== loadGeneration) return
             isLoading = false
             loadError = true
             console.error('Failed to load chapter:', err)
@@ -653,19 +658,6 @@
     // Subscribe to segmentProgress so this effect re-runs whenever a new segment is generated
     const progress = $segmentProgress.get(chapter.id)
     if (!progress) return
-
-    const segmentData = getGeneratedSegment(chapter.id, pendingPlaySegment)
-    if (segmentData) {
-      logger.info(`Auto-playing segment ${pendingPlaySegment} after generation`)
-      audioService.injectProgressiveSegment(segmentData)
-      audioService.playFromSegment(pendingPlaySegment)
-      pendingPlaySegment = null // Clear pending state
-    }
-  })
-
-  // Auto-play segment when it becomes available after user clicked it
-  $effect(() => {
-    if (pendingPlaySegment === null || !chapter?.id) return
 
     const segmentData = getGeneratedSegment(chapter.id, pendingPlaySegment)
     if (segmentData) {

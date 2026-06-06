@@ -24,7 +24,7 @@
     advancedSettings,
   } from '../stores/ttsStore'
   import { toastStore } from '../stores/toastStore'
-  import { generationService } from '../lib/services/generationService'
+  import { generationService, isGeneratingStore } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
   import ExportPanel from './ExportPanel.svelte'
@@ -85,7 +85,7 @@
 
   // Local state for UI
   let showSettings = $state(false)
-  let isGenerating = $state(false)
+  let isGenerating = $derived($isGeneratingStore)
   let heroCollapsed = $state(false)
   let interruptedGeneration = $state<{
     bookId: number
@@ -322,29 +322,18 @@
       return
     }
 
-    isGenerating = true
-    try {
-      await generationService.generateChapters(chaptersToGen)
-    } finally {
-      isGenerating = false
-    }
+    await generationService.generateChapters(chaptersToGen)
   }
 
   function handleCancel() {
     generationService.cancel()
-    isGenerating = false
   }
 
   async function handleResume(chapterId: string) {
     if (!$book) return
     const ch = $book.chapters.find((c) => c.id === chapterId)
     if (!ch) return
-    isGenerating = true
-    try {
-      await generationService.resumeChapters([ch])
-    } finally {
-      isGenerating = false
-    }
+    await generationService.resumeChapters([ch])
   }
 
   async function handleReprocess(chapterId: string, mismatchedIndices: number[]) {
@@ -357,12 +346,7 @@
     const { clearSegmentIndices } = await import('../stores/segmentProgressStore')
     clearSegmentIndices(chapterId, mismatchedIndices)
     // Trigger generation which will regenerate only missing segments
-    isGenerating = true
-    try {
-      await generationService.resumeChapters([ch])
-    } finally {
-      isGenerating = false
-    }
+    await generationService.resumeChapters([ch])
   }
 
   async function handleResumeAll() {
@@ -377,12 +361,7 @@
       )
     })
     if (partialChapters.length === 0) return
-    isGenerating = true
-    try {
-      await generationService.resumeChapters(partialChapters)
-    } finally {
-      isGenerating = false
-    }
+    await generationService.resumeChapters(partialChapters)
   }
 
   async function handleResumeInterrupted() {
@@ -408,12 +387,7 @@
     }
 
     interruptedGeneration = null
-    isGenerating = true
-    try {
-      await generationService.resumeChapters(chaptersToResume)
-    } finally {
-      isGenerating = false
-    }
+    await generationService.resumeChapters(chaptersToResume)
   }
 
   async function dismissInterrupted() {
