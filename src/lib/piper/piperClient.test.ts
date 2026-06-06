@@ -311,3 +311,27 @@ describe('piperClient MIN_TEXT_LENGTH filtering', () => {
     })
   })
 })
+
+describe('Piper text sanitization', () => {
+  beforeEach(() => {
+    vi.mocked(tts.stored).mockResolvedValue([ptVoiceId] as any)
+    vi.mocked(tts.predict).mockReset()
+  })
+
+  it('should sanitize text with digits and uppercase to prevent phoneme ID overflow', async () => {
+    const mockPredict = vi.mocked(tts.predict).mockResolvedValue(makeWav(200))
+    const problematicText = 'O ranking está ordenado pelo número de alojamentos locais por Km2'
+
+    await piperClient.generate(problematicText, { voiceId: ptVoiceId })
+
+    expect(mockPredict).toHaveBeenCalled()
+    const predictedText = mockPredict.mock.calls[0][0]?.text
+    // Should be lowercase
+    expect(predictedText).not.toMatch(/[A-Z]/)
+    // Should not contain raw digits
+    expect(predictedText).not.toMatch(/\d/)
+    // Should still contain the core words
+    expect(predictedText).toContain('ranking')
+    expect(predictedText).toContain('alojamentos')
+  })
+})
