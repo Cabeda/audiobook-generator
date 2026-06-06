@@ -3,7 +3,7 @@
  * Provides a unified interface for different TTS engines
  */
 
-export type TTSModelType = 'kokoro' | 'piper'
+export type TTSModelType = 'kokoro' | 'piper' | 'voxtral'
 
 export interface TTSGenerateParams {
   text: string
@@ -85,6 +85,21 @@ export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> 
         },
       }
     }
+    case 'voxtral': {
+      const { generateVoice } = await import('../voxtral/voxtralClient')
+      return {
+        generateVoice: async (params, onChunkProgress, onProgress) => {
+          return generateVoice(
+            {
+              text: params.text,
+              voice: params.voice,
+            },
+            onChunkProgress,
+            onProgress
+          )
+        },
+      }
+    }
     default:
       throw new Error(`Unknown TTS model type: ${modelType}`)
   }
@@ -113,6 +128,14 @@ export const TTS_MODELS: TTSModelInfo[] = [
     id: 'piper',
     name: 'Piper TTS',
     description: 'Fast, local neural TTS running in the browser.',
+    requiresDownload: true,
+    supportsOffline: true,
+  },
+  {
+    id: 'voxtral',
+    name: 'Voxtral TTS (Experimental)',
+    description:
+      'Mistral 4B TTS via WASM+WebGPU. 9 languages, 20 voices. Very slow in-browser (~5 min/sentence). Requires ~2.7 GB download.',
     requiresDownload: true,
     supportsOffline: true,
   },

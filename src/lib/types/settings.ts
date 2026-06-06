@@ -130,6 +130,36 @@ export const ADVANCED_SETTINGS_SCHEMA: ModelAdvancedSettings = {
         'Number of text segments to generate audio for simultaneously. Higher values speed up generation but use more memory.',
     },
   ],
+  voxtral: [
+    {
+      key: 'eulerSteps',
+      label: 'Euler Steps',
+      type: 'slider',
+      min: 3,
+      max: 8,
+      step: 1,
+      defaultValue: 8,
+      group: 'Quality',
+      description:
+        'Number of flow-matching steps. Lower = faster but slightly lower quality. 3 is near real-time on native GPU.',
+    },
+    {
+      key: 'ignoreCodeBlocks',
+      label: 'Ignore Code Blocks',
+      type: 'boolean',
+      defaultValue: false,
+      group: 'Text Processing',
+      description: 'Skip reading text inside <code> or <pre> blocks.',
+    },
+    {
+      key: 'ignoreLinks',
+      label: 'Skip Link Text',
+      type: 'boolean',
+      defaultValue: false,
+      group: 'Text Processing',
+      description: 'Do not read the text contained in anchor tags.',
+    },
+  ],
   global: [
     {
       key: 'parallelChapters',
