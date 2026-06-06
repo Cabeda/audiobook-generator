@@ -83,8 +83,11 @@
   }
 
   // Local model state for text reader (falls back to prop value if no localStorage)
-  let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(initialModel ?? selectedModel)
-  let localVoice = $state(initialVoice ?? voice)
+  // Capture initial prop values — intentional one-time read for localStorage fallback
+  const propModel = selectedModel
+  const propVoice = voice
+  let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(initialModel ?? propModel)
+  let localVoice = $state(initialVoice ?? propVoice)
 
   // Chapter progress
   let chapterIndex = $derived(chapters.findIndex((c: Chapter) => c.id === chapter.id))
