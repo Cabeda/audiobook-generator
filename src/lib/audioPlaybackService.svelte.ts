@@ -5,11 +5,11 @@ import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import { toastStore } from '../stores/toastStore'
 import type { Chapter } from './types/book'
-import { getChapterSegments, getChapterAudio } from './libraryDB'
+import { getChapterSegments, getChapterAudio, saveChapterSegments } from './libraryDB'
 import { segmentHtmlContent } from './services/segmentationService'
 import type { AudioSegment } from './types/audio'
 import { selectPiperVoiceForLanguage, normalizeLanguageCode } from './utils/voiceSelector'
-import { getGeneratedSegment } from '../stores/segmentProgressStore'
+import { getGeneratedSegment, markSegmentGenerated } from '../stores/segmentProgressStore'
 
 interface TextSegment {
   index: number
@@ -1028,6 +1028,28 @@ class AudioPlaybackService {
             if (this.segmentDurations.size === this.segments.length) {
               audioPlayerStore.setChapterDuration(sumKnown)
             }
+          }
+
+          // Persist segment to IndexedDB so chapter generation can reuse it
+          const storeState = get(audioPlayerStore)
+          const currentBookId = storeState.bookId
+          const currentChapterId = storeState.chapterId
+          if (currentBookId && currentChapterId) {
+            const audioSegment: AudioSegment = {
+              id: `${currentChapterId}-seg-${index}`,
+              chapterId: currentChapterId,
+              index,
+              text: segment.text,
+              audioBlob: blob,
+              duration: dur || 0,
+              startTime: 0,
+              voice: this.voice,
+              model: this.selectedModel,
+            }
+            markSegmentGenerated(currentChapterId, audioSegment)
+            saveChapterSegments(currentBookId, currentChapterId, [audioSegment]).catch((err) =>
+              logger.warn('Failed to persist reader segment to IndexedDB', err)
+            )
           }
           return
         } catch (err) {
