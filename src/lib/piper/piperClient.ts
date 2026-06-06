@@ -342,17 +342,22 @@ export class PiperClient {
       return [createSilentWav(0)]
     }
 
+    // Sanitize text for Piper models with limited phoneme vocabularies.
+    // Lowercase, expand digits, and remove unsupported characters to prevent
+    // "indices element out of data bounds" errors from the ONNX Gather node.
+    const sanitized = this.sanitizeForPiper(text)
+
     try {
       logger.debug(`Calling tts.predict at depth ${depth}`, {
-        textLength: text.length,
-        textPreview: text.substring(0, 100),
+        textLength: sanitized.length,
+        textPreview: sanitized.substring(0, 100),
         voiceId,
       })
 
       const wav = await (
         await getTts()
       ).predict({
-        text,
+        text: sanitized,
         voiceId: voiceId as any,
       })
 
@@ -415,6 +420,36 @@ export class PiperClient {
       }
       return results
     }
+  }
+
+  /**
+   * Sanitize text for Piper models with limited phoneme vocabularies.
+   * Converts to lowercase, expands digits to words, and strips characters
+   * that would produce out-of-range phoneme IDs.
+   */
+  private sanitizeForPiper(text: string): string {
+    // Digit-to-word map (language-neutral; Piper espeak handles pronunciation)
+    const digitWords: Record<string, string> = {
+      '0': 'zero',
+      '1': 'one',
+      '2': 'two',
+      '3': 'three',
+      '4': 'four',
+      '5': 'five',
+      '6': 'six',
+      '7': 'seven',
+      '8': 'eight',
+      '9': 'nine',
+    }
+    let result = text.toLowerCase()
+    // Expand digits to words
+    result = result.replace(/\d/g, (d) => ` ${digitWords[d]} `)
+    // Remove characters outside basic Latin, Latin Extended, and common punctuation
+    // Keep: a-z, accented chars (à-ÿ), spaces, and basic punctuation
+    result = result.replace(/[^\p{L}\p{M}\s.,;:!?'"-]/gu, ' ')
+    // Collapse multiple spaces
+    result = result.replace(/\s+/g, ' ').trim()
+    return result
   }
 
   private splitTextForRetry(text: string): string[] {
