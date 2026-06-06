@@ -5,6 +5,8 @@ allowBuilds:
   onnxruntime-node: true
   protobufjs: true
   sharp: true
+overrides:
+  '@huggingface/transformers': 4.0.0-next.6
 onlyBuiltDependencies:
   - core-js
   - es5-ext
