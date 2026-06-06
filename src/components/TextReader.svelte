@@ -83,11 +83,11 @@
   }
 
   // Local model state for text reader (falls back to prop value if no localStorage)
-  // Capture initial prop values — intentional one-time read for localStorage fallback
-  const propModel = selectedModel
-  const propVoice = voice
-  let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(initialModel ?? propModel)
-  let localVoice = $state(initialVoice ?? propVoice)
+  // untrack breaks the reactivity chain — these are intentional one-time prop reads
+  let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(
+    initialModel ?? untrack(() => selectedModel)
+  )
+  let localVoice = $state(initialVoice ?? untrack(() => voice))
 
   // Chapter progress
   let chapterIndex = $derived(chapters.findIndex((c: Chapter) => c.id === chapter.id))
@@ -1690,106 +1690,6 @@
     opacity: 0.7;
   }
 
-  /* Settings Menu */
-  .settings-menu {
-    position: fixed;
-    bottom: 90px;
-    right: max(24px, calc((100vw - 900px) / 2 + 24px));
-    background: var(--header-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 16px;
-    width: 300px;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-    z-index: 101;
-  }
-
-  .settings-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border-color);
-  }
-
-  .settings-header h3 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  .close-settings {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--text-color);
-    font-size: 18px;
-    padding: 4px;
-  }
-
-  .setting-item {
-    margin-bottom: 16px;
-  }
-
-  .setting-item label {
-    display: block;
-    margin-bottom: 8px;
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .speed-selector {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .speed-btn {
-    flex: 1;
-    padding: 6px 4px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-color);
-    color: var(--text-color);
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .speed-btn:hover {
-    background: var(--surface-color);
-  }
-
-  .font-size-selector {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .font-size-btn {
-    padding: 6px 12px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-color);
-    color: var(--text-color);
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-
-  .font-size-btn:hover {
-    background: var(--surface-color);
-  }
-
-  .font-size-value {
-    min-width: 40px;
-    text-align: center;
-    font-size: 13px;
-    color: var(--secondary-text);
-  }
-
   .chapter-progress {
     font-size: 0.8rem;
     color: var(--secondary-text);
@@ -1798,70 +1698,6 @@
     border-radius: 10px;
     background: var(--surface-color);
     border: 1px solid var(--border-color);
-  }
-
-  /* Subtle indicator for buffered segments */
-  .theme-selector {
-    display: flex;
-    gap: 8px;
-  }
-
-  .theme-btn {
-    flex: 1;
-    padding: 6px 4px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-color);
-    color: var(--text-color);
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .theme-btn:hover {
-    background: var(--surface-color);
-  }
-
-  .theme-btn.active {
-    background: var(--text-color);
-    color: var(--bg-color);
-    border-color: var(--text-color);
-  }
-
-  .info-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 13px;
-    margin-bottom: 4px;
-    color: var(--text-color);
-    opacity: 0.8;
-  }
-
-  .hint {
-    font-size: 11px;
-    color: var(--secondary-text);
-    font-style: italic;
-    margin-left: 8px;
-  }
-
-  .model-select {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-color);
-    color: var(--text-color);
-    border-radius: 6px;
-    font-size: 13px;
-    cursor: pointer;
-    margin-bottom: 4px;
-  }
-
-  .model-select:hover {
-    background: var(--surface-color);
-  }
-
-  .info-row .value {
-    font-weight: 500;
   }
 
   @media (max-width: 640px) {
@@ -1901,13 +1737,6 @@
     .info-banner {
       padding: 8px 12px;
       font-size: 0.82rem;
-    }
-
-    .settings-menu {
-      right: 16px;
-      left: 16px;
-      width: auto;
-      bottom: 80px;
     }
   }
 
