@@ -10,6 +10,7 @@ import { segmentHtmlContent } from './services/segmentationService'
 import type { AudioSegment } from './types/audio'
 import { selectPiperVoiceForLanguage, normalizeLanguageCode } from './utils/voiceSelector'
 import { getGeneratedSegment, markSegmentGenerated } from '../stores/segmentProgressStore'
+import { handleModelProgress, clearModelProgress } from '../stores/modelDownloadStore'
 
 interface TextSegment {
   index: number
@@ -992,7 +993,9 @@ class AudioPlaybackService {
             voice: this.voice,
             dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
             device: this.device,
+            onProgress: handleModelProgress,
           })
+          clearModelProgress()
 
           // Defensive: revoke old URL if exists (normal flow checks has(index) before calling this method)
           const oldUrl = this.audioSegments.get(index)

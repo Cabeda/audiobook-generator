@@ -21,6 +21,7 @@
   import { saveProgress, loadProgress } from '../stores/progressStore'
   import { loadChapterSegmentProgress } from '../stores/segmentProgressStore'
   import { appSettings } from '../stores/appSettingsStore'
+  import { modelDownloadStore } from '../stores/modelDownloadStore'
   import {
     scheduleUpgradePass,
     cancelUpgrade,
@@ -1171,6 +1172,25 @@
       </div>
     </div>
 
+    <!-- Model Download Progress -->
+    {#if $modelDownloadStore.active}
+      <div class="model-download-banner" transition:fade={{ duration: 200 }}>
+        <div class="download-info">
+          <span class="download-icon">⬇️</span>
+          <span class="download-message">{$modelDownloadStore.message}</span>
+        </div>
+        {#if $modelDownloadStore.percent != null}
+          <div class="download-progress-bar">
+            <div class="download-progress-fill" style="width: {$modelDownloadStore.percent}%"></div>
+          </div>
+        {:else}
+          <div class="download-progress-bar indeterminate">
+            <div class="download-progress-fill"></div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- Text Content -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
@@ -2001,5 +2021,55 @@
   .shortcut-item span {
     color: var(--text-color);
     font-size: 14px;
+  }
+
+  /* Model Download Banner */
+  .model-download-banner {
+    padding: 8px 16px;
+    background: var(--surface-color, #2a2a2a);
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .download-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-color, #e0e0e0);
+  }
+
+  .download-icon {
+    font-size: 14px;
+  }
+
+  .download-progress-bar {
+    height: 4px;
+    background: var(--border-color, rgba(255, 255, 255, 0.1));
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .download-progress-fill {
+    height: 100%;
+    background: var(--primary-color, #3b82f6);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+
+  .download-progress-bar.indeterminate .download-progress-fill {
+    width: 30%;
+    animation: indeterminate 1.5s ease-in-out infinite;
+  }
+
+  @keyframes indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(400%);
+    }
   }
 </style>
