@@ -762,8 +762,7 @@ class GenerationService {
             currentQuantization,
             currentDevice,
             currentAdvancedSettings,
-            bookId,
-            true // resume = true
+            bookId
           )
           if (canceled) break
 
@@ -896,8 +895,7 @@ class GenerationService {
     currentQuantization: string,
     currentDevice: string,
     currentAdvancedSettings: Record<string, unknown>,
-    bookId: number,
-    resume = false
+    bookId: number
   ): Promise<boolean> {
     logger.info(`[generateChapters] Segmenting HTML for ${effectiveModel}`, {
       chapterId: ch.id,
@@ -946,8 +944,6 @@ class GenerationService {
       await updateChapterContent(bookId, ch.id, html)
     }
 
-    initChapterSegments(ch.id, textSegments, resume)
-
     // Helper to update the chapter progress message in the UI
     const setProgress = (current: number, total: number, message: string) => {
       throttledProgress.set(ch.id, { current, total, message })
@@ -966,42 +962,38 @@ class GenerationService {
     const batchHandler = new SegmentBatchHandler(bookId, ch.id, batchSize)
 
     // When resuming, load already-generated segments from DB and skip them.
-    // When starting fresh, delete any stale segments from a previous interrupted run.
+    // When starting fresh, auto-detect compatible segments (voice+model match) and reuse them.
     let skipIndices: Set<number> | undefined
-    if (resume && bookId) {
-      setProgress(0, textSegments.length, 'Loading previously generated segments...')
+    if (bookId) {
+      setProgress(0, textSegments.length, 'Checking for existing segments...')
       const { getChapterSegments } = await import('../libraryDB')
       const existing = await getChapterSegments(bookId, ch.id)
       if (existing.length > 0) {
         skipIndices = new Set(existing.map((s) => s.index))
-        // On mobile, only keep lightweight metadata — release blob references immediately
-        // to avoid loading all previously-generated audio blobs into memory at once.
         for (const seg of existing) {
           audioSegments.push({
             id: seg.id,
             chapterId: seg.chapterId,
             index: seg.index,
             text: seg.text,
-            audioBlob: null as unknown as Blob, // blob is safely in IndexedDB
+            audioBlob: null as unknown as Blob,
             duration: seg.duration,
             startTime: seg.startTime,
           })
         }
-        // Let GC reclaim the existing array and its blob references
         existing.length = 0
         setProgress(
           skipIndices.size,
           textSegments.length,
-          `Resuming from segment ${skipIndices.size + 1}/${textSegments.length}...`
+          `Reusing ${skipIndices.size} existing segments, generating remaining...`
         )
         logger.info(
-          `[Resume] Skipping ${skipIndices.size} already-generated segments for chapter ${ch.id}`
+          `[AutoResume] Skipping ${skipIndices.size} existing segments for chapter ${ch.id}`
         )
       }
-    } else if (bookId) {
-      const { deleteChapterSegments } = await import('../libraryDB')
-      await deleteChapterSegments(bookId, ch.id)
     }
+
+    initChapterSegments(ch.id, textSegments, !!skipIndices)
 
     const { failed: failedCount, failedIndices } = await this.processSegmentsWithPriority(
       ch.id,
@@ -1042,6 +1034,8 @@ class GenerationService {
           audioBlob: result.blob as Blob,
           duration: result.duration,
           startTime: 0,
+          voice: effectiveVoice,
+          model: effectiveModel,
         }
         audioSegments.push(segment)
         await batchHandler.addSegment(segment)
