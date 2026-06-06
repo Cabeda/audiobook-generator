@@ -80,6 +80,22 @@ export function markSegmentGenerated(chapterId: string, segment: AudioSegment) {
     }
     newProgress.generatedIndices.add(segment.index)
     newProgress.generatedSegments.set(segment.index, segment)
+
+    // Sliding window: keep only ~20 blobs in memory to prevent OOM on long chapters.
+    // Evict the oldest blobs (lowest indices furthest from current).
+    const MAX_BLOBS_IN_MEMORY = 20
+    if (newProgress.generatedSegments.size > MAX_BLOBS_IN_MEMORY) {
+      const indices = [...newProgress.generatedSegments.keys()].sort((a, b) => a - b)
+      const toEvict = indices.slice(0, indices.length - MAX_BLOBS_IN_MEMORY)
+      for (const idx of toEvict) {
+        const seg = newProgress.generatedSegments.get(idx)
+        if (seg) {
+          // Keep metadata but release the blob reference
+          newProgress.generatedSegments.set(idx, { ...seg, audioBlob: null as unknown as Blob })
+        }
+      }
+    }
+
     newMap.set(chapterId, newProgress)
     return newMap
   })

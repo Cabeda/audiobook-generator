@@ -67,7 +67,7 @@
  * @module generationService
  */
 
-import { get } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import type { Chapter } from '../types/book'
 import type { VoiceId } from '../kokoro/kokoroVoices'
 import { getTTSWorker, terminateTTSWorker } from '../ttsWorkerManager'
@@ -106,6 +106,7 @@ import {
 import {
   initChapterSegments,
   markChapterGenerationComplete,
+  segmentProgress,
   setProcessingIndex,
 } from '../../stores/segmentProgressStore'
 import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
@@ -162,6 +163,11 @@ function getBookId(): number {
 
 class GenerationService {
   private running = false
+
+  private setRunning(value: boolean) {
+    this.running = value
+    isGeneratingStore.set(value)
+  }
   private canceled = false
   private canceledChapters = new Set<string>()
 
@@ -457,8 +463,14 @@ class GenerationService {
     bookId?: number
   ) {
     if (this.running) {
-      logger.warn('Generation already running')
+      logger.warn('Generation already running, not starting new generation')
       toastStore.warning('Generation is already running')
+      // Reset status to pending if it was optimistically set
+      chapterStatus.update((m) => {
+        const nm = new Map(m)
+        if (nm.get(chapter.id) === 'processing') nm.set(chapter.id, 'pending')
+        return nm
+      })
       return
     }
 
@@ -523,7 +535,7 @@ class GenerationService {
 
     const model = get(selectedModel)
 
-    this.running = true
+    this.setRunning(true)
     this.canceled = false // Reset canceled state
     this.canceledChapters.clear() // Reset per-chapter cancellation
     this.autoPlayTriggered.clear() // Reset auto-play triggers for new generation
@@ -679,7 +691,7 @@ class GenerationService {
       }
     } finally {
       throttledProgress.flush()
-      this.running = false
+      this.setRunning(false)
       isGenerating.set(false)
 
       // Clear generation state on successful completion or cancellation
@@ -710,7 +722,7 @@ class GenerationService {
     // We do this by temporarily tagging chapters so generateChapterAudio knows.
     // Simplest approach: run the same loop as generateChapters with resume=true.
     const model = get(selectedModel)
-    this.running = true
+    this.setRunning(true)
     this.canceled = false
     this.canceledChapters.clear()
     this.autoPlayTriggered.clear()
@@ -785,8 +797,7 @@ class GenerationService {
             : (chapterIdx + 1) % 3 === 0 || (await shouldRestartWorkerForMemory())
           if (shouldRestart) {
             logger.info(`[OOM mitigation] Restarting TTS worker after chapter to reclaim WASM heap`)
-            const worker = getTTSWorker()
-            worker.terminate()
+            terminateTTSWorker()
             await new Promise((r) => setTimeout(r, isMobileDevice() ? 1000 : 500))
           }
         } catch (err: unknown) {
@@ -800,7 +811,7 @@ class GenerationService {
       }
     } finally {
       throttledProgress.flush()
-      this.running = false
+      this.setRunning(false)
       isGenerating.set(false)
       clearGenerationState()
       await this.stopSilentAudio()
@@ -1181,7 +1192,7 @@ class GenerationService {
     this.autoPlayTriggered.clear()
     this.canceledChapters.clear()
 
-    this.running = false
+    this.setRunning(false)
     isGenerating.set(false)
   }
 
@@ -1202,8 +1213,15 @@ class GenerationService {
       return newMap
     })
 
-    // Mark generation as no longer in progress for this chapter
-    markChapterGenerationComplete(chapterId)
+    // Stop generation flag without clearing segment data (segments are still valid in IndexedDB)
+    segmentProgress.update((map) => {
+      const newMap = new Map(map)
+      const progress = newMap.get(chapterId)
+      if (progress) {
+        newMap.set(chapterId, { ...progress, isGenerating: false, processingIndex: -1 })
+      }
+      return newMap
+    })
   }
 
   /** Returns true if generation is currently in progress. */
@@ -1295,3 +1313,6 @@ class GenerationService {
 }
 
 export const generationService = new GenerationService()
+
+/** Reactive store reflecting whether generation is currently running */
+export const isGeneratingStore = writable(false)

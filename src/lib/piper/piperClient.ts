@@ -85,12 +85,21 @@ export class PiperClient {
     if (!isStored) {
       logger.info(`Model ${voiceId} not stored, downloading...`)
       options.onProgress?.(`Downloading voice model: ${voiceId}...`)
-      await (
-        await getTts()
-      ).download(voiceId as any, (progress: any) => {
-        const percent = Math.round((progress.loaded * 100) / progress.total)
-        options.onProgress?.(`Downloading model: ${percent}%`)
-      })
+      const downloadPromise = (async () => {
+        await (
+          await getTts()
+        ).download(voiceId as any, (progress: any) => {
+          const percent = Math.round((progress.loaded * 100) / progress.total)
+          options.onProgress?.(`Downloading model: ${percent}%`)
+        })
+      })()
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Model download timed out after 60s: ${voiceId}`)),
+          60_000
+        )
+      )
+      await Promise.race([downloadPromise, timeout])
     }
 
     // Validate and clean input text
