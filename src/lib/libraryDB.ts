@@ -898,6 +898,44 @@ export async function deleteChapterSegments(bookId: number, chapterId: string): 
 }
 
 /**
+ * Delete specific segments by their indices from a chapter.
+ * Used to remove mismatched segments before regeneration.
+ */
+export async function deleteSegmentsByIndices(
+  bookId: number,
+  chapterId: string,
+  indices: Set<number>
+): Promise<void> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    const index = store.index('chapterId')
+    const request = index.openCursor(IDBKeyRange.only([bookId, chapterId]))
+
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (cursor) {
+        if (indices.has(cursor.value.index)) {
+          cursor.delete()
+        }
+        cursor.continue()
+      }
+    }
+
+    transaction.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+    transaction.onerror = () => {
+      db.close()
+      reject(new Error('Failed to delete segments by indices'))
+    }
+  })
+}
+
+/**
  * Get a single audio segment by its index (loads only one blob at a time).
  * Used for incremental concatenation on memory-constrained devices.
  */
