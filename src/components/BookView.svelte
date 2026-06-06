@@ -347,6 +347,24 @@
     }
   }
 
+  async function handleReprocess(chapterId: string, mismatchedIndices: number[]) {
+    if (!$book) return
+    const ch = $book.chapters.find((c) => c.id === chapterId)
+    if (!ch) return
+    const { deleteSegmentsByIndices } = await import('../lib/libraryDB')
+    await deleteSegmentsByIndices($book.id!, chapterId, new Set(mismatchedIndices))
+    // Clear mismatched segments from the progress store
+    const { clearSegmentIndices } = await import('../stores/segmentProgressStore')
+    clearSegmentIndices(chapterId, mismatchedIndices)
+    // Trigger generation which will regenerate only missing segments
+    isGenerating = true
+    try {
+      await generationService.resumeChapters([ch])
+    } finally {
+      isGenerating = false
+    }
+  }
+
   async function handleResumeAll() {
     if (!$book) return
     const partialChapters = $book.chapters.filter((c) => {
@@ -802,6 +820,7 @@
             onVoiceChange={handleVoiceChange}
             onLanguageChange={handleLanguageChange}
             onSelectOnly={selectOnlyChapter}
+            onReprocess={handleReprocess}
           />
         {/each}
       </div>

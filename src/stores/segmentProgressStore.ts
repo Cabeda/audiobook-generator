@@ -108,6 +108,31 @@ export function markChapterGenerationComplete(chapterId: string) {
 }
 
 /**
+ * Remove specific segment indices from a chapter's progress.
+ * Used when reprocessing mismatched segments — clears them so generation recreates them.
+ */
+export function clearSegmentIndices(chapterId: string, indices: number[]) {
+  segmentProgress.update((map) => {
+    const newMap = new Map(map)
+    const progress = newMap.get(chapterId)
+    if (progress) {
+      const newGenerated = new Set(progress.generatedIndices)
+      const newSegments = new Map(progress.generatedSegments)
+      for (const idx of indices) {
+        newGenerated.delete(idx)
+        newSegments.delete(idx)
+      }
+      newMap.set(chapterId, {
+        ...progress,
+        generatedIndices: newGenerated,
+        generatedSegments: newSegments,
+      })
+    }
+    return newMap
+  })
+}
+
+/**
  * Mark a chapter as generating without clearing existing segment progress.
  * Used when resuming a partially-generated chapter.
  */

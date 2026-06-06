@@ -50,6 +50,7 @@
     onVoiceChange,
     onLanguageChange,
     onSelectOnly,
+    onReprocess,
   } = $props<{
     chapter: Chapter
     book?: Book
@@ -68,6 +69,7 @@
     onVoiceChange?: (chapterId: string, voice: string | undefined) => void
     onLanguageChange?: (chapterId: string, language: string | undefined) => void
     onSelectOnly?: (chapterId: string) => void
+    onReprocess?: (chapterId: string, mismatchedIndices: number[]) => void
   }>()
 
   const numberFormatter = new Intl.NumberFormat()
@@ -170,6 +172,21 @@
     }
     // 4. Global toolbar fallback
     return $selectedVoice
+  })
+
+  // Detect mismatched segments (voice/model differs from current effective settings)
+  let mismatchedIndices = $derived.by(() => {
+    const progress = chapterSegmentProgress
+    if (!progress) return []
+    const indices: number[] = []
+    for (const [idx, seg] of progress.generatedSegments) {
+      const voiceMismatch = seg.voice != null && seg.voice !== effectiveVoice
+      const modelMismatch = seg.model != null && seg.model !== effectiveModel
+      if (voiceMismatch || modelMismatch) {
+        indices.push(idx)
+      }
+    }
+    return indices
   })
 
   function copy() {
@@ -475,6 +492,25 @@
           <option value={fmt.value}>{fmt.label}</option>
         {/each}
       </select>
+    </div>
+  {/if}
+
+  {#if mismatchedIndices.length > 0 && (status === 'done' || isDoneWithoutAudio)}
+    <div class="mismatch-warning">
+      <span class="mismatch-text">
+        ⚠️ {mismatchedIndices.length}/{chapterSegmentProgress?.totalSegments ?? 0} segments use a different
+        voice/model
+      </span>
+      {#if onReprocess}
+        <button
+          class="action-btn small reprocess-btn"
+          onclick={() => onReprocess(chapter.id, mismatchedIndices)}
+          title="Regenerate segments that don't match current voice/model settings"
+          aria-label="Regenerate mismatched segments"
+        >
+          🔄 Regenerate mismatched
+        </button>
+      {/if}
     </div>
   {/if}
 
@@ -1351,5 +1387,33 @@
       font-size: 0.75rem;
       padding: 4px 8px;
     }
+  }
+
+  .mismatch-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-top: 8px;
+    background: rgba(234, 179, 8, 0.1);
+    border: 1px solid rgba(234, 179, 8, 0.3);
+    border-radius: 8px;
+    flex-wrap: wrap;
+  }
+
+  .mismatch-text {
+    font-size: 0.82rem;
+    color: var(--text-color);
+    opacity: 0.9;
+  }
+
+  .reprocess-btn {
+    background: rgba(234, 179, 8, 0.15);
+    border-color: rgba(234, 179, 8, 0.4);
+    color: var(--text-color);
+  }
+
+  .reprocess-btn:hover {
+    background: rgba(234, 179, 8, 0.25);
   }
 </style>
