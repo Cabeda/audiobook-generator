@@ -281,9 +281,21 @@ export async function concatenateAudioChapters(
         outputBlob = await mediabunnyConvertWavToMp3(wavBlob, bitrate)
         break
       case 'm4b':
-      case 'mp4':
+      case 'mp4': {
         outputBlob = await convertWavToM4b(wavBlob, bitrate)
+        // Inject Nero chapter markers if we have multiple chapters with durations
+        if (chapters.length > 1) {
+          const { injectChapterMarkers } = await import('./m4bChapters')
+          let startMs = 0
+          const markers = chapters.map((ch) => {
+            const marker = { title: ch.title, startTimeMs: startMs }
+            startMs += (ch.duration || 0) * 1000
+            return marker
+          })
+          outputBlob = await injectChapterMarkers(outputBlob, markers)
+        }
         break
+      }
       case 'wav':
       default:
         outputBlob = wavBlob
