@@ -9,7 +9,7 @@
  * `TTSEngineConfig`, which each engine reads for itself and ignores the rest.
  */
 
-export type TTSModelType = 'kokoro' | 'piper'
+export type TTSModelType = 'kokoro' | 'piper' | 'pocket'
 
 /** What every caller knows about a request. */
 export interface TTSRequest {
@@ -92,6 +92,10 @@ export async function getTTSEngine(
           ),
       }
     }
+    case 'pocket': {
+      const { createPocketEngine } = await import('../pocket/pocketEngine')
+      return createPocketEngine()
+    }
     default:
       throw new Error(`Unknown TTS model type: ${modelType}`)
   }
@@ -120,6 +124,13 @@ export const TTS_MODELS: TTSModelInfo[] = [
     id: 'piper',
     name: 'Piper TTS',
     description: 'Fast, local neural TTS running in the browser.',
+    requiresDownload: true,
+    supportsOffline: true,
+  },
+  {
+    id: 'pocket',
+    name: 'Pocket TTS',
+    description: "Kyutai's 18M parameter model, small enough to run on a phone.",
     requiresDownload: true,
     supportsOffline: true,
   },

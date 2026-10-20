@@ -10,7 +10,13 @@
 import type { AudioSegment } from '../types/audio'
 import { createSegment } from '../segments'
 import type { PiperVoice } from '../piper/piperClient'
-import { isKokoroLanguageSupported, normalizeLanguageCode } from '../utils/voiceSelector'
+import {
+  isKokoroLanguageSupported,
+  isPocketLanguageSupported,
+  normalizeLanguageCode,
+  selectPocketVoiceForLanguage,
+} from '../utils/voiceSelector'
+import type { TTSModelType } from '../tts/ttsModels'
 import { getStartingTier, getTargetTier, canRunUpgrade } from '../utils/resourceMonitor'
 import {
   updateSegmentQuality,
@@ -24,7 +30,7 @@ import logger from '../utils/logger'
 // ---------------------------------------------------------------------------
 
 export interface TierConfig {
-  model: 'kokoro' | 'piper'
+  model: TTSModelType
   voice: string
   quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
@@ -46,8 +52,20 @@ interface TierLadder {
  * engine — Web Speech plays, it does not produce audio, so it is not a tier.
  * Tiers with no available voice are set to null.
  */
-export function resolveTierLadder(language: string, piperVoices: PiperVoice[]): TierLadder {
-  const useKokoro = isKokoroLanguageSupported(language)
+export function resolveTierLadder(
+  language: string,
+  piperVoices: PiperVoice[],
+  model: TTSModelType = 'kokoro'
+): TierLadder {
+  if (model === 'pocket' && isPocketLanguageSupported(language)) {
+    // Pocket TTS has one quality level, so there is nothing to upgrade to.
+    return {
+      tiers: [{ model: 'pocket', voice: selectPocketVoiceForLanguage(language) }],
+      maxAvailableTier: 0,
+    }
+  }
+
+  const useKokoro = model === 'kokoro' && isKokoroLanguageSupported(language)
 
   if (useKokoro) {
     return {
@@ -91,9 +109,10 @@ export function resolveTierLadder(language: string, piperVoices: PiperVoice[]): 
 export function getTierConfig(
   tier: number,
   language: string,
-  piperVoices: PiperVoice[]
+  piperVoices: PiperVoice[],
+  model: TTSModelType = 'kokoro'
 ): TierConfig | null {
-  const ladder = resolveTierLadder(language, piperVoices)
+  const ladder = resolveTierLadder(language, piperVoices, model)
   return ladder.tiers[tier] ?? null
 }
 
@@ -120,10 +139,11 @@ export async function startFastPass(
   piperVoices: PiperVoice[],
   onSegmentReady: (segment: AudioSegment) => void,
   minTier = 0,
+  model: TTSModelType = 'kokoro',
   signal?: AbortSignal
 ): Promise<void> {
   const startingTier = getStartingTier()
-  const ladder = resolveTierLadder(language, piperVoices)
+  const ladder = resolveTierLadder(language, piperVoices, model)
 
   let effectiveTier = Math.max(minTier, startingTier)
   // Walk down to find the first available tier
@@ -184,13 +204,14 @@ export function scheduleUpgradePass(
   piperVoices: PiperVoice[],
   getCurrentIndex: () => number,
   onSegmentUpgraded: (segment: AudioSegment) => void,
-  upgradePlayedSegments = true
+  upgradePlayedSegments = true,
+  model: TTSModelType = 'kokoro'
 ): void {
   // Cancel any existing upgrade for this chapter
   cancelUpgrade(chapterId)
 
   const targetTier = getTargetTier()
-  const ladder = resolveTierLadder(language, piperVoices)
+  const ladder = resolveTierLadder(language, piperVoices, model)
 
   // Find the actual max available tier
   let effectiveTarget = targetTier as number

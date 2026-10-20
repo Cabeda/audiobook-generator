@@ -403,6 +403,9 @@
     const aqSettings = get(appSettings).adaptiveQuality
     if (!aqSettings.enabled) return
 
+    // Web Speech plays, it does not generate: there is nothing to fast pass.
+    if (localModel === 'web_speech') return
+
     const segs = audioService.segments
     if (segs.length === 0) return
 
@@ -437,7 +440,8 @@
           audioService.playFromSegment(segment.index)
         }
       },
-      aqSettings.skipFastestTier ? 1 : 0
+      aqSettings.skipFastestTier ? 1 : 0,
+      localModel === 'web_speech' ? 'kokoro' : localModel
     )
 
     if (scheduleUpgrade) {
@@ -448,7 +452,8 @@
         piperVoiceList,
         () => audioService.currentSegmentIndex,
         (upgraded) => audioService.replaceSegmentAudio(upgraded.index, upgraded.audioBlob),
-        aqSettings.upgradePlayedSegments
+        aqSettings.upgradePlayedSegments,
+        localModel === 'web_speech' ? 'kokoro' : localModel
       )
     }
   }

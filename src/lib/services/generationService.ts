@@ -101,6 +101,7 @@ import {
   selectKokoroVoiceForLanguage,
   selectPiperVoiceForLanguage,
   isKokoroLanguageSupported,
+  isPocketLanguageSupported,
   normalizeLanguageCode,
 } from '../utils/voiceSelector'
 import {
@@ -746,7 +747,10 @@ class GenerationService {
           : DEFAULT_LANGUAGE
         const langDefaults = appSettings.getLanguageDefault(get(appSettings), effectiveLanguage)
         let effectiveModel = ch.model || langDefaults?.model || model
-        if (effectiveModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
+        if (
+          (effectiveModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) ||
+          (effectiveModel === 'pocket' && !isPocketLanguageSupported(effectiveLanguage))
+        ) {
           effectiveModel = 'piper'
         }
         const currentVoice = ch.voice || langDefaults?.voice || get(selectedVoice)

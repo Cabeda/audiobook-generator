@@ -19,7 +19,12 @@
   import { warmUpKokoro } from './lib/kokoro/kokoroClient'
   import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
-  import { isKokoroLanguageSupported, selectPiperVoiceForLanguage } from './lib/utils/voiceSelector'
+  import {
+    isKokoroLanguageSupported,
+    selectPiperVoiceForLanguage,
+    POCKET_VOICES,
+  } from './lib/utils/voiceSelector'
+  import { POCKET_VOICE_LABELS } from './lib/pocket/pocketAssets'
   import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
   import { generationService } from './lib/services/generationService'
   import type { Chapter, Book } from './lib/types/book'
@@ -138,6 +143,18 @@
       untrack(() => {
         if (kokoroVoices.includes($lastKokoroVoice as any)) {
           selectedVoice.set($lastKokoroVoice)
+        }
+      })
+    } else if (model === 'pocket') {
+      availableVoices.set(
+        POCKET_VOICES.map((v) => ({
+          id: v,
+          label: POCKET_VOICE_LABELS[v as keyof typeof POCKET_VOICE_LABELS] || v,
+        }))
+      )
+      untrack(() => {
+        if (!POCKET_VOICES.includes($selectedVoice as any)) {
+          selectedVoice.set(POCKET_VOICES[0])
         }
       })
     } else if (model === 'piper') {

@@ -27,7 +27,10 @@
     getKokoroVoicesForLanguage,
     getPiperVoicesForLanguage,
     isKokoroLanguageSupported,
+    POCKET_VOICES,
+    isPocketLanguageSupported,
   } from '../lib/utils/voiceSelector'
+  import { POCKET_VOICE_LABELS } from '../lib/pocket/pocketAssets'
   import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
   import { piperVoices } from '../stores/piperVoicesStore'
   import { EXPORT_FORMATS, type ExportFormat } from '../lib/exportFormats'
@@ -148,6 +151,12 @@
         return matchingVoices.map((v) => ({ id: v.key, label: v.name }))
       }
       return []
+    } else if (effectiveModel === 'pocket') {
+      if (!isPocketLanguageSupported(effectiveLanguage)) return []
+      return POCKET_VOICES.map((v) => ({
+        id: v,
+        label: POCKET_VOICE_LABELS[v as keyof typeof POCKET_VOICE_LABELS] || v,
+      }))
     }
     return []
   })
