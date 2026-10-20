@@ -996,8 +996,10 @@ class AudioPlaybackService {
             text: segment.text,
             modelType: this.selectedModel as TTSModelType,
             voice: this.voice,
-            dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
-            device: this.device,
+            config: {
+              dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
+              device: this.device,
+            },
             onProgress: handleModelProgress,
           })
           clearModelProgress()

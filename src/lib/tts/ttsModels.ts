@@ -1,88 +1,95 @@
 /**
- * TTS Model Abstraction Layer
- * Provides a unified interface for different TTS engines
+ * TTS engine module.
+ *
+ * The seam between the app and the speech engines. A caller asks for audio for
+ * some text and a voice; the engine decides how to produce it, including which
+ * weights to load and in what precision.
+ *
+ * Callers only fill in `TTSRequest`. Engine-specific knobs live in
+ * `TTSEngineConfig`, which each engine reads for itself and ignores the rest.
  */
 
 export type TTSModelType = 'kokoro' | 'piper'
 
-export interface TTSGenerateParams {
+/** What every caller knows about a request. */
+export interface TTSRequest {
   text: string
   voice?: string
   speed?: number
   pitch?: number
-  // Kokoro-specific
-  model?: string
+  /** ISO 639-1 language code, for engines that pick a voice by language. */
+  language?: string
+}
+
+/**
+ * Knobs that only some engines understand. Each engine reads what is its own
+ * and ignores the rest, so no caller has to know which engine is in use.
+ */
+export interface TTSEngineConfig {
+  /** Kokoro: weight precision. */
   dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
+  /** Kokoro: model id. */
+  model?: string
+  /** Kokoro: execution device. */
   device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
 }
 
 export interface TTSEngine {
   generateVoice(
-    params: TTSGenerateParams,
+    request: TTSRequest,
     onChunkProgress?: (current: number, total: number) => void,
     onProgress?: (status: string) => void
   ): Promise<Blob>
 
   generateSegments?(
-    params: TTSGenerateParams,
+    request: TTSRequest,
     onChunkProgress?: (current: number, total: number) => void,
     onProgress?: (status: string) => void
   ): Promise<{ text: string; blob: Blob }[]>
 }
 
 /**
- * Get the appropriate TTS engine based on model type
+ * Get the appropriate TTS engine based on model type.
+ *
+ * The config is read by the engine, not by the caller: it carries the knobs
+ * only that engine understands.
  */
-export async function getTTSEngine(modelType: TTSModelType): Promise<TTSEngine> {
+export async function getTTSEngine(
+  modelType: TTSModelType,
+  config: TTSEngineConfig = {}
+): Promise<TTSEngine> {
   switch (modelType) {
     case 'kokoro': {
       const { generateVoice, generateVoiceSegments } = await import('../kokoro/kokoroClient')
       type KokoroVoiceId = Parameters<typeof generateVoice>[0]['voice']
+      const kokoroRequest = (request: TTSRequest) => ({
+        text: request.text,
+        voice: request.voice as KokoroVoiceId,
+        speed: request.speed,
+        model: config.model,
+        dtype: config.dtype,
+        device: config.device,
+      })
       return {
-        generateVoice: async (params, onChunkProgress, onProgress) => {
-          return generateVoice(
-            {
-              text: params.text,
-              voice: params.voice as KokoroVoiceId,
-              speed: params.speed,
-              model: params.model,
-              dtype: params.dtype,
-              device: params.device,
-            },
-            onChunkProgress,
-            onProgress
-          )
-        },
-        generateSegments: async (params, onChunkProgress, onProgress) => {
-          return generateVoiceSegments(
-            {
-              text: params.text,
-              voice: params.voice as KokoroVoiceId,
-              speed: params.speed,
-              model: params.model,
-              dtype: params.dtype,
-              device: params.device,
-            },
-            onChunkProgress,
-            onProgress
-          )
-        },
+        generateVoice: (request, onChunkProgress, onProgress) =>
+          generateVoice(kokoroRequest(request), onChunkProgress, onProgress),
+        generateSegments: (request, onChunkProgress, onProgress) =>
+          generateVoiceSegments(kokoroRequest(request), onChunkProgress, onProgress),
       }
     }
     case 'piper': {
       const { generateVoice } = await import('../piper/piperClient')
       return {
-        generateVoice: async (params, onChunkProgress, onProgress) => {
-          return generateVoice(
+        generateVoice: (request, onChunkProgress, onProgress) =>
+          generateVoice(
             {
-              text: params.text,
-              voice: params.voice,
-              speed: params.speed,
+              text: request.text,
+              voice: request.voice,
+              speed: request.speed,
             },
             onChunkProgress,
             onProgress
-          )
-        },
+          ),
       }
     }
     default:

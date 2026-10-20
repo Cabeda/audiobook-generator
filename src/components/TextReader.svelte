@@ -437,7 +437,7 @@
           audioService.playFromSegment(segment.index)
         }
       },
-      aqSettings.skipWebSpeech
+      aqSettings.skipFastestTier ? 1 : 0
     )
 
     if (scheduleUpgrade) {

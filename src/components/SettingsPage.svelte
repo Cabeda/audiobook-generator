@@ -271,18 +271,18 @@
     </div>
 
     <div class="toggle-row" class:disabled={!settings.adaptiveQuality.enabled}>
-      <label for="aq-skip-web-speech">Skip Web Speech (start at Tier 1)</label>
+      <label for="aq-skip-fastest-tier">Skip fastest tier (start at Tier 1)</label>
       <input
-        id="aq-skip-web-speech"
+        id="aq-skip-fastest-tier"
         type="checkbox"
         disabled={!settings.adaptiveQuality.enabled}
-        checked={settings.adaptiveQuality.skipWebSpeech}
+        checked={settings.adaptiveQuality.skipFastestTier}
         onchange={(e) =>
           appSettings.update((s) => ({
             ...s,
             adaptiveQuality: {
               ...s.adaptiveQuality,
-              skipWebSpeech: (e.target as HTMLInputElement).checked,
+              skipFastestTier: (e.target as HTMLInputElement).checked,
             },
           }))}
       />

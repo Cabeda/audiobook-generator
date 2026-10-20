@@ -4,7 +4,7 @@
  */
 
 import logger from './utils/logger'
-import type { TTSModelType } from './tts/ttsModels'
+import type { TTSEngineConfig, TTSModelType } from './tts/ttsModels'
 import { retryWithBackoff, isRetryableError } from './retryUtils'
 import { normalizeError, CancellationError } from './errors'
 import { toastStore } from '../stores/toastStore'
@@ -18,11 +18,8 @@ type WorkerRequest = {
   speed?: number
   pitch?: number
   language?: string // ISO 639-1 language code for voice selection
-  // Kokoro-specific
-  dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-  model?: string
-  device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
-  advancedSettings?: Record<string, any>
+  /** Knobs only some engines understand. */
+  config?: TTSEngineConfig
 }
 
 type WorkerResponse =
@@ -57,9 +54,8 @@ type GenerateOptions = {
   language?: string
   onProgress?: (message: string) => void
   onChunkProgress?: (current: number, total: number) => void
-  dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-  model?: string
-  device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
+  /** Knobs only some engines understand. */
+  config?: TTSEngineConfig
   advancedSettings?: Record<string, any>
 }
 
@@ -372,10 +368,7 @@ export class TTSWorkerManager {
             speed: options.speed,
             pitch: options.pitch,
             language: options.language,
-            dtype: options.dtype,
-            model: options.model,
-            device: options.device,
-            advancedSettings: options.advancedSettings,
+            config: options.config,
           },
           { onProgress: options.onProgress, onChunkProgress: options.onChunkProgress }
         )
@@ -384,9 +377,7 @@ export class TTSWorkerManager {
     )
   }
 
-  async generateSegments(
-    options: Omit<GenerateOptions, 'advancedSettings'>
-  ): Promise<{ text: string; blob: Blob }[]> {
+  async generateSegments(options: GenerateOptions): Promise<{ text: string; blob: Blob }[]> {
     return this.withRetry(
       'TTS segment generation',
       async () => {
@@ -401,9 +392,7 @@ export class TTSWorkerManager {
             speed: options.speed,
             pitch: options.pitch,
             language: options.language,
-            dtype: options.dtype,
-            model: options.model,
-            device: options.device,
+            config: options.config,
           },
           { onProgress: options.onProgress, onChunkProgress: options.onChunkProgress }
         )

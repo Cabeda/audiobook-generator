@@ -24,7 +24,7 @@ import logger from '../utils/logger'
 // ---------------------------------------------------------------------------
 
 export interface TierConfig {
-  model: 'kokoro' | 'piper' | 'web_speech'
+  model: 'kokoro' | 'piper'
   voice: string
   quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
@@ -41,7 +41,9 @@ interface TierLadder {
 
 /**
  * Build the tier ladder for a given language.
- * English uses Kokoro; other languages use Piper.
+ *
+ * English uses Kokoro; other languages use Piper. Every tier is a generating
+ * engine — Web Speech plays, it does not produce audio, so it is not a tier.
  * Tiers with no available voice are set to null.
  */
 export function resolveTierLadder(language: string, piperVoices: PiperVoice[]): TierLadder {
@@ -50,25 +52,22 @@ export function resolveTierLadder(language: string, piperVoices: PiperVoice[]): 
   if (useKokoro) {
     return {
       tiers: [
-        { model: 'web_speech', voice: '' }, // tier 0
-        { model: 'kokoro', voice: 'af_heart', quantization: 'q4', device: 'wasm' }, // tier 1
-        { model: 'kokoro', voice: 'af_heart', quantization: 'q8', device: 'wasm' }, // tier 2
-        { model: 'kokoro', voice: 'af_heart', quantization: 'fp16', device: 'auto' }, // tier 3
+        { model: 'kokoro', voice: 'af_heart', quantization: 'q4', device: 'wasm' }, // tier 0
+        { model: 'kokoro', voice: 'af_heart', quantization: 'q8', device: 'wasm' }, // tier 1
+        { model: 'kokoro', voice: 'af_heart', quantization: 'fp16', device: 'auto' }, // tier 2
       ],
-      maxAvailableTier: 3,
+      maxAvailableTier: 2,
     }
   }
 
   // Piper ladder — skip tiers with no available voice for this language
-  const tierConfigs: Array<TierConfig | null> = [
-    { model: 'web_speech', voice: '' }, // tier 0 always available
-  ]
+  const tierConfigs: Array<TierConfig | null> = []
 
-  let maxAvailableTier = 0
+  let maxAvailableTier = -1
 
-  const qualityForTier: Record<number, PiperVoice['quality']> = { 1: 'low', 2: 'medium', 3: 'high' }
+  const qualityForTier: Record<number, PiperVoice['quality']> = { 0: 'low', 1: 'medium', 2: 'high' }
 
-  for (const piperTier of [1, 2, 3] as const) {
+  for (const piperTier of [0, 1, 2] as const) {
     const targetQuality = qualityForTier[piperTier]
     const langVoices = piperVoices.filter((v) => {
       return normalizeLanguageCode(v.language) === normalizeLanguageCode(language)
@@ -120,14 +119,13 @@ export async function startFastPass(
   language: string,
   piperVoices: PiperVoice[],
   onSegmentReady: (segment: AudioSegment) => void,
-  skipWebSpeech = false,
+  minTier = 0,
   signal?: AbortSignal
 ): Promise<void> {
   const startingTier = getStartingTier()
   const ladder = resolveTierLadder(language, piperVoices)
 
-  // If skipWebSpeech, bump starting tier to at least 1
-  let effectiveTier = skipWebSpeech ? Math.max(1, startingTier) : startingTier
+  let effectiveTier = Math.max(minTier, startingTier)
   // Walk down to find the first available tier
   while (effectiveTier > 0 && !ladder.tiers[effectiveTier]) {
     effectiveTier--
@@ -149,10 +147,9 @@ export async function startFastPass(
     try {
       const blob = await worker.generateVoice({
         text: seg.text,
-        modelType: config.model === 'web_speech' ? 'kokoro' : config.model,
+        modelType: config.model,
         voice: config.voice,
-        dtype: config.quantization,
-        device: config.device,
+        config: { dtype: config.quantization, device: config.device },
       })
 
       const audioSegment = createSegment({
@@ -201,8 +198,8 @@ export function scheduleUpgradePass(
     effectiveTarget--
   }
 
-  if (effectiveTarget === 0) {
-    logger.info('[AdaptiveQuality] No upgrade possible — only Web Speech available')
+  if (effectiveTarget <= 0) {
+    logger.info('[AdaptiveQuality] No upgrade possible — only the cheapest tier is available')
     return
   }
 
@@ -276,10 +273,9 @@ export function scheduleUpgradePass(
 
       const blob = await worker.generateVoice({
         text: segData.text,
-        modelType: config.model === 'web_speech' ? 'kokoro' : config.model,
+        modelType: config.model,
         voice: config.voice,
-        dtype: config.quantization,
-        device: config.device,
+        config: { dtype: config.quantization, device: config.device },
       })
 
       if (state.cancelled) return

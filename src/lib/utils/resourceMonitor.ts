@@ -24,20 +24,20 @@ export function getDeviceTier(): DeviceTier {
 
 /**
  * Starting quality tier index.
- * Always returns 0 so every device benefits from fast-start (instant Web Speech audio
- * while higher-quality audio is generated in the background).
- * The device tier only affects the upgrade ceiling via getTargetTier().
+ * Always returns 0 so every device starts at the cheapest generating tier and
+ * upgrades in the background. The device tier only affects the upgrade ceiling
+ * via getTargetTier().
  */
 export function getStartingTier(): 0 {
   return 0
 }
 
 /** Target (maximum) quality tier index for the current device. */
-export function getTargetTier(): 1 | 2 | 3 {
+export function getTargetTier(): 0 | 1 | 2 {
   const tier = getDeviceTier()
-  if (tier === 'weak') return 1
-  if (tier === 'medium') return 2
-  return 3
+  if (tier === 'weak') return 0
+  if (tier === 'medium') return 1
+  return 2
 }
 
 /**

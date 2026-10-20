@@ -1021,13 +1021,14 @@ class GenerationService {
           text: segment.text,
           modelType: effectiveModel as import('../tts/ttsModels').TTSModelType,
           voice: effectiveVoice,
-          dtype:
-            effectiveModel === 'kokoro'
-              ? (currentQuantization as import('../../stores/ttsStore').Quantization)
-              : undefined,
-          device: currentDevice as import('../../stores/ttsStore').Device,
+          config: {
+            dtype:
+              effectiveModel === 'kokoro'
+                ? (currentQuantization as import('../../stores/ttsStore').Quantization)
+                : undefined,
+            device: currentDevice as import('../../stores/ttsStore').Device,
+          },
           language: effectiveLanguage,
-          advancedSettings: currentAdvancedSettings,
           // Forward worker progress messages (model loading, preparing, etc.) to the UI
           onProgress: (message) => {
             const completed = audioSegments.length
