@@ -161,7 +161,7 @@ await page.goto(args.baseUrl)
 
 // The dev server serves the books folder, so the page can fetch the book
 // itself instead of shipping a megabyte of bytes through the protocol.
-const bookUrl = `/${args.book.split('/').slice(1).join('/')}`
+const bookUrl = `/${args.book.replace(/^\//, '')}`
 
 const report = await page.evaluate(
   async ({ url, name, models, maxChapters, maxSegments }) => {

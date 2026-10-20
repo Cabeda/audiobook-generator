@@ -111,14 +111,23 @@ export async function benchmarkVoice(model: TTSModelType, language: string): Pro
 
 type ChapterText = { id: string; title: string; segments: { text: string }[] }
 
-/** Split the book into the segments the engines will speak. */
-export function segmentBook(book: ArrayBuffer, maxSegments?: number): Promise<ChapterText[]> {
+/**
+ * Split the book into the segments the engines will speak.
+ *
+ * `maxSegments` and `maxChapters` cut the book short, for a quick run.
+ */
+export function segmentBook(
+  book: ArrayBuffer,
+  maxSegments?: number,
+  maxChapters?: number
+): Promise<ChapterText[]> {
   const file = new File([book], 'book.epub', { type: 'application/epub+zip' })
   return parseEpubFile(file).then((parsed) => {
     const chapters: ChapterText[] = []
     let total = 0
 
     for (const chapter of parsed.chapters) {
+      if (maxChapters && chapters.length >= maxChapters) break
       const { segments } = segmentHtmlContent(chapter.id, chapter.content ?? '')
       const texts: { text: string }[] = []
       for (const segment of segments) {
@@ -162,7 +171,7 @@ export async function benchmarkBook(options: BenchmarkOptions): Promise<Benchmar
   const startedAt = new Date().toISOString()
   const started = performance.now()
 
-  const chapters = await segmentBook(options.book, options.maxSegments)
+  const chapters = await segmentBook(options.book, options.maxSegments, options.maxChapters)
   const results: ModelBenchmarkResult[] = []
 
   for (const model of options.models) {
@@ -235,6 +244,89 @@ export async function benchmarkBook(options: BenchmarkOptions): Promise<Benchmar
     totalSeconds: (performance.now() - started) / 1000,
     models: results,
   }
+}
+
+// ─── engine measurement ─────────────────────────────────────────────────────
+
+export interface EngineMeasurement {
+  model: TTSModelType
+  voice: string
+  /** Time to load the model and build its sessions, in seconds. */
+  loadSeconds: number
+  /** Time from the first request to the first audio, in seconds. */
+  firstAudioSeconds: number
+  /** Length of the generated audio, in seconds. */
+  audioSeconds: number
+  /** Time spent generating, in seconds. */
+  generationSeconds: number
+  /** Audio seconds per second of generation. Higher is faster. */
+  realTimeFactor: number
+  segments: number
+  error?: string
+}
+
+/**
+ * Measure one engine: how long it takes to load, how long it takes to speak
+ * the first segment, and how fast it speaks.
+ */
+export async function measureEngine(
+  model: TTSModelType,
+  options: { segments?: number; text?: string } = {}
+): Promise<EngineMeasurement> {
+  const voice = await benchmarkVoice(model, 'en')
+  const measurement: EngineMeasurement = {
+    model,
+    voice,
+    loadSeconds: 0,
+    firstAudioSeconds: 0,
+    audioSeconds: 0,
+    generationSeconds: 0,
+    realTimeFactor: 0,
+    segments: 0,
+  }
+
+  try {
+    const engine = await getTTSEngine(model, benchmarkConfig(model))
+    const warmupStart = performance.now()
+    await engine.warmUp?.()
+    measurement.loadSeconds = (performance.now() - warmupStart) / 1000
+
+    const texts = options.text
+      ? [options.text]
+      : [
+          'This is the first segment of the book.',
+          'And this is the second one, a little longer than the first.',
+          'The third segment is here as well.',
+        ]
+
+    const generationStart = performance.now()
+    for (const text of texts) {
+      const blob = await engine.generateVoice({ text, voice })
+      if (measurement.segments === 0) {
+        measurement.firstAudioSeconds = (performance.now() - generationStart) / 1000
+      }
+      measurement.audioSeconds += await parseWavDuration(blob)
+      measurement.segments++
+    }
+    measurement.generationSeconds = (performance.now() - generationStart) / 1000
+    measurement.realTimeFactor =
+      measurement.generationSeconds > 0
+        ? measurement.audioSeconds / measurement.generationSeconds
+        : 0
+  } catch (error) {
+    measurement.error = error instanceof Error ? error.message : String(error)
+  }
+
+  return measurement
+}
+
+/** Measure every engine. */
+export async function measureEngines(models: TTSModelType[]): Promise<EngineMeasurement[]> {
+  const measurements: EngineMeasurement[] = []
+  for (const model of models) {
+    measurements.push(await measureEngine(model))
+  }
+  return measurements
 }
 
 // ─── export formats ─────────────────────────────────────────────────────────

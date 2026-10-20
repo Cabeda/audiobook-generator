@@ -26,6 +26,7 @@
   } from './lib/utils/voiceSelector'
   import { POCKET_VOICE_LABELS } from './lib/pocket/pocketAssets'
   import { planChapter } from './lib/services/chapterPlan'
+  import logger from './lib/utils/logger'
   import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
   import { generationService } from './lib/services/generationService'
   import type { Chapter, Book } from './lib/types/book'
@@ -148,6 +149,11 @@
         }
       })
     } else if (model === 'pocket') {
+      // Warm the model up eagerly so the first generation doesn't pay for the
+      // download, the same way Kokoro is warmed up.
+      import('./lib/pocket/pocketEngine')
+        .then((pocket) => pocket.warmUpPocket())
+        .catch((err) => logger.warn('Could not warm up Pocket TTS:', err))
       availableVoices.set(
         POCKET_VOICES.map((v) => ({
           id: v,

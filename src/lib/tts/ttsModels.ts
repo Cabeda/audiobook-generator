@@ -35,6 +35,12 @@ export interface TTSEngineConfig {
 }
 
 export interface TTSEngine {
+  /**
+   * Load the model ahead of time, so the first request does not pay for the
+   * download. Engines that cannot do it simply leave it out.
+   */
+  warmUp?(): Promise<void>
+
   generateVoice(
     request: TTSRequest,
     onChunkProgress?: (current: number, total: number) => void,
@@ -71,6 +77,14 @@ export async function getTTSEngine(
         device: config.device,
       })
       return {
+        warmUp: async () => {
+          const { warmUpKokoro } = await import('../kokoro/kokoroClient')
+          await warmUpKokoro(
+            config.model ?? 'onnx-community/Kokoro-82M-v1.0-ONNX',
+            config.dtype ?? 'q8',
+            config.device ?? 'auto'
+          )
+        },
         generateVoice: (request, onChunkProgress, onProgress) =>
           generateVoice(kokoroRequest(request), onChunkProgress, onProgress),
         generateSegments: (request, onChunkProgress, onProgress) =>
@@ -80,6 +94,12 @@ export async function getTTSEngine(
     case 'piper': {
       const { generateVoice } = await import('../piper/piperClient')
       return {
+        warmUp: async () => {
+          // Piper loads its model on the first request; fetching the voice
+          // list warms the catalogue in the meantime.
+          const { piperClient } = await import('../piper/piperClient')
+          await piperClient.getVoices()
+        },
         generateVoice: (request, onChunkProgress, onProgress) =>
           generateVoice(
             {
@@ -93,8 +113,8 @@ export async function getTTSEngine(
       }
     }
     case 'pocket': {
-      const { createPocketEngine } = await import('../pocket/pocketEngine')
-      return createPocketEngine()
+      const { getPocketEngine } = await import('../pocket/pocketEngine')
+      return getPocketEngine()
     }
     default:
       throw new Error(`Unknown TTS model type: ${modelType}`)

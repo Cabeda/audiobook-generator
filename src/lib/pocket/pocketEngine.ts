@@ -169,6 +169,11 @@ export class PocketEngine implements TTSEngine {
 
   // ── model loading ─────────────────────────────────────────────────────────
 
+  /** Load the model and its voices ahead of time. */
+  async warmUp(onProgress?: (status: string) => void): Promise<void> {
+    await this.load(onProgress)
+  }
+
   private async load(onProgress?: (status: string) => void): Promise<void> {
     if (this.sessions) return
     if (this.loading) return this.loading
@@ -580,7 +585,25 @@ export function splitIntoChunks(
   return chunks
 }
 
-/** Create the Pocket TTS engine. */
-export async function createPocketEngine(): Promise<TTSEngine> {
-  return new PocketEngine()
+/**
+ * The Pocket TTS engine.
+ *
+ * One instance for the app: the model and its sessions are expensive to build,
+ * so the engine is shared and can be warmed up before the first request.
+ */
+let engine: PocketEngine | null = null
+
+export function getPocketEngine(): PocketEngine {
+  if (!engine) engine = new PocketEngine()
+  return engine
+}
+
+/**
+ * Download and initialise the Pocket TTS model.
+ *
+ * Call this when the model is selected, so the first request does not pay for
+ * the download.
+ */
+export async function warmUpPocket(onProgress?: (status: string) => void): Promise<void> {
+  await getPocketEngine().warmUp(onProgress)
 }
