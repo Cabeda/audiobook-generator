@@ -25,6 +25,7 @@
     POCKET_VOICES,
   } from './lib/utils/voiceSelector'
   import { POCKET_VOICE_LABELS } from './lib/pocket/pocketAssets'
+  import { planChapter } from './lib/services/chapterPlan'
   import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
   import { generationService } from './lib/services/generationService'
   import type { Chapter, Book } from './lib/types/book'
@@ -75,17 +76,18 @@
     return resolveChapterLanguageWithDetection(currentChapter, $book)
   })
 
-  // Compute effective model (with language-based fallback from Kokoro to Piper)
-  // Priority: chapter override > app language default > global toolbar selection
-  let readerModel = $derived.by(() => {
-    const langDefault = $appSettings.languageDefaults[readerLanguage]
-    const baseModel = currentChapter?.model || langDefault?.model || $selectedModel
-    // If Kokoro is selected but doesn't support the language, fallback to Piper
-    if (baseModel === 'kokoro' && !isKokoroLanguageSupported(readerLanguage)) {
-      return 'piper' as const
-    }
-    return baseModel as 'kokoro' | 'piper'
-  })
+  // The plan decides the engine, the voice and the settings for this chapter.
+  let readerPlan = $derived.by(() =>
+    planChapter({
+      chapter: { model: currentChapter?.model, voice: currentChapter?.voice },
+      language: readerLanguage,
+      languageDefaults: $appSettings.languageDefaults,
+      selectedModel: $selectedModel,
+      selectedVoice: $selectedVoice,
+    })
+  )
+
+  let readerModel = $derived(readerPlan.model)
 
   // Compute effective voice considering model fallback
   // Priority: chapter override > app language default > global toolbar > auto-select

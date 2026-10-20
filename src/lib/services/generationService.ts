@@ -100,8 +100,6 @@ import { audioService } from '../audioPlaybackService.svelte'
 import {
   selectKokoroVoiceForLanguage,
   selectPiperVoiceForLanguage,
-  isKokoroLanguageSupported,
-  isPocketLanguageSupported,
   normalizeLanguageCode,
 } from '../utils/voiceSelector'
 import {
@@ -114,6 +112,7 @@ import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
 import { parseWavDuration } from '../wavUtils'
+import { planChapter } from './chapterPlan'
 import { createSegment, segmentId } from '../segments'
 import type { AudioExportFormat } from '../exportFormats'
 import { segmentHtmlContent } from './segmentationService'
@@ -591,26 +590,29 @@ class GenerationService {
           ? resolveChapterLanguageWithDetection(ch, currentBook)
           : DEFAULT_LANGUAGE
 
-        // Check app-level per-language defaults (priority: chapter > app language defaults > global)
-        const langDefaults = appSettings.getLanguageDefault(get(appSettings), effectiveLanguage)
+        // The plan decides the engine, the voice and the settings for this chapter.
+        const plan = planChapter({
+          chapter: ch,
+          language: effectiveLanguage,
+          languageDefaults: get(appSettings).languageDefaults,
+          selectedModel: model,
+          selectedVoice: get(selectedVoice),
+          selectedQuantization: get(selectedQuantization),
+          selectedDevice: get(selectedDevice),
+          isMobile: isMobileDevice(),
+        })
+        const effectiveModel = plan.model
+        const isFallbackModel = plan.isFallbackModel
 
-        // Resolve model: chapter override > app language default > global selected model
-        // Fallback: If current model doesn't support the language, try to switch
-        let effectiveModel = ch.model || langDefaults?.model || model
-        let isFallbackModel = false
-
-        if (effectiveModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
+        if (isFallbackModel) {
           logger.warn(
-            `Language '${effectiveLanguage}' not supported by Kokoro. Switching to Piper for chapter ${ch.id}`
+            `Language '${effectiveLanguage}' not supported by ${plan.model}. Switching to Piper for chapter ${ch.id}`
           )
-          effectiveModel = 'piper'
-          isFallbackModel = true
         }
 
-        const currentVoice = ch.voice || langDefaults?.voice || get(selectedVoice)
-        // Cap quantization to q4 on mobile to avoid loading a ~100MB q8 model
-        const currentQuantization = isMobileDevice() ? 'q4' : get(selectedQuantization)
-        const currentDevice = get(selectedDevice)
+        const currentVoice = plan.voice
+        const currentQuantization = plan.quantization
+        const currentDevice = plan.device
         const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
 
         // Validate content — skip empty chapters gracefully without an error
@@ -745,17 +747,23 @@ class GenerationService {
         const effectiveLanguage = currentBook
           ? resolveChapterLanguageWithDetection(ch, currentBook)
           : DEFAULT_LANGUAGE
-        const langDefaults = appSettings.getLanguageDefault(get(appSettings), effectiveLanguage)
-        let effectiveModel = ch.model || langDefaults?.model || model
-        if (
-          (effectiveModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) ||
-          (effectiveModel === 'pocket' && !isPocketLanguageSupported(effectiveLanguage))
-        ) {
-          effectiveModel = 'piper'
-        }
-        const currentVoice = ch.voice || langDefaults?.voice || get(selectedVoice)
-        const currentQuantization = isMobileDevice() ? 'q4' : get(selectedQuantization)
-        const currentDevice = get(selectedDevice)
+        // The same plan the first run uses, so a resumed chapter is read the
+        // same way as a chapter that was never started.
+        const plan = planChapter({
+          chapter: ch,
+          language: effectiveLanguage,
+          languageDefaults: get(appSettings).languageDefaults,
+          selectedModel: model,
+          selectedVoice: get(selectedVoice),
+          selectedQuantization: get(selectedQuantization),
+          selectedDevice: get(selectedDevice),
+          isMobile: isMobileDevice(),
+        })
+        const effectiveModel = plan.model
+        const isFallbackModel = plan.isFallbackModel
+        const currentVoice = plan.voice
+        const currentQuantization = plan.quantization
+        const currentDevice = plan.device
         const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
 
         if (!ch.content || !ch.content.trim()) continue
@@ -766,7 +774,7 @@ class GenerationService {
           ch,
           effectiveModel,
           effectiveLanguage,
-          false,
+          isFallbackModel,
           currentVoice
         )
 
