@@ -108,21 +108,24 @@ function reportToMarkdown(report) {
     `Started: ${report.startedAt}`,
     `Total wall clock: ${formatDuration(report.totalSeconds)}`,
     '',
-    '| Engine | Voice | Chapters | Segments | Audio | Generation | Encode | Faster than real time | MP3 | M4B |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| Engine | Voice | Chapters | Segments | Audio | Generation | Encode | Faster than real time | Whole book | MP3 | M4B |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
   ]
 
   for (const model of report.models) {
     if (model.error) {
-      lines.push(`| ${model.model} | ${model.voice} | — | — | — | — | — | — | — | — |`)
+      lines.push(`| ${model.model} | ${model.voice} | — | — | — | — | — | — | — | — | — |`)
       lines.push('')
       lines.push(`> **${model.model} failed:** ${model.error}`)
       continue
     }
+    const whole = model.complete
+      ? formatDuration(model.estimatedTotalSeconds)
+      : `~${formatDuration(model.estimatedTotalSeconds)} (estimated)`
     lines.push(
       `| ${model.model} | ${model.voice} | ${model.chapters} | ${model.segments} | ` +
         `${formatDuration(model.audioSeconds)} | ${formatDuration(model.generationSeconds)} | ` +
-        `${formatDuration(model.exportSeconds)} | ${model.realTimeFactor.toFixed(1)}x | ` +
+        `${formatDuration(model.exportSeconds)} | ${model.realTimeFactor.toFixed(1)}x | ${whole} | ` +
         `${(model.mp3Bytes / 1e6).toFixed(1)} MB | ${(model.m4bBytes / 1e6).toFixed(1)} MB |`
     )
   }
@@ -131,6 +134,7 @@ function reportToMarkdown(report) {
   lines.push(
     '"Faster than real time" is the length of the generated audio per second of generation.'
   )
+  lines.push('"Whole book" is the time the whole book takes, measured or estimated from the run.')
   lines.push('')
   return lines.join('\n')
 }
@@ -154,7 +158,9 @@ console.log(`Benchmarking ${args.book} with: ${args.models.join(', ')}`)
 const browser = await chromium.launch()
 const page = await browser.newPage()
 page.on('console', (message) => {
-  if (message.type() === 'error') console.error(`  [page] ${message.text().slice(0, 200)}`)
+  const text = message.text()
+  if (message.type() === 'error') console.error(`  [page] ${text.slice(0, 200)}`)
+  else if (text.startsWith('  ')) console.log(text)
 })
 
 await page.goto(args.baseUrl)
@@ -204,3 +210,6 @@ await writeFile(resolve(outDir, 'latest.md'), reportToMarkdown(report))
 console.log('')
 console.log(reportToMarkdown(report))
 console.log(`Report written to ${resolve(outDir, 'latest.md')}`)
+
+// The dev server we started keeps the process alive; leave cleanly.
+process.exit(0)

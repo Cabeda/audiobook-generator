@@ -54,7 +54,9 @@ export class PocketEngine implements TTSEngine {
     flowLmFlow: Session
     mimiDecoder: Session
   } | null = null
-  private voices: Record<string, PocketVoiceBundle> | null = null
+  private voices: Record<string, PocketVoiceBundle> = {}
+  /** The whole voice bundle, loaded when a single voice cannot be fetched. */
+  private allVoices: Record<string, PocketVoiceBundle> | null = null
   private loading: Promise<void> | null = null
 
   async generateVoice(
@@ -225,7 +227,7 @@ export class PocketEngine implements TTSEngine {
 
   private async loadVoice(name: string): Promise<PocketVoiceBundle> {
     const bundle = this.bundle!
-    if (this.voices?.[name]) return this.voices[name]
+    if (this.voices[name]) return this.voices[name]
 
     const urls = pocketModelUrls()
     const range = bundle.voices[name]
@@ -238,7 +240,7 @@ export class PocketEngine implements TTSEngine {
         })
         if (response.status === 206) {
           const voice = parseVoiceSlice(await response.arrayBuffer())
-          this.voices = { [name]: voice }
+          this.voices[name] = voice
           return voice
         }
       } catch (err) {
@@ -246,11 +248,12 @@ export class PocketEngine implements TTSEngine {
       }
     }
 
-    if (!this.voices) {
-      this.voices = parseVoicesBin(await fetchAndCache(urls.voices).then((r) => r.arrayBuffer()))
+    if (!this.allVoices) {
+      this.allVoices = parseVoicesBin(await fetchAndCache(urls.voices).then((r) => r.arrayBuffer()))
     }
-    const voice = this.voices[name]
+    const voice = this.allVoices[name]
     if (!voice) throw new Error(`Pocket TTS: voice ${name} is not in the model`)
+    this.voices[name] = voice
     return voice
   }
 
@@ -569,16 +572,19 @@ export function splitIntoChunks(
   const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [text]
   const chunks: string[] = []
   let current = ''
+  let currentTokens = 0
 
   for (const sentence of sentences) {
     const trimmed = sentence.trim()
     if (!trimmed) continue
-    const candidate = current ? `${current} ${trimmed}` : trimmed
-    if (current && tokenizer.encode(candidate).length > targetTokens) {
+    const tokens = tokenizer.encode(trimmed).length
+    if (current && currentTokens + tokens > targetTokens) {
       chunks.push(current)
       current = trimmed
+      currentTokens = tokens
     } else {
-      current = candidate
+      current = current ? `${current} ${trimmed}` : trimmed
+      currentTokens += tokens
     }
   }
   if (current) chunks.push(current)

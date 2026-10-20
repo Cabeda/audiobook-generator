@@ -17,11 +17,12 @@ import {
   type TTSEngineConfig,
   type TTSModelType,
 } from '../tts/ttsModels'
-import { concatenateAudioChapters, type AudioChapter } from '../audioConcat'
+import { concatenateAudioChapters } from '../audioConcat'
 import { incrementalConcatWav, parseWavDuration } from '../wavUtils'
 import { piperClient } from '../piper/piperClient'
 import { selectPiperVoiceForLanguage } from '../utils/voiceSelector'
 import { POCKET_VOICE_IDS } from '../pocket/pocketAssets'
+import logger from '../utils/logger'
 
 export type BenchmarkPhase = 'loading' | 'generating' | 'encoding'
 
@@ -54,6 +55,13 @@ export interface ModelBenchmarkResult {
    * of generation. Higher is faster.
    */
   realTimeFactor: number
+  /** True when the whole book was processed. */
+  complete: boolean
+  /**
+   * How long the whole book would take, in seconds. Measured when the run
+   * was cut short, the time it took when it was not.
+   */
+  estimatedTotalSeconds: number
   /** Set when the model could not finish the book. */
   error?: string
 }
@@ -77,6 +85,14 @@ export interface BenchmarkOptions {
   maxChapters?: number
   /** Stop after this many segments in total. The whole book when omitted. */
   maxSegments?: number
+  /**
+   * Stop each model after this many seconds. The time the whole book would
+   * take is then estimated from what was measured. The whole book when
+   * omitted.
+   */
+  budgetSeconds?: number
+  /** Encode each chapter to MP3 and M4B as well. On by default. */
+  encodeFormats?: boolean
   onProgress?: (progress: BenchmarkProgress) => void
 }
 
@@ -172,6 +188,7 @@ export async function benchmarkBook(options: BenchmarkOptions): Promise<Benchmar
   const started = performance.now()
 
   const chapters = await segmentBook(options.book, options.maxSegments, options.maxChapters)
+  const totalSegments = chapters.reduce((sum, chapter) => sum + chapter.segments.length, 0)
   const results: ModelBenchmarkResult[] = []
 
   for (const model of options.models) {
@@ -187,13 +204,15 @@ export async function benchmarkBook(options: BenchmarkOptions): Promise<Benchmar
       mp3Bytes: 0,
       m4bBytes: 0,
       realTimeFactor: 0,
+      complete: false,
+      estimatedTotalSeconds: 0,
     }
 
     try {
       options.onProgress?.({ model, phase: 'loading', done: 0, total: chapters.length })
 
       const engine = await getTTSEngine(model, benchmarkConfig(model))
-      const audioChapters: AudioChapter[] = []
+      const modelStart = performance.now()
 
       for (const chapter of chapters) {
         if (chapter.segments.length === 0) continue
@@ -213,24 +232,39 @@ export async function benchmarkBook(options: BenchmarkOptions): Promise<Benchmar
           chapter: chapter.title,
         })
 
-        const encodeStart = performance.now()
-        const [mp3, m4b] = await Promise.all([
-          concatenateAudioChapters([{ id: chapter.id, title: chapter.title, blob }], {
-            format: 'mp3',
-          }),
-          concatenateAudioChapters([{ id: chapter.id, title: chapter.title, blob }], {
-            format: 'm4b',
-          }),
-        ])
-        result.exportSeconds += (performance.now() - encodeStart) / 1000
-        result.mp3Bytes += mp3.size
-        result.m4bBytes += m4b.size
+        if (options.encodeFormats !== false) {
+          const encodeStart = performance.now()
+          const [mp3, m4b] = await Promise.all([
+            concatenateAudioChapters([{ id: chapter.id, title: chapter.title, blob }], {
+              format: 'mp3',
+            }),
+            concatenateAudioChapters([{ id: chapter.id, title: chapter.title, blob }], {
+              format: 'm4b',
+            }),
+          ])
+          result.exportSeconds += (performance.now() - encodeStart) / 1000
+          result.mp3Bytes += mp3.size
+          result.m4bBytes += m4b.size
+        }
 
-        audioChapters.push({ id: chapter.id, title: chapter.title, blob, duration })
+        // The chapter audio is released here: the whole book does not fit in
+        // memory, so each chapter is encoded and dropped.
+        if (
+          options.budgetSeconds &&
+          (performance.now() - modelStart) / 1000 >= options.budgetSeconds
+        ) {
+          logger.info('[benchmark] Time budget reached', { model, chapters: result.chapters })
+          break
+        }
       }
 
       result.realTimeFactor =
         result.generationSeconds > 0 ? result.audioSeconds / result.generationSeconds : 0
+      result.complete = result.chapters === chapters.length
+
+      // What the whole book would take, from what was measured.
+      const perSegment = result.segments > 0 ? result.generationSeconds / result.segments : 0
+      result.estimatedTotalSeconds = perSegment * totalSegments
     } catch (error) {
       result.error = error instanceof Error ? error.message : String(error)
     }
