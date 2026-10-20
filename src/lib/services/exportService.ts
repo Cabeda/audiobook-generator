@@ -16,7 +16,7 @@ import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { generatedAudio, book } from '../../stores/bookStore'
-import { parseWavDuration } from './wavParser'
+import { parseWavDuration } from '../wavUtils'
 import { parseMp3Duration } from './mp3DurationParser'
 import type { LibraryBook } from '../libraryDB'
 

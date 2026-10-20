@@ -112,7 +112,7 @@ import {
 import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
-import { parseWavDuration } from './wavParser'
+import { parseWavDuration } from '../wavUtils'
 import { segmentHtmlContent } from './segmentationService'
 import type { SegmentOptions } from './segmentationService'
 import { SegmentBatchHandler } from './segmentBatchHandler'
