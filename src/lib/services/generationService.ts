@@ -113,6 +113,7 @@ import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
 import { parseWavDuration } from '../wavUtils'
+import { createSegment, segmentId } from '../segments'
 import type { AudioExportFormat } from '../exportFormats'
 import { segmentHtmlContent } from './segmentationService'
 import type { SegmentOptions } from './segmentationService'
@@ -485,7 +486,7 @@ class GenerationService {
       // Create placeholder segments with the known count
       const placeholderSegments = Array.from({ length: totalSegments }, (_, i) => ({
         text: '',
-        id: `${chapter.id}-seg-${i}`,
+        id: segmentId(i),
         index: i,
       }))
       initChapterSegments(chapter.id, placeholderSegments)
@@ -1038,17 +1039,15 @@ class GenerationService {
       },
       async (result) => {
         if (!result) return
-        const segment: AudioSegment = {
-          id: result.segment.id,
+        const segment = createSegment({
           chapterId: ch.id,
           index: result.segment.index,
           text: result.segment.text,
           audioBlob: result.blob as Blob,
           duration: result.duration,
-          startTime: 0,
           voice: effectiveVoice,
           model: effectiveModel,
-        }
+        })
         audioSegments.push(segment)
         await batchHandler.addSegment(segment)
         // Release blob references for segments already persisted to IndexedDB.

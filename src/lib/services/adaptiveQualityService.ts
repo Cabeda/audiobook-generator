@@ -8,6 +8,7 @@
  */
 
 import type { AudioSegment } from '../types/audio'
+import { createSegment } from '../segments'
 import type { PiperVoice } from '../piper/piperClient'
 import { isKokoroLanguageSupported, normalizeLanguageCode } from '../utils/voiceSelector'
 import { getStartingTier, getTargetTier, canRunUpgrade } from '../utils/resourceMonitor'
@@ -154,16 +155,13 @@ export async function startFastPass(
         device: config.device,
       })
 
-      const audioSegment: AudioSegment = {
-        id: seg.id,
+      const audioSegment = createSegment({
         chapterId: seg.chapterId,
         index: seg.index,
         text: seg.text,
         audioBlob: blob,
-        duration: 0,
-        startTime: 0,
         qualityTier: effectiveTier,
-      }
+      })
 
       updateSegmentQuality(seg.chapterId, seg.index, effectiveTier)
       markSegmentGenerated(seg.chapterId, audioSegment)

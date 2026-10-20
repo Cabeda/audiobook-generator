@@ -18,9 +18,6 @@ export interface AudioPlayerState {
   isMinimized: boolean
   isBuffering: boolean
 
-  // Audio segments cache (segment index -> blob URL)
-  audioSegments: Map<number, string>
-
   // TTS settings (preserved from when playback started)
   voice: string
   quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
@@ -44,7 +41,6 @@ const defaultState: AudioPlayerState = {
   isPlaying: false,
   isMinimized: false,
   isBuffering: false,
-  audioSegments: new Map(),
   voice: '',
   quantization: 'q8',
   device: 'auto',
@@ -63,7 +59,6 @@ function loadState(): AudioPlayerState {
         ...defaultState,
         ...parsed,
         isPlaying: false,
-        audioSegments: new Map(), // Don't persist blob URLs
       }
     }
   } catch (e) {
@@ -85,7 +80,6 @@ function createAudioPlayerStore() {
         // Don't save blob URLs or isPlaying state
         const toSave = {
           ...state,
-          audioSegments: undefined,
           isPlaying: false,
         }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
@@ -190,23 +184,6 @@ function createAudioPlayerStore() {
       update((state) => ({ ...state, isMinimized: false }))
     },
 
-    // Update audio segments cache
-    setAudioSegment: (index: number, blobUrl: string) => {
-      update((state) => {
-        const newSegments = new Map(state.audioSegments)
-        newSegments.set(index, blobUrl)
-        return { ...state, audioSegments: newSegments }
-      })
-    },
-
-    clearAudioSegments: () => {
-      update((state) => {
-        // Revoke all blob URLs
-        state.audioSegments.forEach((url) => URL.revokeObjectURL(url))
-        return { ...state, audioSegments: new Map() }
-      })
-    },
-
     // Update playback speed
     setPlaybackSpeed: (speed: number) => {
       update((state) => {
@@ -227,10 +204,7 @@ function createAudioPlayerStore() {
 
     // Stop and clear
     stop: () => {
-      update((state) => {
-        // Revoke all blob URLs
-        state.audioSegments.forEach((url) => URL.revokeObjectURL(url))
-
+      update(() => {
         const newState = { ...defaultState }
         try {
           localStorage.removeItem(STORAGE_KEY)

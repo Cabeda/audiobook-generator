@@ -13,6 +13,7 @@
     markSegmentGenerated,
   } from '../stores/segmentProgressStore'
   import { segmentHtmlContent } from '../lib/services/segmentationService'
+  import { segmentId } from '../lib/segments'
   import { generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
@@ -416,7 +417,7 @@
     const segInput = segs.map((s) => ({
       index: s.index,
       text: s.text,
-      id: `${cId}-${s.index}`,
+      id: segmentId(s.index),
       chapterId: cId,
     }))
 

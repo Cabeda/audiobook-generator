@@ -10,6 +10,7 @@
  */
 
 import logger from '../utils/logger'
+import { segmentId } from '../segments'
 
 export interface SegmentOptions {
   ignoreCodeBlocks?: boolean
@@ -237,18 +238,18 @@ export function segmentHtmlContent(
 
     // For each sentence, find and wrap it in the DOM
     for (const sentence of blockSentences) {
-      const segmentId = `seg-${segmentIndex}`
+      const id = segmentId(segmentIndex)
 
       // Try to find and wrap this sentence in the block's text nodes
       // Try to wrap the sentence, even if it spans multiple text nodes (with inline elements)
-      const wrapped = wrapSentenceInBlock(block, sentence, segmentId, segmentIndex)
+      const wrapped = wrapSentenceInBlock(block, sentence, id, segmentIndex)
 
       // Only create a segment if we successfully wrapped it
       if (wrapped) {
         segments.push({
           index: segmentIndex,
           text: sentence,
-          id: segmentId,
+          id,
         })
         segmentIndex++
       } else {
@@ -258,7 +259,7 @@ export function segmentHtmlContent(
         segments.push({
           index: segmentIndex,
           text: sentence,
-          id: segmentId,
+          id,
         })
         segmentIndex++
       }
