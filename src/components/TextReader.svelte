@@ -14,6 +14,15 @@
   } from '../stores/segmentProgressStore'
   import { segmentHtmlContent } from '../lib/services/segmentationService'
   import { segmentId } from '../lib/segments'
+  import {
+    applySegmentState,
+    findSegmentElement,
+    getSegmentIndex,
+    highlightActiveSegment,
+    scrollSegmentIntoView,
+    segmentIndexFromEvent,
+    segmentStateFor,
+  } from '../lib/reader/readerSegments'
   import { generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
@@ -723,15 +732,10 @@
     const currentIndex = audioService.currentSegmentIndex
     if (currentIndex < 0) return
 
-    const segmentEl = document.getElementById(`seg-${currentIndex}`)
+    const segmentEl = findSegmentElement(currentIndex)
     if (!segmentEl) return
 
-    const rect = segmentEl.getBoundingClientRect()
-    const isOutsideViewport = rect.top < 100 || rect.bottom > window.innerHeight - 100
-
-    if (isOutsideViewport) {
-      segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
+    scrollSegmentIntoView(segmentEl, { top: 100, bottom: window.innerHeight - 100 })
   })
 
   // Segments are now pre-wrapped in the HTML, just ensure they have the segment class
@@ -793,30 +797,13 @@
       }
     }
 
-    // The segment currently being processed gets the pulse animation
-    const pulseIndex = progress.isGenerating ? progress.processingIndex : -1
-
     // Update only changed segments
     for (const index of changedIndices) {
       const el = textContentEl.querySelector(`#seg-${index}`)
       if (!el) continue
 
-      const isGenerated = progress.generatedIndices.has(index)
-
       // Update classes for visual state
-      el.classList.remove('segment-pending', 'segment-generated', 'segment-generating')
-
-      if (isGenerated) {
-        el.classList.add('segment-generated')
-      } else if (progress.isGenerating) {
-        if (index === pulseIndex) {
-          el.classList.add('segment-generating')
-        } else {
-          el.classList.add('segment-pending')
-        }
-      } else {
-        el.classList.add('segment-pending')
-      }
+      applySegmentState(el, segmentStateFor(index, progress))
     }
 
     // Store current state for next comparison
@@ -833,44 +820,24 @@
   })
 
   function updateActiveSegment(index: number) {
-    // Remove active class from all segments
-    const active = document.querySelectorAll('.segment.active')
-    active.forEach((el) => el.classList.remove('active'))
-
-    // Add to current
-    const el = document.getElementById(`seg-${index}`)
-    if (el) {
-      el.classList.add('active')
-    }
+    highlightActiveSegment(index)
   }
 
   function scrollToSegment(index: number) {
     requestAnimationFrame(() => {
-      const element = document.getElementById(`seg-${index}`)
+      const element = findSegmentElement(index)
       const container = document.querySelector('.reader-container')
 
-      if (element && container) {
-        const elementRect = element.getBoundingClientRect()
-        const containerRect = container.getBoundingClientRect()
+      if (!element || !container) return
 
-        // Check if element is within the comfortable reading zone (middle 60% of view)
-        const topThreshold = containerRect.top + containerRect.height * 0.2
-        const bottomThreshold = containerRect.bottom - containerRect.height * 0.2
+      const containerRect = container.getBoundingClientRect()
 
-        const isAbove = elementRect.top < topThreshold
-        const isBelow = elementRect.bottom > bottomThreshold
-
-        if (isAbove || isBelow) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-      }
+      // Check if element is within the comfortable reading zone (middle 60% of view)
+      scrollSegmentIntoView(element, {
+        top: containerRect.top + containerRect.height * 0.2,
+        bottom: containerRect.bottom - containerRect.height * 0.2,
+      })
     })
-  }
-
-  function getSegmentIndex(element: HTMLElement | null): number | null {
-    if (!element || !element.id.startsWith('seg-')) return null
-    const index = parseInt(element.id.replace('seg-', ''), 10)
-    return isNaN(index) ? null : index
   }
 
   function activateSegment(index: number) {
@@ -945,8 +912,7 @@
       event.preventDefault()
     }
 
-    const segmentEl = target.closest('.segment') as HTMLElement | null
-    const index = getSegmentIndex(segmentEl)
+    const index = segmentIndexFromEvent(event)
     if (index !== null) {
       activateSegment(index)
     }
