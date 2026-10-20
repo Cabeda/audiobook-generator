@@ -11,13 +11,13 @@ import { get } from 'svelte/store'
 import type { Chapter } from '../types/book'
 import type { AudioSegment } from '../types/audio'
 import { concatenateAudioChapters, type AudioChapter } from '../audioConcat'
-import { downloadAudioFile } from '../wavUtils'
+import { downloadAudioFile, incrementalConcatWav, parseWavDuration } from '../wavUtils'
 import type { EpubMetadata } from '../epub/epubGenerator'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { generatedAudio, book } from '../../stores/bookStore'
-import { parseWavDuration } from '../wavUtils'
 import { parseMp3Duration } from './mp3DurationParser'
+import { exportFileExtension, type AudioExportFormat } from '../exportFormats'
 import type { LibraryBook } from '../libraryDB'
 
 /**
@@ -128,15 +128,74 @@ function sanitizeXhtml(html: string): string {
   return result
 }
 
+/**
+ * Build the audio for one chapter.
+ *
+ * Prefers the merged audio already in memory, otherwise concatenates the
+ * chapter's segments straight from IndexedDB — the normal path, since
+ * concatenation is deferred to export time.
+ *
+ * Returns null when neither is available.
+ */
+export async function buildChapterAudio(
+  chapterId: string,
+  bookId: number,
+  mergedBlob?: Blob | null
+): Promise<{ blob: Blob; duration: number } | null> {
+  if (mergedBlob) {
+    return { blob: mergedBlob, duration: await audioDuration(mergedBlob) }
+  }
+
+  if (!bookId) return null
+
+  const { getChapterSegments } = await import('../libraryDB')
+  const segments = await getChapterSegments(bookId, chapterId)
+  if (segments.length === 0) return null
+
+  const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
+  const duration = sortedSegments.reduce((sum, s) => sum + (s.duration || 0), 0)
+
+  try {
+    logger.info(
+      `[Export] Concatenating ${sortedSegments.length} segments for chapter "${chapterId}"`
+    )
+    const blob = await incrementalConcatWav(sortedSegments.length, async (index) => {
+      return sortedSegments[index]?.audioBlob ?? null
+    })
+    return { blob, duration }
+  } catch (e) {
+    // If incrementalConcatWav fails (e.g., format mismatch between segments),
+    // fall back to concatenating raw segment blobs and let Mediabunny handle resampling
+    logger.warn(
+      `[Export] incrementalConcatWav failed for chapter ${chapterId}, trying raw blob fallback:`,
+      e instanceof Error ? e.message : e
+    )
+    const validBlobs = sortedSegments
+      .map((s) => s.audioBlob)
+      .filter((b): b is Blob => b != null && b.size > 0)
+    if (validBlobs.length === 0) return null
+
+    // Just concatenate the raw bytes — Mediabunny's Conversion API will handle
+    // resampling when encoding to MP3/M4B
+    return { blob: new Blob(validBlobs, { type: 'audio/wav' }), duration }
+  }
+}
+
+/** Duration of an audio blob, in seconds. 0 when it cannot be determined. */
+async function audioDuration(blob: Blob): Promise<number> {
+  try {
+    return await parseWavDuration(blob)
+  } catch {
+    return 0
+  }
+}
+
 export async function exportAudio(
   chapters: Chapter[],
-  format: 'mp3' | 'm4b' | 'wav' = 'mp3',
+  format: AudioExportFormat = 'mp3',
   bitrate = 192,
   bookInfo: { title: string; author: string }
 ) {
-  const { getChapterSegments } = await import('../libraryDB')
-  const { incrementalConcatWav } = await import('../wavUtils')
-
   // Try to load merged audio from the store first
   const { ensureChaptersAudio } = await import('../../stores/bookStore')
   await ensureChaptersAudio(chapters.map((ch) => ch.id))
@@ -146,63 +205,16 @@ export async function exportAudio(
 
   const audioChapters: AudioChapter[] = []
   for (const ch of chapters) {
-    if (generated.has(ch.id)) {
-      // Merged audio already available (legacy path or previously concatenated)
-      audioChapters.push({
-        id: ch.id,
-        title: ch.title,
-        blob: generated.get(ch.id)!.blob,
-      })
-    } else if (bookId) {
-      // No merged audio — concatenate from segments in IndexedDB on-demand
-      // This is the normal path since we now defer concatenation to export time
-      try {
-        const segments = await getChapterSegments(bookId, ch.id)
-        if (segments.length > 0) {
-          logger.info(
-            `[Export] Concatenating ${segments.length} segments for chapter "${ch.title}" on-demand`
-          )
-          // Collect all segment blobs (by index order)
-          const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
-          const chapterBlob = await incrementalConcatWav(sortedSegments.length, async (index) => {
-            return sortedSegments[index]?.audioBlob ?? null
-          })
-          const chapterDuration = sortedSegments.reduce((sum, s) => sum + (s.duration || 0), 0)
-          audioChapters.push({
-            id: ch.id,
-            title: ch.title,
-            blob: chapterBlob,
-            duration: chapterDuration,
-          })
-        }
-      } catch (e) {
-        // If incrementalConcatWav fails (e.g., format mismatch between segments),
-        // fall back to concatenating raw segment blobs and let Mediabunny handle resampling
-        logger.warn(
-          `[Export] incrementalConcatWav failed for chapter ${ch.id}, trying raw blob fallback:`,
-          e instanceof Error ? e.message : e
-        )
-        try {
-          const segments = await getChapterSegments(bookId, ch.id)
-          const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
-          const validBlobs = sortedSegments
-            .map((s) => s.audioBlob)
-            .filter((b): b is Blob => b != null && b.size > 0)
-          if (validBlobs.length > 0) {
-            // Just concatenate the raw bytes — Mediabunny's Conversion API will handle
-            // resampling when encoding to MP3/M4B
-            const combined = new Blob(validBlobs, { type: 'audio/wav' })
-            audioChapters.push({
-              id: ch.id,
-              title: ch.title,
-              blob: combined,
-            })
-          }
-        } catch (fallbackErr) {
-          logger.error(`[Export] Fallback also failed for chapter ${ch.id}:`, fallbackErr)
-        }
-      }
-    }
+    const merged = generated.get(ch.id)?.blob
+    const built = await buildChapterAudio(ch.id, bookId, merged)
+    if (!built) continue
+
+    audioChapters.push({
+      id: ch.id,
+      title: ch.title,
+      blob: built.blob,
+      duration: built.duration,
+    })
   }
 
   if (audioChapters.length === 0) {
@@ -222,8 +234,7 @@ export async function exportAudio(
       (p) => console.log('Concatenating:', p.message)
     )
 
-    const ext = format === 'wav' ? 'wav' : format === 'm4b' ? 'm4b' : 'mp3'
-    const filename = `${bookInfo.title.replace(/[^a-z0-9]/gi, '_')}_audiobook.${ext}`
+    const filename = `${bookInfo.title.replace(/[^a-z0-9]/gi, '_')}_audiobook.${exportFileExtension(format)}`
     downloadAudioFile(combined, filename)
   } catch (e) {
     logger.error('Export failed', e)

@@ -113,6 +113,7 @@ import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
 import { parseWavDuration } from '../wavUtils'
+import type { AudioExportFormat } from '../exportFormats'
 import { segmentHtmlContent } from './segmentationService'
 import type { SegmentOptions } from './segmentationService'
 import { SegmentBatchHandler } from './segmentBatchHandler'
@@ -1300,7 +1301,7 @@ class GenerationService {
 
   async exportAudio(
     chapters: Chapter[],
-    format: 'mp3' | 'm4b' | 'wav' = 'mp3',
+    format: AudioExportFormat = 'mp3',
     bitrate = 192,
     bookInfo: { title: string; author: string }
   ) {

@@ -421,14 +421,12 @@ export async function concatWavBlobs(blobs: Blob[]): Promise<Blob> {
 
   const parts: BlobPart[] = []
   let totalDataLength = 0
-  let referenceFmt: WavFormat | null = null
+  const referenceFmt = (await parseWavHeaderFromBlob(blobs[0])).fmt
 
   for (let i = 0; i < blobs.length; i++) {
     const info = await parseWavHeaderFromBlob(blobs[i])
 
-    if (!referenceFmt) {
-      referenceFmt = info.fmt
-    } else if (
+    if (
       info.fmt.audioFormat !== referenceFmt.audioFormat ||
       info.fmt.numChannels !== referenceFmt.numChannels ||
       info.fmt.sampleRate !== referenceFmt.sampleRate ||

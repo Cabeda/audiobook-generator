@@ -9,6 +9,7 @@
 import logger from './utils/logger'
 import { EncodingError } from './errors'
 import { audioBufferToWav, concatWavBlobs } from './wavUtils'
+import { exportMimeType, type AudioExportFormat } from './exportFormats'
 import { convertWavToMp3 as mediabunnyConvertWavToMp3, convertWavToM4b } from './mediabunnyEncoder'
 
 // Re-export WAV utilities so existing consumers don't break
@@ -23,8 +24,6 @@ export {
   incrementalConcatWav,
   downloadAudioFile,
 } from './wavUtils'
-
-export type AudioFormat = 'wav' | 'mp3' | 'm4b' | 'mp4'
 
 export type AudioChapter = {
   id: string
@@ -41,7 +40,7 @@ export type ConcatenationProgress = {
 }
 
 export type ConcatenationOptions = {
-  format?: AudioFormat
+  format?: AudioExportFormat
   bitrate?: number // For MP3: 128, 192, 256, 320 kbps
   bookTitle?: string
   bookAuthor?: string
@@ -283,6 +282,9 @@ export async function concatenateAudioChapters(
       case 'm4b':
       case 'mp4': {
         outputBlob = await convertWavToM4b(wavBlob, bitrate)
+        if (format === 'mp4') {
+          outputBlob = new Blob([outputBlob], { type: exportMimeType('mp4') })
+        }
         // Inject Nero chapter markers if we have multiple chapters with durations
         if (chapters.length > 1) {
           const { injectChapterMarkers } = await import('./m4bChapters')
