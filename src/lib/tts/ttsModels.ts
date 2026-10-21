@@ -105,60 +105,70 @@ export interface TTSEngine {
 
 type EngineAdapter = Omit<TTSEngine, 'id' | 'capabilities'>
 
-const LOADERS: Record<TTSModelType, (config: TTSEngineConfig) => Promise<EngineAdapter>> = {
-  async kokoro(config) {
-    const { generateVoice, generateVoiceSegments } = await import('../kokoro/kokoroClient')
-    type KokoroVoiceId = Parameters<typeof generateVoice>[0]['voice']
-    const kokoroRequest = (request: TTSRequest) => ({
-      text: request.text,
-      voice: request.voice as KokoroVoiceId,
-      speed: request.speed,
-      model: config.model,
-      dtype: config.dtype,
-      device: config.device,
-    })
-    return {
-      warmUp: async () => {
-        const { warmUpKokoro } = await import('../kokoro/kokoroClient')
-        await warmUpKokoro(
-          config.model ?? 'onnx-community/Kokoro-82M-v1.0-ONNX',
-          config.dtype ?? 'q8',
-          config.device ?? 'auto'
-        )
-      },
-      generateVoice: (request, onChunkProgress, onProgress) =>
-        generateVoice(kokoroRequest(request), onChunkProgress, onProgress),
-      generateSegments: (request, onChunkProgress, onProgress) =>
-        generateVoiceSegments(kokoroRequest(request), onChunkProgress, onProgress),
+// A switch, not a string-indexed map: modelType can come from stored book
+// data, so only these three names may ever be dispatched on.
+async function loadEngine(
+  modelType: TTSModelType,
+  config: TTSEngineConfig
+): Promise<EngineAdapter> {
+  switch (modelType) {
+    case 'kokoro': {
+      const { generateVoice, generateVoiceSegments } = await import('../kokoro/kokoroClient')
+      type KokoroVoiceId = Parameters<typeof generateVoice>[0]['voice']
+      const kokoroRequest = (request: TTSRequest) => ({
+        text: request.text,
+        voice: request.voice as KokoroVoiceId,
+        speed: request.speed,
+        model: config.model,
+        dtype: config.dtype,
+        device: config.device,
+      })
+      return {
+        warmUp: async () => {
+          const { warmUpKokoro } = await import('../kokoro/kokoroClient')
+          await warmUpKokoro(
+            config.model ?? 'onnx-community/Kokoro-82M-v1.0-ONNX',
+            config.dtype ?? 'q8',
+            config.device ?? 'auto'
+          )
+        },
+        generateVoice: (request, onChunkProgress, onProgress) =>
+          generateVoice(kokoroRequest(request), onChunkProgress, onProgress),
+        generateSegments: (request, onChunkProgress, onProgress) =>
+          generateVoiceSegments(kokoroRequest(request), onChunkProgress, onProgress),
+      }
     }
-  },
 
-  async piper() {
-    const { generateVoice } = await import('../piper/piperClient')
-    return {
-      warmUp: async () => {
-        // Piper loads its model on the first request; fetching the voice
-        // list warms the catalogue in the meantime.
-        const { PiperClient } = await import('../piper/piperClient')
-        await PiperClient.getInstance().getVoices()
-      },
-      generateVoice: (request, onChunkProgress, onProgress) =>
-        generateVoice(
-          {
-            text: request.text,
-            voice: request.voice,
-            speed: request.speed,
-          },
-          onChunkProgress,
-          onProgress
-        ),
+    case 'piper': {
+      const { generateVoice } = await import('../piper/piperClient')
+      return {
+        warmUp: async () => {
+          // Piper loads its model on the first request; fetching the voice
+          // list warms the catalogue in the meantime.
+          const { PiperClient } = await import('../piper/piperClient')
+          await PiperClient.getInstance().getVoices()
+        },
+        generateVoice: (request, onChunkProgress, onProgress) =>
+          generateVoice(
+            {
+              text: request.text,
+              voice: request.voice,
+              speed: request.speed,
+            },
+            onChunkProgress,
+            onProgress
+          ),
+      }
     }
-  },
 
-  async pocket() {
-    const { getPocketEngine } = await import('../pocket/pocketEngine')
-    return getPocketEngine()
-  },
+    case 'pocket': {
+      const { getPocketEngine } = await import('../pocket/pocketEngine')
+      return getPocketEngine()
+    }
+
+    default:
+      throw new Error(`Unknown TTS model type: ${modelType}`)
+  }
 }
 
 /**
@@ -172,9 +182,7 @@ export async function getTTSEngine(
   modelType: TTSModelType,
   config: TTSEngineConfig = {}
 ): Promise<TTSEngine> {
-  const load = LOADERS[modelType]
-  if (!load) throw new Error(`Unknown TTS model type: ${modelType}`)
-  const adapter = await load(config)
+  const adapter = await loadEngine(modelType, config)
   return Object.assign(adapter, {
     id: modelType,
     capabilities: engineCapabilities(modelType),
