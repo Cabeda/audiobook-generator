@@ -503,7 +503,9 @@
         }
       },
       aqSettings.skipFastestTier ? 1 : 0,
-      localModel === 'web_speech' ? 'kokoro' : localModel
+      localModel === 'web_speech' ? 'kokoro' : localModel,
+      undefined,
+      bId
     )
 
     if (scheduleUpgrade) {

@@ -105,14 +105,14 @@ import {
 import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
-import { parseWavDuration } from '../wavUtils'
 import { planChapter } from './chapterPlan'
 import { engineCapabilities, engineSupportsLanguage, type TTSModelType } from '../tts/ttsModels'
 import type { PiperVoice } from '../piper/piperClient'
-import { createSegment, segmentId } from '../segments'
+import { segmentId } from '../segments'
 import { segmentHtmlContent } from './segmentationService'
 import type { SegmentOptions } from './segmentationService'
 import { SegmentBatchHandler } from './segmentBatchHandler'
+import { produceSegment } from './segmentProduction'
 import { exportEpub } from './exportService'
 import {
   saveGenerationState,
@@ -121,7 +121,8 @@ import {
 } from './generationStateStore'
 
 // Re-export extracted modules for backward compatibility
-export { segmentHtmlContent, parseWavDuration }
+export { segmentHtmlContent }
+
 export type { SegmentOptions }
 
 // Throttled progress updater — batches rapid segment progress updates into animation frames
@@ -903,7 +904,6 @@ class GenerationService {
 
     // 3. Generate audio per segment
     const audioSegments: AudioSegment[] = []
-    const worker = getTTSWorker()
     const getParallelChunks = () =>
       Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
     // Always flush after every segment so a page refresh or crash never loses a completed segment.
@@ -958,44 +958,30 @@ class GenerationService {
           throw new Error('Generation canceled')
         if (!segment.text.trim()) return null
 
-        const blob = await worker.generateVoice({
-          text: segment.text,
-          modelType: effectiveModel,
-          voice: effectiveVoice,
-          config: {
-            dtype:
+        return produceSegment(
+          {
+            chapterId: ch.id,
+            index: segment.index,
+            text: segment.text,
+            model: effectiveModel,
+            voice: effectiveVoice,
+            language: effectiveLanguage,
+            quantization:
               engineCapabilities(effectiveModel).qualityLadder === 'quantization'
                 ? (currentQuantization as import('../../stores/ttsStore').Quantization)
                 : undefined,
             device: currentDevice as import('../../stores/ttsStore').Device,
+            // Forward worker progress messages (model loading, preparing, etc.) to the UI
+            onProgress: (message) =>
+              setProgress(audioSegments.length, textSegments.length, message),
+            persist: (segment) => batchHandler.addSegment(segment),
           },
-          language: effectiveLanguage,
-          // Forward worker progress messages (model loading, preparing, etc.) to the UI
-          onProgress: (message) => {
-            const completed = audioSegments.length
-            setProgress(completed, textSegments.length, message)
-          },
-        })
-
-        return { segment, blob, duration: await parseWavDuration(blob) }
+          bookId
+        )
       },
-      async (result) => {
-        if (!result) return
-        const segment = createSegment({
-          chapterId: ch.id,
-          index: result.segment.index,
-          text: result.segment.text,
-          audioBlob: result.blob as Blob,
-          duration: result.duration,
-          voice: effectiveVoice,
-          model: effectiveModel,
-        })
-        audioSegments.push(segment)
-        await batchHandler.addSegment(segment)
-        // Hand the segment to the reader before its blob is released.
-        if (audioService.playingChapterId() === ch.id) {
-          audioService.injectProgressiveSegment(segment)
-        }
+      async (produced) => {
+        if (!produced) return
+        audioSegments.push(produced)
         // Release blob references for segments already persisted to IndexedDB.
         // This prevents accumulating all segment blobs in memory (OOM on Android).
         batchHandler.releaseBlobs()
@@ -1018,14 +1004,14 @@ class GenerationService {
           this.autoPlayTriggered.add(ch.id)
           logger.info(`[AutoPlay] Starting playback of first available segment`, {
             chapterId: ch.id,
-            segmentIndex: segment.index,
+            segmentIndex: produced.index,
           })
           setTimeout(() => {
             if (this.canceled || this.canceledChapters.has(ch.id)) {
               logger.info('[AutoPlay] Skipped — generation was canceled')
               return
             }
-            audioService.playSingleSegment(segment).catch((err) => {
+            audioService.playSingleSegment(produced).catch((err) => {
               logger.warn('[AutoPlay] Failed to auto-play first segment:', err)
             })
           }, 0)

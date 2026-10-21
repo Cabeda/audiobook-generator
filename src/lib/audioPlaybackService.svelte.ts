@@ -1,22 +1,21 @@
 import { get } from 'svelte/store'
-import { getTTSWorker } from './ttsWorkerManager'
 import { engineCapabilities, type TTSModelType } from './tts/ttsModels'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import { toastStore } from '../stores/toastStore'
 import type { Chapter } from './types/book'
-import { getChapterSegments, getChapterAudio, saveChapterSegments } from './libraryDB'
+import { getChapterSegments, getChapterAudio } from './libraryDB'
 import { segmentHtmlContent } from './services/segmentationService'
 import type { AudioSegment } from './types/audio'
-import { createSegment } from './segments'
 import {
   POCKET_VOICES,
   selectPiperVoiceForLanguage,
   normalizeLanguageCode,
   selectPocketVoiceForLanguage,
 } from './utils/voiceSelector'
-import { getGeneratedSegment, markSegmentGenerated } from '../stores/segmentProgressStore'
+import { getGeneratedSegment } from '../stores/segmentProgressStore'
 import { updateModelStatus, clearModelStatus } from '../stores/modelStatus'
+import { saveSegment, synthesizeSegment } from './services/segmentProduction'
 
 interface TextSegment {
   index: number
@@ -1050,25 +1049,29 @@ class AudioPlaybackService {
       logger.warn(`Segment ${index} did not arrive from the generation service, making it here`)
     }
 
+    const storeState = get(audioPlayerStore)
+    const currentBookId = storeState.bookId ?? undefined
+    const currentChapterId = storeState.chapterId
+
     const promise = (async () => {
       const MAX_RETRIES = 3
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-          const worker = getTTSWorker()
-          const blob = await worker.generateVoice({
+          const audioSegment = await synthesizeSegment({
+            chapterId: currentChapterId ?? '',
+            index,
             text: segment.text,
-            modelType: this.selectedModel as TTSModelType,
+            model: this.selectedModel as TTSModelType,
             voice: this.voice,
-            config: {
-              dtype:
-                this.selectedModel !== 'web_speech' &&
-                engineCapabilities(this.selectedModel).qualityLadder === 'quantization'
-                  ? this.quantization
-                  : undefined,
-              device: this.device,
-            },
+            quantization:
+              this.selectedModel !== 'web_speech' &&
+              engineCapabilities(this.selectedModel).qualityLadder === 'quantization'
+                ? this.quantization
+                : undefined,
+            device: this.device,
             onProgress: updateModelStatus,
           })
+          const blob = audioSegment.audioBlob
           clearModelStatus()
 
           // Defensive: revoke old URL if exists (normal flow checks has(index) before calling this method)
@@ -1106,25 +1109,11 @@ class AudioPlaybackService {
             }
           }
 
-          // Persist segment to IndexedDB so chapter generation can reuse it
-          const storeState = get(audioPlayerStore)
-          const currentBookId = storeState.bookId
-          const currentChapterId = storeState.chapterId
-          if (currentBookId && currentChapterId) {
-            const audioSegment = createSegment({
-              chapterId: currentChapterId,
-              index,
-              text: segment.text,
-              audioBlob: blob,
-              duration: dur || 0,
-              voice: this.voice,
-              model: this.selectedModel,
-            })
-            markSegmentGenerated(currentChapterId, audioSegment)
-            saveChapterSegments(currentBookId, currentChapterId, [audioSegment]).catch((err) =>
-              logger.warn('Failed to persist reader segment to IndexedDB', err)
-            )
-          }
+          // Persist the segment so chapter generation can reuse it.
+          audioSegment.duration = dur || audioSegment.duration
+          await saveSegment(audioSegment, currentBookId).catch((err) =>
+            logger.warn('Failed to persist reader segment to IndexedDB', err)
+          )
           return
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err)
