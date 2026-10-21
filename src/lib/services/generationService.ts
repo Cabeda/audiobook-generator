@@ -106,8 +106,8 @@ import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
 import { parseWavDuration } from '../wavUtils'
-import { planChapter, engineSupportsLanguage } from './chapterPlan'
-import type { TTSModelType } from '../tts/ttsModels'
+import { planChapter } from './chapterPlan'
+import { engineCapabilities, engineSupportsLanguage, type TTSModelType } from '../tts/ttsModels'
 import type { PiperVoice } from '../piper/piperClient'
 import { createSegment, segmentId } from '../segments'
 import { segmentHtmlContent } from './segmentationService'
@@ -837,7 +837,7 @@ class GenerationService {
    */
   private async generateChapterAudio(
     ch: Chapter,
-    effectiveModel: string,
+    effectiveModel: TTSModelType,
     effectiveVoice: string,
     effectiveLanguage: string,
     currentQuantization: string,
@@ -960,11 +960,11 @@ class GenerationService {
 
         const blob = await worker.generateVoice({
           text: segment.text,
-          modelType: effectiveModel as import('../tts/ttsModels').TTSModelType,
+          modelType: effectiveModel,
           voice: effectiveVoice,
           config: {
             dtype:
-              effectiveModel === 'kokoro'
+              engineCapabilities(effectiveModel).qualityLadder === 'quantization'
                 ? (currentQuantization as import('../../stores/ttsStore').Quantization)
                 : undefined,
             device: currentDevice as import('../../stores/ttsStore').Device,

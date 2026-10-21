@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { getTTSEngine, type TTSRequest } from './ttsModels'
+import {
+  engineCapabilities,
+  engineSupportsLanguage,
+  engineVoices,
+  getTTSEngine,
+  type TTSRequest,
+} from './ttsModels'
 
 vi.mock('../kokoro/kokoroClient', () => ({
   generateVoice: vi.fn(async () => new Blob(['kokoro'], { type: 'audio/wav' })),
@@ -47,6 +53,28 @@ describe('TTS engine seam', () => {
       undefined,
       undefined
     )
+  })
+
+  it('declares what each engine can do, so no caller compares names', () => {
+    expect(engineSupportsLanguage('kokoro', 'en-GB')).toBe(true)
+    expect(engineSupportsLanguage('kokoro', 'de')).toBe(false)
+    expect(engineSupportsLanguage('pocket', 'en')).toBe(true)
+    expect(engineSupportsLanguage('pocket', 'de')).toBe(false)
+    expect(engineSupportsLanguage('piper', 'de')).toBe(true)
+
+    expect(engineCapabilities('kokoro').qualityLadder).toBe('quantization')
+    expect(engineCapabilities('piper').qualityLadder).toBe('voices')
+    expect(engineCapabilities('pocket').qualityLadder).toBe('single')
+
+    expect(engineVoices('pocket')).toContain('alba')
+    expect(engineVoices('piper')).toBeUndefined()
+  })
+
+  it('gives the engine its own name and capabilities', async () => {
+    const engine = await getTTSEngine('pocket')
+
+    expect(engine.id).toBe('pocket')
+    expect(engine.capabilities.qualityLadder).toBe('single')
   })
 
   it('rejects an unknown engine', async () => {

@@ -1,6 +1,6 @@
 import { get } from 'svelte/store'
 import { getTTSWorker } from './ttsWorkerManager'
-import type { TTSModelType } from './tts/ttsModels'
+import { engineCapabilities, type TTSModelType } from './tts/ttsModels'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import { toastStore } from '../stores/toastStore'
@@ -1060,7 +1060,11 @@ class AudioPlaybackService {
             modelType: this.selectedModel as TTSModelType,
             voice: this.voice,
             config: {
-              dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
+              dtype:
+                this.selectedModel !== 'web_speech' &&
+                engineCapabilities(this.selectedModel).qualityLadder === 'quantization'
+                  ? this.quantization
+                  : undefined,
               device: this.device,
             },
             onProgress: updateModelStatus,

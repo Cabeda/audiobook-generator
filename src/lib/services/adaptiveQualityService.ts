@@ -10,13 +10,13 @@
 import type { AudioSegment } from '../types/audio'
 import { createSegment } from '../segments'
 import type { PiperVoice } from '../piper/piperClient'
+import { normalizeLanguageCode } from '../utils/voiceSelector'
 import {
-  isKokoroLanguageSupported,
-  isPocketLanguageSupported,
-  normalizeLanguageCode,
-  selectPocketVoiceForLanguage,
-} from '../utils/voiceSelector'
-import type { TTSModelType } from '../tts/ttsModels'
+  engineCapabilities,
+  engineSupportsLanguage,
+  engineVoices,
+  type TTSModelType,
+} from '../tts/ttsModels'
 import { getStartingTier, getTargetTier, canRunUpgrade } from '../utils/resourceMonitor'
 import {
   updateSegmentQuality,
@@ -57,15 +57,17 @@ export function resolveTierLadder(
   piperVoices: PiperVoice[],
   model: TTSModelType = 'kokoro'
 ): TierLadder {
-  if (model === 'pocket' && isPocketLanguageSupported(language)) {
-    // Pocket TTS has one quality level, so there is nothing to upgrade to.
+  const ladder = engineCapabilities(model).qualityLadder
+
+  if (ladder === 'single') {
+    // One quality level, so there is nothing to upgrade to.
     return {
-      tiers: [{ model: 'pocket', voice: selectPocketVoiceForLanguage(language) }],
+      tiers: [{ model, voice: engineVoices(model)?.[0] ?? '' }],
       maxAvailableTier: 0,
     }
   }
 
-  const useKokoro = model === 'kokoro' && isKokoroLanguageSupported(language)
+  const useKokoro = ladder === 'quantization' && engineSupportsLanguage(model, language)
 
   if (useKokoro) {
     return {

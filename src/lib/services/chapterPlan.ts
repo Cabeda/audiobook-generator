@@ -12,14 +12,12 @@
  */
 
 import {
-  isKokoroLanguageSupported,
-  isPocketLanguageSupported,
   normalizeLanguageCode,
   selectKokoroVoiceForLanguage,
   selectPiperVoiceForLanguage,
   selectPocketVoiceForLanguage,
 } from '../utils/voiceSelector'
-import type { TTSModelType } from '../tts/ttsModels'
+import { engineSupportsLanguage, type TTSModelType } from '../tts/ttsModels'
 import type { PiperVoice } from '../piper/piperClient'
 import type { Device, Quantization } from '../../stores/ttsStore'
 
@@ -52,13 +50,6 @@ export interface ChapterPlan {
   isFallbackModel: boolean
   /** True when a stored segment was made with a different plan. */
   isMismatched(segment: { voice?: string | null; model?: string | null }): boolean
-}
-
-/** Does the engine cover the language? */
-export function engineSupportsLanguage(model: TTSModelType, language: string): boolean {
-  if (model === 'kokoro') return isKokoroLanguageSupported(language)
-  if (model === 'pocket') return isPocketLanguageSupported(language)
-  return true
 }
 
 /**

@@ -24,11 +24,10 @@
     advancedSettings,
   } from '../stores/ttsStore'
   import { toastStore } from '../stores/toastStore'
-  import { warmUpKokoro } from '../lib/kokoro/kokoroClient'
   import logger from '../lib/utils/logger'
   import { generationService, isGeneratingStore } from '../lib/services/generationService'
   import { exportAudio } from '../lib/services/exportService'
-  import { TTS_MODELS } from '../lib/tts/ttsModels'
+  import { TTS_MODELS, engineCapabilities, getTTSEngine } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
   import ExportPanel from './ExportPanel.svelte'
   import Skeleton from './Skeleton.svelte'
@@ -158,17 +157,9 @@
    */
   function warmUpSelectedModel() {
     const model = get(selectedModelStore)
-    if (model === 'kokoro') {
-      warmUpKokoro(
-        'onnx-community/Kokoro-82M-v1.0-ONNX',
-        get(selectedQuantization),
-        get(selectedDevice)
-      )
-    } else if (model === 'pocket') {
-      import('../lib/pocket/pocketEngine')
-        .then((pocket) => pocket.getPocketEngine().warmUp())
-        .catch((err) => logger.warn('Could not warm up Pocket TTS:', err))
-    }
+    getTTSEngine(model, { dtype: get(selectedQuantization), device: get(selectedDevice) })
+      .then((engine) => engine.warmUp?.())
+      .catch((err) => logger.warn('Could not warm up the speech model:', err))
   }
 
   onMount(() => {
@@ -677,7 +668,7 @@
 
         <div class="setting-group">
           <h4 class="setting-group-title">Device & Precision</h4>
-          {#if $selectedModelStore === 'kokoro'}
+          {#if engineCapabilities($selectedModelStore).qualityLadder === 'quantization'}
             <div class="setting-row">
               <label for="adv-device">
                 <span class="setting-label">Execution Device</span>
