@@ -167,7 +167,7 @@ export function installReaderProbe(): void {
 export async function readProbe(page: Page): Promise<ReaderProbeState> {
   return page.evaluate(() =>
     (
-      window as Window & {
+      window as unknown as {
         __readerProbe: () => ReaderProbeState
       }
     ).__readerProbe()
