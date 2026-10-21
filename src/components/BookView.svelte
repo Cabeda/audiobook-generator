@@ -27,6 +27,7 @@
   import { warmUpKokoro } from '../lib/kokoro/kokoroClient'
   import logger from '../lib/utils/logger'
   import { generationService, isGeneratingStore } from '../lib/services/generationService'
+  import { exportAudio } from '../lib/services/exportService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
   import ExportPanel from './ExportPanel.svelte'
@@ -459,7 +460,7 @@
     }
 
     // Audio formats (mp3, mp4, m4b, wav)
-    await generationService.exportAudio(relevantChapters, selectedFormat, selectedBitrate, {
+    await exportAudio(relevantChapters, selectedFormat, selectedBitrate, {
       title: $book.title,
       author: $book.author,
     })

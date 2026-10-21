@@ -1,11 +1,13 @@
 // Simple model downloader + cache using the Cache API. Stores responses under a named cache.
 import logger from '../utils/logger'
 
-const CACHE_NAME = 'kokoro-model-cache-v1'
+// One cache for every engine's model files. The name predates Pocket sharing
+// it; renaming it would make every device download its models again.
+const MODEL_CACHE_NAME = 'kokoro-model-cache-v1'
 
 export async function isCached(url: string): Promise<boolean> {
   try {
-    const cache = await caches.open(CACHE_NAME)
+    const cache = await caches.open(MODEL_CACHE_NAME)
     const res = await cache.match(url)
     return !!res
   } catch (e) {
@@ -16,7 +18,7 @@ export async function isCached(url: string): Promise<boolean> {
 
 export async function cacheResponse(url: string, res: Response): Promise<void> {
   try {
-    const cache = await caches.open(CACHE_NAME)
+    const cache = await caches.open(MODEL_CACHE_NAME)
     await cache.put(url, res.clone())
   } catch (e) {
     logger.warn('Failed to cache response', e)
@@ -52,7 +54,7 @@ export async function fetchAndCache(
   url: string,
   onprogress?: (loaded: number, total?: number) => void
 ): Promise<Response> {
-  const cache = await caches.open(CACHE_NAME).catch(() => null)
+  const cache = await caches.open(MODEL_CACHE_NAME).catch(() => null)
 
   if (cache) {
     const existing = await cache.match(url).catch(() => null)

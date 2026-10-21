@@ -263,7 +263,7 @@ import { getRecommendedChunkSize } from '../utils/mobileDetect'
 
 /**
  * Eagerly initialize the Kokoro model in the background.
- * Reports progress via modelLoadingStore so the UI can show a loading indicator.
+ * Reports progress via the model status store so the UI can show a loading indicator.
  */
 export function warmUpKokoro(
   model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
@@ -274,7 +274,7 @@ export function warmUpKokoro(
   if (ttsInstance) return Promise.resolve()
   return (async () => {
     try {
-      const { setModelLoading, setModelReady } = await import('../../stores/modelLoadingStore')
+      const { startModelStatus, finishModelStatus } = await import('../../stores/modelStatus')
       let actualDevice: 'wasm' | 'webgpu' | 'cpu' = 'wasm'
       if (device === 'auto') {
         actualDevice = (await isWebGPUAvailableAsync()) ? 'webgpu' : 'wasm'
@@ -284,13 +284,13 @@ export function warmUpKokoro(
       await getKokoroInstance(model, dtype, actualDevice, (msg) => {
         // Parse percentage out of messages like "Downloading model.onnx: 42%"
         const pct = msg.match(/(\d+)%/)
-        setModelLoading(msg, pct ? parseInt(pct[1], 10) : undefined)
+        startModelStatus(msg, pct ? parseInt(pct[1], 10) : undefined)
       })
-      setModelReady()
+      finishModelStatus()
       logger.info('[KokoroClient]', 'Warm-up complete')
     } catch (e) {
-      const { setModelError } = await import('../../stores/modelLoadingStore')
-      setModelError()
+      const { clearModelStatus } = await import('../../stores/modelStatus')
+      clearModelStatus()
       logger.warn('[KokoroClient]', 'Warm-up failed (non-fatal):', e)
     }
   })()

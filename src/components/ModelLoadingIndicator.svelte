@@ -1,22 +1,22 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition'
-  import { modelLoadingStore } from '../stores/modelLoadingStore'
+  import { modelStatus } from '../stores/modelStatus'
 
-  let state = $derived($modelLoadingStore)
-  let visible = $derived(state.loading || state.message === 'Model ready')
+  let state = $derived($modelStatus)
+  let visible = $derived(state.active || state.message === 'Model ready')
 </script>
 
 {#if visible}
   <div
     class="model-pill"
-    class:ready={!state.loading}
+    class:ready={!state.active}
     role="status"
     aria-live="polite"
     aria-label={state.message}
     in:fly={{ y: 16, duration: 200 }}
     out:fade={{ duration: 300 }}
   >
-    {#if state.loading}
+    {#if state.active}
       <span class="spinner" aria-hidden="true"></span>
     {:else}
       <span class="check" aria-hidden="true">✓</span>
@@ -24,10 +24,10 @@
 
     <span class="label">{state.message}</span>
 
-    {#if state.loading && state.progress !== undefined}
-      <span class="pct">{state.progress}%</span>
+    {#if state.active && state.percent !== undefined}
+      <span class="pct">{state.percent}%</span>
       <div class="bar-track" aria-hidden="true">
-        <div class="bar-fill" style="width: {state.progress}%"></div>
+        <div class="bar-fill" style="width: {state.percent}%"></div>
       </div>
     {/if}
   </div>

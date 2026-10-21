@@ -115,11 +115,10 @@ import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 import { parseWavDuration } from '../wavUtils'
 import { planChapter } from './chapterPlan'
 import { createSegment, segmentId } from '../segments'
-import type { AudioExportFormat } from '../exportFormats'
 import { segmentHtmlContent } from './segmentationService'
 import type { SegmentOptions } from './segmentationService'
 import { SegmentBatchHandler } from './segmentBatchHandler'
-import { exportAudio, exportEpub } from './exportService'
+import { exportEpub } from './exportService'
 import {
   saveGenerationState,
   markChapterCompleted,
@@ -1347,15 +1346,6 @@ class GenerationService {
       // Restore auto-play setting
       this.setAutoPlay(wasAutoPlayEnabled)
     }
-  }
-
-  async exportAudio(
-    chapters: Chapter[],
-    format: AudioExportFormat = 'mp3',
-    bitrate = 192,
-    bookInfo: { title: string; author: string }
-  ) {
-    return exportAudio(chapters, format, bitrate, bookInfo)
   }
 
   async exportEpub(chapters: Chapter[], bookInfo: { title: string; author: string; cover?: Blob }) {

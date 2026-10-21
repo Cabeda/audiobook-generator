@@ -16,7 +16,7 @@ import {
   selectPocketVoiceForLanguage,
 } from './utils/voiceSelector'
 import { getGeneratedSegment, markSegmentGenerated } from '../stores/segmentProgressStore'
-import { handleModelProgress, clearModelProgress } from '../stores/modelDownloadStore'
+import { updateModelStatus, clearModelStatus } from '../stores/modelStatus'
 
 interface TextSegment {
   index: number
@@ -1014,9 +1014,9 @@ class AudioPlaybackService {
               dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
               device: this.device,
             },
-            onProgress: handleModelProgress,
+            onProgress: updateModelStatus,
           })
-          clearModelProgress()
+          clearModelStatus()
 
           // Defensive: revoke old URL if exists (normal flow checks has(index) before calling this method)
           const oldUrl = this.audioSegments.get(index)
