@@ -16,7 +16,6 @@
 
   // APIs & Logic
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroVoices'
-  import { warmUpKokoro } from './lib/kokoro/kokoroClient'
   import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
   import {
@@ -134,8 +133,6 @@
   $effect(() => {
     const model = $selectedModel
     if (model === 'kokoro') {
-      // Warm up the model eagerly so the first generation doesn't pay load cost
-      warmUpKokoro('onnx-community/Kokoro-82M-v1.0-ONNX', $selectedQuantization, $selectedDevice)
       availableVoices.set(
         kokoroVoices.map((v) => ({
           id: v,
@@ -149,11 +146,6 @@
         }
       })
     } else if (model === 'pocket') {
-      // Warm the model up eagerly so the first generation doesn't pay for the
-      // download, the same way Kokoro is warmed up.
-      import('./lib/pocket/pocketEngine')
-        .then((pocket) => pocket.getPocketEngine().warmUp())
-        .catch((err) => logger.warn('Could not warm up Pocket TTS:', err))
       availableVoices.set(
         POCKET_VOICES.map((v) => ({
           id: v,

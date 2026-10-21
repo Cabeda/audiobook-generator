@@ -15,7 +15,9 @@ jobs:
   e2e:
     name: E2E Smoke Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Installing the dependencies and the browser, building the app and
+    # running the suite does not fit in five minutes.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code

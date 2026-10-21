@@ -8,7 +8,7 @@ const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 test.describe('Audiobook Generation - Smoke', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
   })
 
   test('should load the application', async ({ page }) => {

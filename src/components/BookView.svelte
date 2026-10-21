@@ -24,6 +24,8 @@
     advancedSettings,
   } from '../stores/ttsStore'
   import { toastStore } from '../stores/toastStore'
+  import { warmUpKokoro } from '../lib/kokoro/kokoroClient'
+  import logger from '../lib/utils/logger'
   import { generationService, isGeneratingStore } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
@@ -143,7 +145,30 @@
   )
 
   // Actions
+  /**
+   * Warm the selected speech model up, so the first generation does not pay for
+   * the download.
+   */
+  function warmUpSelectedModel() {
+    const model = get(selectedModelStore)
+    if (model === 'kokoro') {
+      warmUpKokoro(
+        'onnx-community/Kokoro-82M-v1.0-ONNX',
+        get(selectedQuantization),
+        get(selectedDevice)
+      )
+    } else if (model === 'pocket') {
+      import('../lib/pocket/pocketEngine')
+        .then((pocket) => pocket.getPocketEngine().warmUp())
+        .catch((err) => logger.warn('Could not warm up Pocket TTS:', err))
+    }
+  }
+
   onMount(() => {
+    // Warm the speech model up while the reader is choosing a chapter, so the
+    // first generation does not pay for the download.
+    warmUpSelectedModel()
+
     // Detect mobile screen size
     const checkMobile = () => {
       isMobile = window.innerWidth <= 768

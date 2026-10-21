@@ -4,6 +4,11 @@ import process from 'node:process'
 
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
+/** The chapter the test generates: the first one in the list. */
+function firstChapter(page: import('@playwright/test').Page) {
+  return page.locator('.chapter-card').first()
+}
+
 /**
  * Generation & Export smoke test.
  *
@@ -12,11 +17,18 @@ const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
  * First run downloads the voice model (~5MB), subsequent runs use cache.
  */
 test.describe('Generation & Export', () => {
-  test.describe.configure({ timeout: 120000 })
+  test.describe.configure({ timeout: 180000 })
 
   test.beforeEach(async ({ page }) => {
+    // Boot with Piper: the app starts generating as soon as a book is imported,
+    // and Piper is the small, fast model. Setting it before the first load
+    // also keeps the suite from downloading the Kokoro model.
+    await page.addInitScript(() => {
+      localStorage.setItem('audiobook_model', '"piper"')
+    })
+
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
     // Clear all storage to ensure fresh generation (no cached segments)
     await page.evaluate(async () => {
@@ -34,9 +46,6 @@ test.describe('Generation & Export', () => {
       localStorage.clear()
       sessionStorage.clear()
     })
-    await page.reload()
-    await page.waitForLoadState('networkidle')
-
     // Upload EPUB
     const fileInput = page.locator('input[type="file"]')
     await fileInput.setInputFiles(SHORT_EPUB)
@@ -44,9 +53,11 @@ test.describe('Generation & Export', () => {
       timeout: 10000,
     })
 
-    // Switch to Piper TTS (smaller model, faster than Kokoro)
+    // The import starts a generation, and the controls are disabled while it
+    // runs.
     const modelSelect = page.locator('.toolbar-left .premium-select').first()
-    await modelSelect.selectOption('piper')
+    await expect(modelSelect).toBeEnabled({ timeout: 150000 })
+    await expect(modelSelect).toHaveValue('piper')
 
     // Select only first chapter
     await page.getByRole('button', { name: 'Deselect All', exact: true }).click()
@@ -55,7 +66,7 @@ test.describe('Generation & Export', () => {
 
   test('should generate a chapter and export as MP3', async ({ page }) => {
     await page.getByRole('button', { name: 'Generate Selected' }).click()
-    await expect(page.getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
+    await expect(firstChapter(page).getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 30000 }),
@@ -66,7 +77,7 @@ test.describe('Generation & Export', () => {
 
   test('should export as WAV', async ({ page }) => {
     await page.getByRole('button', { name: 'Generate Selected' }).click()
-    await expect(page.getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
+    await expect(firstChapter(page).getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
 
     await page.getByRole('button', { name: 'Choose export format' }).click()
     await page.getByRole('menuitem', { name: 'WAV' }).click()
@@ -80,7 +91,7 @@ test.describe('Generation & Export', () => {
 
   test('should export as M4B', async ({ page }) => {
     await page.getByRole('button', { name: 'Generate Selected' }).click()
-    await expect(page.getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
+    await expect(firstChapter(page).getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
 
     await page.getByRole('button', { name: 'Choose export format' }).click()
     await page.getByRole('menuitem', { name: 'M4B Audiobook' }).click()
@@ -94,7 +105,7 @@ test.describe('Generation & Export', () => {
 
   test('should export valid EPUB with correct structure and media overlays', async ({ page }) => {
     await page.getByRole('button', { name: 'Generate Selected' }).click()
-    await expect(page.getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
+    await expect(firstChapter(page).getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
 
     await page.getByRole('button', { name: 'Choose export format' }).click()
     await page.getByRole('menuitem', { name: 'EPUB' }).click()
@@ -195,7 +206,7 @@ test.describe('Generation & Export', () => {
 
   test('should have SMIL timing match actual MP3 duration', async ({ page }) => {
     await page.getByRole('button', { name: 'Generate Selected' }).click()
-    await expect(page.getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
+    await expect(firstChapter(page).getByText('✓ Generated')).toBeVisible({ timeout: 90000 })
 
     await page.getByRole('button', { name: 'Choose export format' }).click()
     await page.getByRole('menuitem', { name: 'EPUB' }).click()

@@ -10,7 +10,7 @@ const SAMPLE_HTML = path.join(TEST_FILES_DIR, 'sample.html')
 test.describe('Multi-Format Support', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
   })
 
   test('should display supported formats in upload area', async ({ page }) => {

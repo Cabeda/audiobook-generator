@@ -7,7 +7,7 @@ const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 test.describe('Core UX Features', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
     // Upload test book
     const fileInput = page.locator('input[type="file"]')

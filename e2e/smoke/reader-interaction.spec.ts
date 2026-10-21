@@ -7,7 +7,7 @@ const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 test.describe('Reader Interaction', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
   })
 
   test('should upload a book and see chapter list with controls', async ({ page }) => {
