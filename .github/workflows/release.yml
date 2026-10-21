@@ -107,10 +107,12 @@ jobs:
             echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${NEW_VERSION}"
           } > /tmp/changelog.md
 
-          git checkout -b "$BRANCH"
+          git checkout -B "$BRANCH"
           git add package.json
           git commit -m "chore(release): v${NEW_VERSION}"
-          git push origin "$BRANCH"
+          # The branch only ever carries the version bump, so a re-run may
+          # replace it.
+          git push --force origin "$BRANCH"
 
           # A re-run must not fail because the pull request is already open.
           if gh pr list --head "$BRANCH" --state open --json number | grep -q '"number"'; then
