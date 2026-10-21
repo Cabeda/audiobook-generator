@@ -125,6 +125,7 @@
       languageDefaults: $appSettings.languageDefaults,
       selectedModel: $selectedModel,
       selectedVoice: $selectedVoice,
+      piperVoices: $piperVoices,
     })
   )
 
@@ -159,39 +160,17 @@
     return []
   })
 
-  // Compute the effective voice (auto-select first available if current is invalid)
-  // Priority: chapter override > app language default > auto-select first > global toolbar
-  let effectiveVoice = $derived.by(() => {
-    // 1. Chapter-level override
-    if (chapterVoice) {
-      const isValid = chapterAvailableVoices.some((v) => v.id === chapterVoice)
-      if (isValid) return chapterVoice
-    }
-    // 2. App-level language default
-    const langDefault = $appSettings.languageDefaults[effectiveLanguage]
-    if (langDefault?.voice) {
-      const isValid = chapterAvailableVoices.some((v) => v.id === langDefault.voice)
-      if (isValid) return langDefault.voice
-    }
-    // 3. Auto-select first available voice for the language
-    if (chapterAvailableVoices.length > 0) {
-      return chapterAvailableVoices[0].id
-    }
-    // 4. Global toolbar fallback
-    return $selectedVoice
-  })
+  // The plan already resolved override → language default → engine voice, so
+  // the chapter list shows the voice the reader and the generator will use.
+  let effectiveVoice = $derived(chapterPlan.voice)
 
-  // Detect mismatched segments (voice/model differs from current effective settings)
+  // Detect mismatched segments (voice/model differs from the plan)
   let mismatchedIndices = $derived.by(() => {
     const progress = chapterSegmentProgress
     if (!progress) return []
     const indices: number[] = []
     for (const [idx, seg] of progress.generatedSegments) {
-      const voiceMismatch = seg.voice != null && seg.voice !== effectiveVoice
-      const modelMismatch = seg.model != null && seg.model !== effectiveModel
-      if (voiceMismatch || modelMismatch) {
-        indices.push(idx)
-      }
+      if (chapterPlan.isMismatched(seg)) indices.push(idx)
     }
     return indices
   })

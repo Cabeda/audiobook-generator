@@ -69,7 +69,6 @@
 
 import { get, writable } from 'svelte/store'
 import type { Chapter } from '../types/book'
-import type { VoiceId } from '../kokoro/kokoroVoices'
 import { getTTSWorker, terminateTTSWorker } from '../ttsWorkerManager'
 import { StallWatchdog } from '../utils/stallWatchdog'
 import {
@@ -87,7 +86,6 @@ import {
   isGenerating,
 } from '../../stores/bookStore'
 import { advancedSettings } from '../../stores/ttsStore'
-import { listVoices as listKokoroVoices } from '../kokoro/kokoroVoices'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { appSettings } from '../../stores/appSettingsStore'
@@ -99,11 +97,6 @@ import { shouldRestartWorkerForMemory } from '../utils/resourceMonitor'
 import { audioService } from '../audioPlaybackService.svelte'
 
 import {
-  selectKokoroVoiceForLanguage,
-  selectPiperVoiceForLanguage,
-  normalizeLanguageCode,
-} from '../utils/voiceSelector'
-import {
   initChapterSegments,
   markChapterGenerationComplete,
   segmentProgress,
@@ -113,7 +106,9 @@ import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
 import { parseWavDuration } from '../wavUtils'
-import { planChapter } from './chapterPlan'
+import { planChapter, engineSupportsLanguage } from './chapterPlan'
+import type { TTSModelType } from '../tts/ttsModels'
+import type { PiperVoice } from '../piper/piperClient'
 import { createSegment, segmentId } from '../segments'
 import { segmentHtmlContent } from './segmentationService'
 import type { SegmentOptions } from './segmentationService'
@@ -681,6 +676,7 @@ class GenerationService {
       selectedVoice: get(selectedVoice),
       selectedQuantization: get(selectedQuantization),
       selectedDevice: get(selectedDevice),
+      piperVoices: await this.piperVoicesIfNeeded(ch, effectiveLanguage),
       isMobile: isMobileDevice(),
     })
     const effectiveModel = plan.model
@@ -692,7 +688,6 @@ class GenerationService {
       )
     }
 
-    const currentVoice = plan.voice
     const currentQuantization = plan.quantization
     const currentDevice = plan.device
     const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
@@ -723,13 +718,7 @@ class GenerationService {
     const readerPosition = this.readerPositions.get(ch.id)
     if (readerPosition !== undefined) this.priorityOverrides.set(ch.id, readerPosition)
 
-    const effectiveVoice = await this.resolveEffectiveVoice(
-      ch,
-      effectiveModel,
-      effectiveLanguage,
-      isFallbackModel,
-      currentVoice
-    )
+    const effectiveVoice = plan.voice
 
     this.currentChapterId = ch.id
     try {
@@ -799,77 +788,19 @@ class GenerationService {
   }
 
   /**
-   * Resolve the effective voice for a chapter, auto-selecting when needed.
+   * The Piper voices, only when Piper may read this chapter. The client keeps
+   * the list, so asking once per chapter costs nothing after the first time.
    */
-  private async resolveEffectiveVoice(
+  private async piperVoicesIfNeeded(
     ch: Chapter,
-    effectiveModel: string,
-    effectiveLanguage: string,
-    isFallbackModel: boolean,
-    currentVoice: string
-  ): Promise<string> {
-    let effectiveVoice = currentVoice
-
-    let shouldAutoSelectVoice = !currentVoice
-    if (!shouldAutoSelectVoice && isFallbackModel) {
-      if (effectiveModel === 'piper') {
-        const { PiperClient } = await import('../piper/piperClient')
-        const voices = await PiperClient.getInstance().getVoices()
-        shouldAutoSelectVoice = !voices.some((v: { key: string }) => v.key === currentVoice)
-      } else {
-        shouldAutoSelectVoice = true
-      }
-    }
-
-    if (shouldAutoSelectVoice) {
-      const preferredVoice = isFallbackModel ? undefined : currentVoice
-      if (effectiveModel === 'kokoro') {
-        effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, preferredVoice)
-        const kokoroVoices = listKokoroVoices()
-        if (!kokoroVoices.includes(effectiveVoice as VoiceId)) {
-          logger.warn(`Invalid Kokoro voice '${effectiveVoice}', falling back to af_heart`)
-          effectiveVoice = 'af_heart'
-        }
-        logger.info(
-          `Auto-selected Kokoro voice for language ${effectiveLanguage}: ${effectiveVoice}`
-        )
-      } else if (effectiveModel === 'piper') {
-        const { PiperClient } = await import('../piper/piperClient')
-        const availableVoices = await PiperClient.getInstance().getVoices()
-        effectiveVoice = selectPiperVoiceForLanguage(
-          effectiveLanguage,
-          availableVoices,
-          preferredVoice
-        )
-        logger.info(
-          `Auto-selected Piper voice for language ${effectiveLanguage}: ${effectiveVoice}`
-        )
-      }
-    } else {
-      logger.info(`Using chapter-specific voice: ${effectiveVoice}`)
-    }
-
-    // If a global Piper voice doesn't match the chapter language, auto-switch.
-    // Skip when the user explicitly set a chapter voice.
-    if (effectiveModel === 'piper' && !shouldAutoSelectVoice && !ch.voice) {
-      const { PiperClient } = await import('../piper/piperClient')
-      const availableVoices = await PiperClient.getInstance().getVoices()
-      const selectedVoiceInfo = availableVoices.find(
-        (v: { key: string }) => v.key === effectiveVoice
-      )
-      const voiceLang = selectedVoiceInfo ? normalizeLanguageCode(selectedVoiceInfo.language) : null
-      if (!selectedVoiceInfo || voiceLang !== normalizeLanguageCode(effectiveLanguage)) {
-        logger.warn(
-          `Piper voice '${effectiveVoice}' mismatches language '${effectiveLanguage}', auto-switching`
-        )
-        effectiveVoice = selectPiperVoiceForLanguage(effectiveLanguage, availableVoices, undefined)
-        logger.info(
-          `Switched Piper voice to '${effectiveVoice}' for language '${effectiveLanguage}'`
-        )
-      }
-    }
-
-    return effectiveVoice
+    language: string
+  ): Promise<PiperVoice[] | undefined> {
+    const requested = (ch.model ||
+      get(appSettings).languageDefaults[language]?.model ||
+      get(selectedModel)) as TTSModelType
+    if (requested !== 'piper' && engineSupportsLanguage(requested, language)) return undefined
+    const { PiperClient } = await import('../piper/piperClient')
+    return PiperClient.getInstance().getVoices()
   }
 
   /**

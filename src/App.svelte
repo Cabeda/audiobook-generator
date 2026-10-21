@@ -18,12 +18,7 @@
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroVoices'
   import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
-  import {
-    isKokoroLanguageSupported,
-    selectPiperVoiceForLanguage,
-    selectPocketVoiceForLanguage,
-    POCKET_VOICES,
-  } from './lib/utils/voiceSelector'
+  import { POCKET_VOICES } from './lib/utils/voiceSelector'
   import { POCKET_VOICE_LABELS } from './lib/pocket/pocketAssets'
   import { planChapter } from './lib/services/chapterPlan'
   import logger from './lib/utils/logger'
@@ -85,45 +80,13 @@
       languageDefaults: $appSettings.languageDefaults,
       selectedModel: $selectedModel,
       selectedVoice: $selectedVoice,
+      piperVoices: $piperVoices,
     })
   )
 
   let readerModel = $derived(readerPlan.model)
 
-  // Compute effective voice considering model fallback
-  // Priority: chapter override > app language default > global toolbar > auto-select
-  let readerVoice = $derived.by(() => {
-    // 1. Explicit chapter voice override
-    if (currentChapter?.voice) {
-      return currentChapter.voice
-    }
-
-    // 2. App-level language default
-    const langDefault = $appSettings.languageDefaults[readerLanguage]
-    if (langDefault?.voice) {
-      return langDefault.voice
-    }
-
-    // 3. No chapter/app override - check if using global settings
-    const baseModel = currentChapter?.model || langDefault?.model || $selectedModel
-    if (readerModel === baseModel && baseModel === $selectedModel) {
-      // Model didn't change due to fallback, use global voice
-      return $selectedVoice
-    }
-
-    // 4. Model changed due to language fallback - need to pick appropriate voice
-    if (readerModel === 'piper') {
-      return selectPiperVoiceForLanguage(readerLanguage, $piperVoices, $selectedVoice)
-    }
-    if (readerModel === 'kokoro') {
-      return 'af_heart' // Default Kokoro voice
-    }
-    if (readerModel === 'pocket') {
-      return selectPocketVoiceForLanguage(readerLanguage, $selectedVoice)
-    }
-
-    return $selectedVoice
-  })
+  let readerVoice = $derived(readerPlan.voice)
 
   // Voice Loading Logic (Centralized)
   let kokoroVoices = listKokoroVoices()
