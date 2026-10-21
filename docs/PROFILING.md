@@ -16,6 +16,16 @@ Requirements: the full Chromium build (`pnpm exec playwright install chromium`).
 headless shell does not expose `performance.measureUserAgentSpecificMemory()` or the `Memory`
 CDP domain, so the config forces `channel: 'chromium'`.
 
+The run starts its own dev server and never reuses an existing one, so it can share a machine
+with another checkout. Give it a port that is free:
+
+```bash
+PROFILE_PORT=5174 pnpm test:e2e:profile
+```
+
+Do not edit or hot-reload the app while it runs — a page reload invalidates the timeline, and
+the run fails on `pageReloads > 0` instead of reporting bad numbers.
+
 ## What you get
 
 | File                                                  | What it answers                                                                             |

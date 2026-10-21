@@ -9,7 +9,13 @@ import process from 'node:process'
  * a run takes tens of minutes and needs the full Chromium build.
  *
  * Usage: pnpm test:e2e:profile
+ *
+ * Runs on its own dev server so it can share a machine with other agents:
+ * PROFILE_PORT=5174 pnpm test:e2e:profile
  */
+const PORT = Number(process.env.PROFILE_PORT ?? 5173)
+const BASE_URL = `http://localhost:${PORT}`
+
 export default defineConfig({
   testDir: './e2e/profile',
   fullyParallel: false,
@@ -17,7 +23,7 @@ export default defineConfig({
   reporter: 'list',
   timeout: 3_600_000,
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: BASE_URL,
     // measureUserAgentSpecificMemory() and the Memory domain sampling profiler
     // are only exposed by the full Chromium build, not by headless_shell.
     channel: 'chromium',
@@ -30,10 +36,12 @@ export default defineConfig({
     },
   ],
 
+  // Never reuse someone else's server: an editor saving a file in another
+  // checkout would hot-reload the page mid-run and invalidate the measurements.
   webServer: {
-    command: 'pnpm dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
+    command: `pnpm dev --port ${PORT} --strictPort`,
+    url: BASE_URL,
+    reuseExistingServer: false,
     timeout: 120000,
   },
 })
