@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   getDeviceTier,
   getStartingTier,
@@ -139,5 +139,62 @@ describe('shouldRestartWorkerForMemory', () => {
     })
     expect(await shouldRestartWorkerForMemory()).toBe(false)
     Object.defineProperty(perf, 'memory', { value: undefined, configurable: true })
+  })
+})
+
+describe('shouldRestartWorkerForMemory — agent cluster', () => {
+  type AgentPerf = Performance & {
+    measureUserAgentSpecificMemory?: () => Promise<{ bytes: number; breakdown: [] }>
+    memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
+  }
+
+  function stubAgentBytes(bytes: number | null) {
+    const perf = performance as AgentPerf
+    Object.defineProperty(perf, 'measureUserAgentSpecificMemory', {
+      value: bytes === null ? undefined : async () => ({ bytes, breakdown: [] }),
+      configurable: true,
+    })
+  }
+
+  function stubJsHeap(used: number, limit: number) {
+    const perf = performance as AgentPerf
+    Object.defineProperty(perf, 'memory', {
+      value: { usedJSHeapSize: used, jsHeapSizeLimit: limit },
+      configurable: true,
+    })
+  }
+
+  afterEach(() => {
+    const perf = performance as AgentPerf
+    Object.defineProperty(perf, 'measureUserAgentSpecificMemory', {
+      value: undefined,
+      configurable: true,
+    })
+    Object.defineProperty(perf, 'memory', { value: undefined, configurable: true })
+  })
+
+  it('restarts when the worker WASM heap pushes the cluster over the budget', async () => {
+    // A passing JS heap hides this: the worker's WASM heap is most of the total.
+    stubAgentBytes(2_400_000_000)
+    stubJsHeap(100_000_000, 4_000_000_000)
+    expect(await shouldRestartWorkerForMemory()).toBe(true)
+  })
+
+  it('does not restart while the cluster stays under the budget', async () => {
+    stubAgentBytes(900_000_000)
+    stubJsHeap(900_000_000, 1_000_000_000)
+    expect(await shouldRestartWorkerForMemory()).toBe(false)
+  })
+
+  it('falls back to the JS heap ratio when the cluster total is unavailable', async () => {
+    stubAgentBytes(null)
+    stubJsHeap(800_000_000, 1_000_000_000)
+    expect(await shouldRestartWorkerForMemory()).toBe(true)
+  })
+
+  it('does not restart when no memory API reports anything', async () => {
+    stubAgentBytes(null)
+    stubJsHeap(0, 0)
+    expect(await shouldRestartWorkerForMemory()).toBe(false)
   })
 })
