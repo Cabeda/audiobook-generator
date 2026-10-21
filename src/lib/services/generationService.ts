@@ -179,8 +179,6 @@ class GenerationService {
   private queue: Chapter[] = []
   /** The chapter being generated right now, if any. */
   private currentChapterId: string | null = null
-  /** The chapter the reader is listening to, if it asked for one. */
-  private readerChapterId: string | null = null
   /** Set when the reader's chapter must be made before the current one goes on. */
   private yieldRequested = false
   /** Where the reader is in a chapter, so that segment is made first. */
@@ -532,7 +530,6 @@ class GenerationService {
    * boundary — its segments are saved — and finished after the reader's.
    */
   prioritizeChapter(chapter: Chapter) {
-    this.readerChapterId = chapter.id
     if (!this.running) return
     this.queue = [chapter, ...this.queue.filter((queued) => queued.id !== chapter.id)]
     if (this.currentChapterId && this.currentChapterId !== chapter.id) {
@@ -582,7 +579,6 @@ class GenerationService {
     this.canceledChapters.clear()
     this.autoPlayTriggered.clear()
     this.completedChapterIds.clear()
-    this.readerChapterId = null
     this.queue = [...chapters]
     this.chaptersRun = 0
     isGenerating.set(true)
@@ -619,7 +615,6 @@ class GenerationService {
       throttledProgress.flush()
       this.currentChapterId = null
       this.queue = []
-      this.readerChapterId = null
       audioService.setSegmentsAreExternal(false)
       this.readerPositions.clear()
       this.priorityOverrides.clear()
@@ -685,7 +680,7 @@ class GenerationService {
 
     if (isFallbackModel) {
       logger.warn(
-        `Language '${effectiveLanguage}' not supported by ${plan.model}. Switching to Piper for chapter ${ch.id}`
+        `Language '${effectiveLanguage}' is not covered by the chosen engine. Using Piper for chapter ${ch.id}`
       )
     }
 
@@ -756,7 +751,6 @@ class GenerationService {
         return newMap
       })
       this.completedChapterIds.add(ch.id)
-      if (this.readerChapterId === ch.id) this.readerChapterId = null
 
       // Persist progress for crash recovery
       markChapterCompleted(ch.id)
@@ -1130,7 +1124,6 @@ class GenerationService {
     this.queue = []
     this.currentChapterId = null
     this.yieldRequested = false
-    this.readerChapterId = null
 
     this.setRunning(false)
     isGenerating.set(false)
