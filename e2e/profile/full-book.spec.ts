@@ -21,7 +21,7 @@ const TRACE_WINDOW_MS = 90_000
  * A chapter that does not finish within this is stuck, not slow — bail out with
  * the last page log instead of sitting on the four-hour test timeout.
  */
-const CHAPTER_STALL_MS = 20 * 60_000
+const CHAPTER_NO_PROGRESS_LIMIT_MS = 20 * 60_000
 
 type MemorySample = {
   elapsedSec: number
@@ -193,7 +193,12 @@ test.describe('Full book profiling', () => {
       const text = msg.text()
       lastPageLog = text.slice(0, 200)
       if (text.includes('Restarting TTS worker')) workerRestarts++
-      if (text.includes('Skipping concatenation for chapter')) lastChapterAt = Date.now()
+      // Chapter completion is logged differently with and without a book id.
+      if (
+        text.includes('Skipping concatenation for chapter') ||
+        text.includes('Merging audio segments')
+      )
+        lastChapterAt = Date.now()
       if (text.includes('[OOM mitigation]')) console.log(`[PAGE] ${text}`)
     })
 
@@ -261,10 +266,9 @@ test.describe('Full book profiling', () => {
           localStorage.getItem('audiobook_generation_state') === null &&
           document.querySelectorAll('button[aria-label="Cancel this chapter"]').length === 0
       )
-      if (finished) break
-      if (Date.now() - lastChapterAt > CHAPTER_STALL_MS) {
+      if (Date.now() - lastChapterAt > CHAPTER_NO_PROGRESS_LIMIT_MS) {
         throw new Error(
-          `no chapter finished in ${CHAPTER_STALL_MS / 60_000} min — the run is stuck, not slow. Last page log: ${lastPageLog}`
+          `no chapter finished in ${CHAPTER_NO_PROGRESS_LIMIT_MS / 60_000} min — the run is stuck, not slow. Last page log: ${lastPageLog}`
         )
       }
       await page.waitForTimeout(10_000)

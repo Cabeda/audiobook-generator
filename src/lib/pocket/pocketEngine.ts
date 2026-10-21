@@ -76,7 +76,7 @@ export class PocketEngine implements TTSEngine {
 
     const voiceName =
       request.voice && request.voice in (bundle.voices ?? {}) ? request.voice : 'alba'
-    const voice = await this.loadVoice(voiceName)
+    const voice = await this.loadVoice(voiceName, onProgress)
 
     const tokenIds = chunks.map((chunk) => tokenizer.encode(chunk))
     const capacity = flowCacheCapacity(bundle, voiceFrames(voice), tokenIds)
@@ -202,6 +202,7 @@ export class PocketEngine implements TTSEngine {
       }
 
       const loadSession = async (url: string) => {
+        onProgress?.(`Pocket TTS: loading ${url.split('/').pop()}`)
         const bytes = await fetchAndCache(url).then((res) => res.arrayBuffer())
         return ort.InferenceSession.create(new Uint8Array(bytes), sessionOptions)
       }
@@ -224,7 +225,10 @@ export class PocketEngine implements TTSEngine {
     }
   }
 
-  private async loadVoice(name: string): Promise<PocketVoiceBundle> {
+  private async loadVoice(
+    name: string,
+    onProgress?: (status: string) => void
+  ): Promise<PocketVoiceBundle> {
     if (this.voices[name]) return this.voices[name]
 
     // The voice bundle is 34 MB and holds all eight voices. Fetching it whole
@@ -232,6 +236,7 @@ export class PocketEngine implements TTSEngine {
     // the Cache API, and HuggingFace answers the redirect with the full body
     // anyway, so the slice saved nothing.
     if (!this.allVoices) {
+      onProgress?.('Pocket TTS: loading voices')
       this.allVoices = parseVoicesBin(
         await fetchAndCache(pocketModelUrls().voices).then((r) => r.arrayBuffer())
       )

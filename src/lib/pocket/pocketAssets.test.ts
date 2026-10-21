@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { parseBundle, parseVoiceSlice, parseVoicesBin } from './pocketAssets'
+import { parseBundle, parseVoicesBin } from './pocketAssets'
 
 const bundleJson = JSON.parse(
   readFileSync(resolve(process.cwd(), 'src/lib/pocket/fixtures/bundle.json'), 'utf-8')
@@ -96,13 +96,6 @@ describe('voice bundle', () => {
     const record = voices.alba.tensors.state_offset
     expect(record.dtype).toBe('float32')
     expect(record.shape).toEqual([1])
-  })
-
-  it('reads a single voice slice', () => {
-    // A range request over voices.bin starts at the voice, not at the header.
-    const voice = parseVoiceSlice(buildVoiceBundle(false))
-    expect(voice.name).toBe('alba')
-    expect(voice.tensors.state_offset.shape).toEqual([1])
   })
 
   it('rejects a file that is not a voice bundle', () => {
