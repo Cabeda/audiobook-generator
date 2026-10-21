@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { VoiceId } from './kokoroClient'
-import {
-  createDefaultKokoroMock,
-  createJSHandleKokoroMock,
-} from '../../../test/factories/kokoroMock'
+import { createDefaultKokoroMock } from '../../../test/factories/kokoroMock'
 // We'll dynamically import kokoroClient's exports within tests to ensure per-test
 // mocking of 'kokoro-js' is applied before the module loads.
 
@@ -137,36 +134,29 @@ describe('kokoroClient', () => {
     })
 
     it('should warn when toBlob returns a non-Blob JSHandle-like object', async () => {
-      // Mock the logger as well: the client holds its own instance of it, and
-      // the module registry is reset between tests, so spying on an instance
-      // imported here is not the same object the client writes to.
-      const warn = vi.fn()
-      vi.doMock('../utils/logger', () => ({
-        default: { info: vi.fn(), warn, error: vi.fn(), debug: vi.fn() },
-      }))
+      // The mocked engine hands back the audio the environment asks for, so
+      // the test does not have to mock the module again.
+      process.env.KOKORO_MOCK_AUDIO = 'jshandle'
 
-      // Use per-test mock to return a JSHandle-like value
-      vi.doMock('kokoro-js', () => createJSHandleKokoroMock())
+      // The client and the test share the logger instance, as long as the
+      // module registry is not reset in between.
+      const logger = await import('../utils/logger')
+      const warnSpy = vi.spyOn(logger.default, 'warn').mockImplementation(() => {})
 
-      // Re-import the module after setting the per-test mock
       const { generateVoice } = await import('./kokoroClient.ts')
-
-      // The per-test mock `createJSHandleKokoroMock()` will provide the JSHandle-like
-      // values used to trigger strict handling in `generateVoice`. We re-import the
-      // module after mocking to ensure the mock is applied.
 
       try {
         await expect(
           generateVoice({ text: 'This is a long text that should go streaming' as string })
-        ).rejects.toThrow()
-      } finally {
+        ).rejects.toThrow(/JSHandle/)
+
         // The warning has to be the one about the JSHandle, not another one.
         expect(
-          warn.mock.calls.some((call) => call.some((arg) => String(arg).includes('JSHandle')))
+          warnSpy.mock.calls.some((call) => call.some((arg) => String(arg).includes('JSHandle')))
         ).toBe(true)
-        // Restore the original mocks for the other tests
-        vi.doUnmock('kokoro-js')
-        vi.doUnmock('../utils/logger')
+      } finally {
+        warnSpy.mockRestore()
+        delete process.env.KOKORO_MOCK_AUDIO
         vi.resetModules()
       }
     })

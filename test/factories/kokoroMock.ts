@@ -1,35 +1,10 @@
 import { vi } from 'vitest'
-
-/** Creates a minimal valid WAV blob (44-byte header + 10ms silence) */
-function createValidWavBlob(): Blob {
-  const sampleRate = 24000
-  const numChannels = 1
-  const bitsPerSample = 16
-  const numSamples = 240 // 10ms of silence
-  const dataSize = numSamples * numChannels * (bitsPerSample / 8)
-  const bufferSize = 44 + dataSize
-  const buffer = new ArrayBuffer(bufferSize)
-  const view = new DataView(buffer)
-  view.setUint32(0, 0x52494646, false) // "RIFF"
-  view.setUint32(4, bufferSize - 8, true)
-  view.setUint32(8, 0x57415645, false) // "WAVE"
-  view.setUint32(12, 0x666d7420, false) // "fmt "
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true) // PCM
-  view.setUint16(22, numChannels, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true)
-  view.setUint16(32, numChannels * (bitsPerSample / 8), true)
-  view.setUint16(34, bitsPerSample, true)
-  view.setUint32(36, 0x64617461, false) // "data"
-  view.setUint32(40, dataSize, true)
-  return new Blob([buffer], { type: 'audio/wav' })
-}
+import { jsHandleMockAudio, mockAudio } from '../kokoroMockControl'
 
 export function createDefaultKokoroMock() {
-  const createMockAudio = (_data: string) => ({
-    toBlob: () => createValidWavBlob(),
-  })
+  // The audio comes from the shared control, so a test can ask for a
+  // JSHandle instead of a Blob through KOKORO_MOCK_AUDIO.
+  const createMockAudio = (_data: string) => mockAudio()
 
   const mockTTS = {
     generate: vi
@@ -89,10 +64,7 @@ export function createDefaultKokoroMock() {
 }
 
 export function createJSHandleKokoroMock() {
-  const createMockAudioBad = () => ({
-    toBlob: () =>
-      Promise.resolve({ toString: () => 'JSHandle@error', constructor: { name: 'JSHandle' } }),
-  })
+  const createMockAudioBad = () => jsHandleMockAudio()
 
   const mockTTSBad = {
     generate: vi.fn().mockImplementation(async (_text: string) => createMockAudioBad()),

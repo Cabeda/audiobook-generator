@@ -1,4 +1,5 @@
 import { vi } from 'vitest'
+import { mockAudio } from './kokoroMockControl'
 
 // Polyfill Blob.arrayBuffer() for jsdom environment
 if (typeof Blob !== 'undefined' && !Blob.prototype.arrayBuffer) {
@@ -17,41 +18,11 @@ if (typeof Blob !== 'undefined' && !Blob.prototype.arrayBuffer) {
 // that is used by many tests (kokoroClient, integration tests) and removes the
 // chance of the Emscripten/phonemizer code being loaded and spawning worker pools.
 
-// Create a minimal WAV buffer (valid header) used by mock audio objects
-function createMockWavBuffer(durationMs: number = 100) {
-  const sampleRate = 24000
-  const numChannels = 1
-  const bitsPerSample = 16
-  const numSamples = Math.floor((sampleRate * durationMs) / 1000)
-  const dataSize = numSamples * numChannels * (bitsPerSample / 8)
-  const bufferSize = 44 + dataSize
-  const buffer = new ArrayBuffer(bufferSize)
-  const view = new DataView(buffer)
-  view.setUint32(0, 0x52494646, false)
-  view.setUint32(4, bufferSize - 8, true)
-  view.setUint32(8, 0x57415645, false)
-  view.setUint32(12, 0x666d7420, false)
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, numChannels, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true)
-  view.setUint16(32, numChannels * (bitsPerSample / 8), true)
-  view.setUint16(34, bitsPerSample, true)
-  view.setUint32(36, 0x64617461, false)
-  view.setUint32(40, dataSize, true)
-  for (let i = 44; i < bufferSize; i++) view.setUint8(i, 0)
-  return buffer
-}
-
-const mockAudio = {
-  toBlob: () => new Blob([createMockWavBuffer(100)], { type: 'audio/wav' }),
-}
-
+// The audio the mock hands back. A test chooses it with KOKORO_MOCK_AUDIO.
 const mockTTS = {
-  generate: vi.fn().mockResolvedValue(mockAudio),
+  generate: vi.fn().mockImplementation(async () => mockAudio()),
   stream: vi.fn().mockImplementation(async function* () {
-    yield { text: 'Mock sentence', phonemes: 'mɑk sˈɛntəns', audio: mockAudio }
+    yield { text: 'Mock sentence', phonemes: 'mɑk sˈɛntəns', audio: mockAudio() }
   }),
   list_voices: vi.fn(),
   voices: {},
