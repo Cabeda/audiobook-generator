@@ -97,6 +97,12 @@ jobs:
         run: |
           BRANCH="release/v${NEW_VERSION}"
 
+          # A re-run must not open a second pull request for the same version.
+          if gh pr list --head "$BRANCH" --state open --json number | grep -q '"number"'; then
+            echo "The release pull request is already open: $BRANCH"
+            exit 0
+          fi
+
           # The changelog covers the commits since the last tag, not the
           # release commit itself.
           {
@@ -107,16 +113,13 @@ jobs:
             echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LATEST_TAG}...v${NEW_VERSION}"
           } > /tmp/changelog.md
 
-          git checkout -b "$BRANCH"
+          # The branch may be left over from a run that failed halfway.
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+
+          git checkout -B "$BRANCH"
           git add package.json
           git commit -m "chore(release): v${NEW_VERSION}"
           git push origin "$BRANCH"
-
-          # A re-run must not fail because the pull request is already open.
-          if gh pr list --head "$BRANCH" --state open --json number | grep -q '"number"'; then
-            echo "The release pull request is already open: $BRANCH"
-            exit 0
-          fi
 
           gh pr create \
             --title "chore(release): v${NEW_VERSION}" \
