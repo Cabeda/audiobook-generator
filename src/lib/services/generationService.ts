@@ -69,7 +69,6 @@
 
 import { get, writable } from 'svelte/store'
 import type { Chapter } from '../types/book'
-import type { VoiceId } from '../kokoro/kokoroVoices'
 import { getTTSWorker, terminateTTSWorker } from '../ttsWorkerManager'
 import { StallWatchdog } from '../utils/stallWatchdog'
 import {
@@ -87,7 +86,6 @@ import {
   isGenerating,
 } from '../../stores/bookStore'
 import { advancedSettings } from '../../stores/ttsStore'
-import { listVoices as listKokoroVoices } from '../kokoro/kokoroVoices'
 import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { appSettings } from '../../stores/appSettingsStore'
@@ -99,11 +97,6 @@ import { shouldRestartWorkerForMemory } from '../utils/resourceMonitor'
 import { audioService } from '../audioPlaybackService.svelte'
 
 import {
-  selectKokoroVoiceForLanguage,
-  selectPiperVoiceForLanguage,
-  normalizeLanguageCode,
-} from '../utils/voiceSelector'
-import {
   initChapterSegments,
   markChapterGenerationComplete,
   segmentProgress,
@@ -112,14 +105,15 @@ import {
 import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
-import { parseWavDuration } from '../wavUtils'
 import { planChapter } from './chapterPlan'
-import { createSegment, segmentId } from '../segments'
-import type { AudioExportFormat } from '../exportFormats'
+import { engineCapabilities, engineSupportsLanguage, type TTSModelType } from '../tts/ttsModels'
+import type { PiperVoice } from '../piper/piperClient'
+import { segmentId } from '../segments'
 import { segmentHtmlContent } from './segmentationService'
 import type { SegmentOptions } from './segmentationService'
 import { SegmentBatchHandler } from './segmentBatchHandler'
-import { exportAudio, exportEpub } from './exportService'
+import { produceSegment } from './segmentProduction'
+import { exportEpub } from './exportService'
 import {
   saveGenerationState,
   markChapterCompleted,
@@ -127,7 +121,8 @@ import {
 } from './generationStateStore'
 
 // Re-export extracted modules for backward compatibility
-export { segmentHtmlContent, parseWavDuration }
+export { segmentHtmlContent }
+
 export type { SegmentOptions }
 
 // Throttled progress updater — batches rapid segment progress updates into animation frames
@@ -179,6 +174,17 @@ class GenerationService {
 
   private wakeLock: WakeLockSentinel | null = null
   private priorityOverrides = new Map<string, number>()
+
+  /** Chapters waiting to be generated, in order. */
+  private queue: Chapter[] = []
+  /** The chapter being generated right now, if any. */
+  private currentChapterId: string | null = null
+  /** Set when the reader's chapter must be made before the current one goes on. */
+  private yieldRequested = false
+  /** Where the reader is in a chapter, so that segment is made first. */
+  private readerPositions = new Map<string, number>()
+  private completedChapterIds = new Set<string>()
+  private chaptersRun = 0
 
   // Auto-play settings for seamless mobile experience
   private autoPlayEnabled = false
@@ -335,7 +341,7 @@ class GenerationService {
     onResult: (result: R) => Promise<void>,
     onProgress: (completed: number, total: number) => void,
     skipIndices?: Set<number>
-  ): Promise<{ failed: number; failedIndices: number[] }> {
+  ): Promise<{ failed: number; failedIndices: number[]; yielded: boolean }> {
     const total = segments.length
     const processed = new Set<number>(skipIndices)
     const failed = new Set<number>()
@@ -343,6 +349,11 @@ class GenerationService {
 
     // Main loop: Continue until all segments are processed or canceled
     while (processed.size + failed.size < total && !this.canceled) {
+      // The reader's chapter is waiting: leave this one at the segment
+      // boundary so it can be made first.
+      if (this.yieldRequested) {
+        return { failed: failed.size, failedIndices: [...failed], yielded: true }
+      }
       const batch: T[] = []
       const batchIndices = new Set<number>()
 
@@ -450,7 +461,7 @@ class GenerationService {
         { failedIndices }
       )
     }
-    return { failed: failed.size, failedIndices }
+    return { failed: failed.size, failedIndices, yielded: false }
   }
 
   /**
@@ -514,19 +525,41 @@ class GenerationService {
   }
 
   /**
-   * Generate audio for one or more chapters sequentially.
-   *
-   * For each chapter: resolves language/model/voice, segments HTML into sentences,
-   * generates audio per segment via TTS worker, persists to IndexedDB, and updates
-   * store state. Handles wake lock, silent audio (anti-throttling), and periodic
-   * worker restarts for OOM mitigation.
-   *
-   * @param chapters - Chapters to generate audio for
-   * @param explicitBookId - Optional book ID override (otherwise read from bookStore)
+   * The reader is listening to this chapter: make it next, before the rest of
+   * the book. A chapter already being generated is left at the segment
+   * boundary — its segments are saved — and finished after the reader's.
    */
-  async generateChapters(chapters: Chapter[], explicitBookId?: number) {
+  prioritizeChapter(chapter: Chapter) {
+    if (!this.running) return
+    this.queue = [chapter, ...this.queue.filter((queued) => queued.id !== chapter.id)]
+    if (this.currentChapterId && this.currentChapterId !== chapter.id) {
+      this.yieldRequested = true
+    }
+  }
+
+  /** The segment the reader is on; it is made before the others in its chapter. */
+  setReaderPosition(chapterId: string, segmentIndex: number) {
+    this.readerPositions.set(chapterId, segmentIndex)
+    if (this.running && this.currentChapterId === chapterId) {
+      this.priorityOverrides.set(chapterId, segmentIndex)
+    }
+  }
+
+  /**
+   * Generate audio for one or more chapters.
+   *
+   * Resume is the same loop with a different label: the chapter generator
+   * already skips the segments that exist, so a resumed chapter only makes the
+   * missing ones.
+   */
+  async generateChapters(
+    chapters: Chapter[],
+    explicitBookId?: number,
+    options: { resume?: boolean } = {}
+  ) {
     logger.info('[generateChapters] Starting generation', {
       chapterCount: chapters.length,
+      resume: options.resume ?? false,
       chapters: chapters.map((ch) => ({
         id: ch.id,
         title: ch.title,
@@ -542,15 +575,17 @@ class GenerationService {
     const model = get(selectedModel)
 
     this.setRunning(true)
-    this.canceled = false // Reset canceled state
-    this.canceledChapters.clear() // Reset per-chapter cancellation
-    this.autoPlayTriggered.clear() // Reset auto-play triggers for new generation
+    this.canceled = false
+    this.canceledChapters.clear()
+    this.autoPlayTriggered.clear()
+    this.completedChapterIds.clear()
+    this.queue = [...chapters]
+    this.chaptersRun = 0
     isGenerating.set(true)
 
-    // Persist generation state for crash recovery
     const bookId = explicitBookId ?? getBookId()
     const currentBook = get(book)
-    if (bookId) {
+    if (bookId && !options.resume) {
       saveGenerationState({
         bookId,
         bookTitle: currentBook?.title || 'Unknown',
@@ -565,144 +600,24 @@ class GenerationService {
       })
     }
 
-    // Acquire wake lock to prevent device sleep
     await this.requestWakeLock()
     document.addEventListener('visibilitychange', this.handleVisibilityChange)
-
-    // Start silent audio to prevent CPU throttling in background
     await this.startSilentAudio()
-
     getTTSWorker()
-    const totalChapters = chapters.length
 
     try {
-      for (let i = 0; i < totalChapters; i++) {
-        if (this.canceled) break
-
-        const ch = chapters[i]
-
-        // Skip chapters that were individually canceled
-        if (this.canceledChapters.has(ch.id)) {
-          logger.info(`[generateChapters] Skipping canceled chapter ${ch.id}`)
-          continue
-        }
-
-        const currentBook = get(book)
-
-        // Resolve the effective language for this chapter (with auto-detection support)
-        const effectiveLanguage = currentBook
-          ? resolveChapterLanguageWithDetection(ch, currentBook)
-          : DEFAULT_LANGUAGE
-
-        // The plan decides the engine, the voice and the settings for this chapter.
-        const plan = planChapter({
-          chapter: ch,
-          language: effectiveLanguage,
-          languageDefaults: get(appSettings).languageDefaults,
-          selectedModel: model,
-          selectedVoice: get(selectedVoice),
-          selectedQuantization: get(selectedQuantization),
-          selectedDevice: get(selectedDevice),
-          isMobile: isMobileDevice(),
-        })
-        const effectiveModel = plan.model
-        const isFallbackModel = plan.isFallbackModel
-
-        if (isFallbackModel) {
-          logger.warn(
-            `Language '${effectiveLanguage}' not supported by ${plan.model}. Switching to Piper for chapter ${ch.id}`
-          )
-        }
-
-        const currentVoice = plan.voice
-        const currentQuantization = plan.quantization
-        const currentDevice = plan.device
-        const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
-
-        // Validate content — skip empty chapters gracefully without an error
-        if (!ch.content || !ch.content.trim()) {
-          logger.info(`[Generation] Skipping empty chapter: ${ch.title} (${ch.id})`)
-          // Store a silent WAV so download/export still works
-          if (bookId) {
-            const { createSilentWav } = await import('../wavUtils')
-            const { saveChapterAudio } = await import('../libraryDB')
-            await saveChapterAudio(bookId, ch.id, createSilentWav(0))
-          }
-          chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
-          chapterErrors.update((m) => {
-            const newMap = new Map(m)
-            newMap.delete(ch.id)
-            return newMap
-          })
-          continue
-        }
-
-        // Update status to processing
-        chapterStatus.update((m) => new Map(m).set(ch.id, 'processing'))
-
-        const effectiveVoice = await this.resolveEffectiveVoice(
-          ch,
-          effectiveModel,
-          effectiveLanguage,
-          isFallbackModel,
-          currentVoice
-        )
-
-        try {
-          const bookId = explicitBookId ?? getBookId()
-          const canceled = await this.withChapterWatchdog(ch.id, (watchdog) =>
-            this.generateChapterAudio(
-              ch,
-              effectiveModel,
-              effectiveVoice,
-              effectiveLanguage,
-              currentQuantization,
-              currentDevice,
-              currentAdvancedSettings,
-              bookId,
-              watchdog
-            )
-          )
-          if (canceled) break
-
-          // Flush any pending throttled progress updates before marking done
-          throttledProgress.flush()
-          chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
-          chapterErrors.update((m) => {
-            const newMap = new Map(m)
-            newMap.delete(ch.id)
-            return newMap
-          })
-
-          // Persist progress for crash recovery
-          markChapterCompleted(ch.id)
-
-          // Restart the TTS worker periodically to reclaim WASM heap memory.
-          // The ONNX runtime's WASM heap grows with each inference and never
-          // shrinks — restarting the worker is the only way to release it.
-          // Mobile: every chapter. Desktop: every 3 chapters or when memory pressure is high.
-          const shouldRestart = isMobileDevice()
-            ? true
-            : (i + 1) % 3 === 0 || (await shouldRestartWorkerForMemory())
-          if (shouldRestart) {
-            logger.info(
-              `[OOM mitigation] Restarting TTS worker after chapter ${i + 1} to reclaim WASM heap`
-            )
-            terminateTTSWorker()
-            // Yield to let the terminated worker's memory be reclaimed
-            await new Promise((r) => setTimeout(r, isMobileDevice() ? 1000 : 500))
-          }
-        } catch (err: unknown) {
-          if (this.canceled) break
-          if (this.canceledChapters.has(ch.id)) continue
-          const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-          logger.error(`Generation failed for chapter ${ch.title}:`, err)
-          chapterStatus.update((m) => new Map(m).set(ch.id, 'error'))
-          chapterErrors.update((m) => new Map(m).set(ch.id, errorMsg))
-        }
+      while (!this.canceled) {
+        const chapter = this.takeNextChapter()
+        if (!chapter) break
+        await this.runChapter(chapter, explicitBookId ?? getBookId())
       }
     } finally {
       throttledProgress.flush()
+      this.currentChapterId = null
+      this.queue = []
+      audioService.setSegmentsAreExternal(false)
+      this.readerPositions.clear()
+      this.priorityOverrides.clear()
       this.setRunning(false)
       isGenerating.set(false)
 
@@ -711,10 +626,7 @@ class GenerationService {
       // because we reached the finally block normally, meaning no crash occurred)
       clearGenerationState()
 
-      // Clean up silent audio
       await this.stopSilentAudio()
-
-      // Clean up wake lock and listener
       document.removeEventListener('visibilitychange', this.handleVisibilityChange)
       await this.releaseWakeLock()
     }
@@ -722,200 +634,168 @@ class GenerationService {
 
   /**
    * Resume generation for chapters that were partially generated.
-   * Already-generated segments are loaded from DB and skipped; only missing
-   * segments are synthesised, then the chapter audio is re-concatenated.
+   * Already-generated segments are skipped; only the missing ones are made.
    */
   async resumeChapters(chapters: Chapter[], explicitBookId?: number) {
-    if (this.running) {
-      logger.warn('Generation already running')
+    await this.generateChapters(chapters, explicitBookId, { resume: true })
+  }
+
+  /** The next chapter to generate, honouring cancellation and completion. */
+  private takeNextChapter(): Chapter | undefined {
+    while (this.queue.length > 0) {
+      const chapter = this.queue.shift()!
+      if (this.canceledChapters.has(chapter.id)) continue
+      if (this.completedChapterIds.has(chapter.id)) continue
+      // A chapter starts with no pending yield: the reader's chapter is the
+      // one this chapter made way for, and it is now current.
+      this.yieldRequested = false
+      return chapter
+    }
+    return undefined
+  }
+
+  /** Plan, generate and record one chapter. */
+  private async runChapter(ch: Chapter, bookId: number) {
+    const currentBook = get(book)
+
+    // Resolve the effective language for this chapter (with auto-detection support)
+    const effectiveLanguage = currentBook
+      ? resolveChapterLanguageWithDetection(ch, currentBook)
+      : DEFAULT_LANGUAGE
+
+    // The plan decides the engine, the voice and the settings for this chapter.
+    const plan = planChapter({
+      chapter: ch,
+      language: effectiveLanguage,
+      languageDefaults: get(appSettings).languageDefaults,
+      selectedModel: get(selectedModel),
+      selectedVoice: get(selectedVoice),
+      selectedQuantization: get(selectedQuantization),
+      selectedDevice: get(selectedDevice),
+      piperVoices: await this.piperVoicesIfNeeded(ch, effectiveLanguage),
+      isMobile: isMobileDevice(),
+    })
+    const effectiveModel = plan.model
+    const isFallbackModel = plan.isFallbackModel
+
+    if (isFallbackModel) {
+      logger.warn(
+        `Language '${effectiveLanguage}' is not covered by the chosen engine. Using Piper for chapter ${ch.id}`
+      )
+    }
+
+    const currentQuantization = plan.quantization
+    const currentDevice = plan.device
+    const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
+
+    // Validate content — skip empty chapters gracefully without an error
+    if (!ch.content || !ch.content.trim()) {
+      logger.info(`[Generation] Skipping empty chapter: ${ch.title} (${ch.id})`)
+      // Store a silent WAV so download/export still works
+      if (bookId) {
+        const { createSilentWav } = await import('../wavUtils')
+        const { saveChapterAudio } = await import('../libraryDB')
+        await saveChapterAudio(bookId, ch.id, createSilentWav(0))
+      }
+      chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
+      chapterErrors.update((m) => {
+        const newMap = new Map(m)
+        newMap.delete(ch.id)
+        return newMap
+      })
+      this.completedChapterIds.add(ch.id)
       return
     }
-    // Delegate to generateChapters but mark each chapter for resume inside the loop.
-    // We do this by temporarily tagging chapters so generateChapterAudio knows.
-    // Simplest approach: run the same loop as generateChapters with resume=true.
-    const model = get(selectedModel)
-    this.setRunning(true)
-    this.canceled = false
-    this.canceledChapters.clear()
-    this.autoPlayTriggered.clear()
-    isGenerating.set(true)
 
-    await this.requestWakeLock()
-    document.addEventListener('visibilitychange', this.handleVisibilityChange)
-    await this.startSilentAudio()
-    getTTSWorker()
+    // Update status to processing
+    chapterStatus.update((m) => new Map(m).set(ch.id, 'processing'))
 
+    // Make the segment the reader is on before the others.
+    const readerPosition = this.readerPositions.get(ch.id)
+    if (readerPosition !== undefined) this.priorityOverrides.set(ch.id, readerPosition)
+
+    const effectiveVoice = plan.voice
+
+    this.currentChapterId = ch.id
     try {
-      for (const ch of chapters) {
-        if (this.canceled) break
-        if (this.canceledChapters.has(ch.id)) continue
-
-        const currentBook = get(book)
-        const effectiveLanguage = currentBook
-          ? resolveChapterLanguageWithDetection(ch, currentBook)
-          : DEFAULT_LANGUAGE
-        // The same plan the first run uses, so a resumed chapter is read the
-        // same way as a chapter that was never started.
-        const plan = planChapter({
-          chapter: ch,
-          language: effectiveLanguage,
-          languageDefaults: get(appSettings).languageDefaults,
-          selectedModel: model,
-          selectedVoice: get(selectedVoice),
-          selectedQuantization: get(selectedQuantization),
-          selectedDevice: get(selectedDevice),
-          isMobile: isMobileDevice(),
-        })
-        const effectiveModel = plan.model
-        const isFallbackModel = plan.isFallbackModel
-        const currentVoice = plan.voice
-        const currentQuantization = plan.quantization
-        const currentDevice = plan.device
-        const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
-
-        if (!ch.content || !ch.content.trim()) continue
-
-        chapterStatus.update((m) => new Map(m).set(ch.id, 'processing'))
-
-        const effectiveVoice = await this.resolveEffectiveVoice(
+      const outcome = await this.withChapterWatchdog(ch.id, (watchdog) =>
+        this.generateChapterAudio(
           ch,
           effectiveModel,
+          effectiveVoice,
           effectiveLanguage,
-          isFallbackModel,
-          currentVoice
+          currentQuantization,
+          currentDevice,
+          currentAdvancedSettings,
+          bookId,
+          watchdog
         )
+      )
 
-        try {
-          const bookId = explicitBookId ?? getBookId()
-          const canceled = await this.withChapterWatchdog(ch.id, (watchdog) =>
-            this.generateChapterAudio(
-              ch,
-              effectiveModel,
-              effectiveVoice,
-              effectiveLanguage,
-              currentQuantization,
-              currentDevice,
-              currentAdvancedSettings,
-              bookId,
-              watchdog
-            )
-          )
-          if (canceled) break
-
-          throttledProgress.flush()
-          chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
-          chapterErrors.update((m) => {
-            const newMap = new Map(m)
-            newMap.delete(ch.id)
-            return newMap
-          })
-
-          // Persist progress for crash recovery
-          markChapterCompleted(ch.id)
-
-          // Restart the TTS worker periodically to reclaim WASM heap memory.
-          // Mobile: every chapter. Desktop: every 3 chapters or when memory pressure is high.
-          const chapterIdx = chapters.indexOf(ch)
-          const shouldRestart = isMobileDevice()
-            ? true
-            : (chapterIdx + 1) % 3 === 0 || (await shouldRestartWorkerForMemory())
-          if (shouldRestart) {
-            logger.info(`[OOM mitigation] Restarting TTS worker after chapter to reclaim WASM heap`)
-            terminateTTSWorker()
-            await new Promise((r) => setTimeout(r, isMobileDevice() ? 1000 : 500))
-          }
-        } catch (err: unknown) {
-          if (this.canceled) break
-          if (this.canceledChapters.has(ch.id)) continue
-          const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-          logger.error(`Resume failed for chapter ${ch.title}:`, err)
-          chapterStatus.update((m) => new Map(m).set(ch.id, 'error'))
-          chapterErrors.update((m) => new Map(m).set(ch.id, errorMsg))
-        }
+      if (outcome === 'yielded') {
+        // The reader's chapter is now first in the queue; finish this one after it.
+        logger.info(`[generateChapters] Leaving chapter ${ch.id} for the reader's chapter`)
+        chapterStatus.update((m) => new Map(m).set(ch.id, 'pending'))
+        this.queue.splice(Math.min(1, this.queue.length), 0, ch)
+        return
       }
-    } finally {
+
+      if (outcome === 'canceled') return
+
+      // Flush any pending throttled progress updates before marking done
       throttledProgress.flush()
-      this.setRunning(false)
-      isGenerating.set(false)
-      clearGenerationState()
-      await this.stopSilentAudio()
-      document.removeEventListener('visibilitychange', this.handleVisibilityChange)
-      await this.releaseWakeLock()
+      chapterStatus.update((m) => new Map(m).set(ch.id, 'done'))
+      chapterErrors.update((m) => {
+        const newMap = new Map(m)
+        newMap.delete(ch.id)
+        return newMap
+      })
+      this.completedChapterIds.add(ch.id)
+
+      // Persist progress for crash recovery
+      markChapterCompleted(ch.id)
+
+      // Restart the TTS worker periodically to reclaim WASM heap memory.
+      // The ONNX runtime's WASM heap grows with each inference and never
+      // shrinks — restarting the worker is the only way to release it.
+      // Mobile: every chapter. Desktop: every 3 chapters or when memory pressure is high.
+      this.chaptersRun++
+      const shouldRestart = isMobileDevice()
+        ? true
+        : this.chaptersRun % 3 === 0 || (await shouldRestartWorkerForMemory())
+      if (shouldRestart) {
+        logger.info(
+          `[OOM mitigation] Restarting TTS worker after chapter ${this.chaptersRun} to reclaim WASM heap`
+        )
+        terminateTTSWorker()
+        // Yield to let the terminated worker's memory be reclaimed
+        await new Promise((r) => setTimeout(r, isMobileDevice() ? 1000 : 500))
+      }
+    } catch (err: unknown) {
+      if (this.canceled || this.canceledChapters.has(ch.id)) return
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+      logger.error(`Generation failed for chapter ${ch.title}:`, err)
+      chapterStatus.update((m) => new Map(m).set(ch.id, 'error'))
+      chapterErrors.update((m) => new Map(m).set(ch.id, errorMsg))
+    } finally {
+      this.currentChapterId = null
     }
   }
 
   /**
-   * Resolve the effective voice for a chapter, auto-selecting when needed.
+   * The Piper voices, only when Piper may read this chapter. The client keeps
+   * the list, so asking once per chapter costs nothing after the first time.
    */
-  private async resolveEffectiveVoice(
+  private async piperVoicesIfNeeded(
     ch: Chapter,
-    effectiveModel: string,
-    effectiveLanguage: string,
-    isFallbackModel: boolean,
-    currentVoice: string
-  ): Promise<string> {
-    let effectiveVoice = currentVoice
-
-    let shouldAutoSelectVoice = !currentVoice
-    if (!shouldAutoSelectVoice && isFallbackModel) {
-      if (effectiveModel === 'piper') {
-        const { PiperClient } = await import('../piper/piperClient')
-        const voices = await PiperClient.getInstance().getVoices()
-        shouldAutoSelectVoice = !voices.some((v: { key: string }) => v.key === currentVoice)
-      } else {
-        shouldAutoSelectVoice = true
-      }
-    }
-
-    if (shouldAutoSelectVoice) {
-      const preferredVoice = isFallbackModel ? undefined : currentVoice
-      if (effectiveModel === 'kokoro') {
-        effectiveVoice = selectKokoroVoiceForLanguage(effectiveLanguage, preferredVoice)
-        const kokoroVoices = listKokoroVoices()
-        if (!kokoroVoices.includes(effectiveVoice as VoiceId)) {
-          logger.warn(`Invalid Kokoro voice '${effectiveVoice}', falling back to af_heart`)
-          effectiveVoice = 'af_heart'
-        }
-        logger.info(
-          `Auto-selected Kokoro voice for language ${effectiveLanguage}: ${effectiveVoice}`
-        )
-      } else if (effectiveModel === 'piper') {
-        const { PiperClient } = await import('../piper/piperClient')
-        const availableVoices = await PiperClient.getInstance().getVoices()
-        effectiveVoice = selectPiperVoiceForLanguage(
-          effectiveLanguage,
-          availableVoices,
-          preferredVoice
-        )
-        logger.info(
-          `Auto-selected Piper voice for language ${effectiveLanguage}: ${effectiveVoice}`
-        )
-      }
-    } else {
-      logger.info(`Using chapter-specific voice: ${effectiveVoice}`)
-    }
-
-    // If a global Piper voice doesn't match the chapter language, auto-switch.
-    // Skip when the user explicitly set a chapter voice.
-    if (effectiveModel === 'piper' && !shouldAutoSelectVoice && !ch.voice) {
-      const { PiperClient } = await import('../piper/piperClient')
-      const availableVoices = await PiperClient.getInstance().getVoices()
-      const selectedVoiceInfo = availableVoices.find(
-        (v: { key: string }) => v.key === effectiveVoice
-      )
-      const voiceLang = selectedVoiceInfo ? normalizeLanguageCode(selectedVoiceInfo.language) : null
-      if (!selectedVoiceInfo || voiceLang !== normalizeLanguageCode(effectiveLanguage)) {
-        logger.warn(
-          `Piper voice '${effectiveVoice}' mismatches language '${effectiveLanguage}', auto-switching`
-        )
-        effectiveVoice = selectPiperVoiceForLanguage(effectiveLanguage, availableVoices, undefined)
-        logger.info(
-          `Switched Piper voice to '${effectiveVoice}' for language '${effectiveLanguage}'`
-        )
-      }
-    }
-
-    return effectiveVoice
+    language: string
+  ): Promise<PiperVoice[] | undefined> {
+    const requested = (ch.model ||
+      get(appSettings).languageDefaults[language]?.model ||
+      get(selectedModel)) as TTSModelType
+    if (requested !== 'piper' && engineSupportsLanguage(requested, language)) return undefined
+    const { PiperClient } = await import('../piper/piperClient')
+    return PiperClient.getInstance().getVoices()
   }
 
   /**
@@ -946,11 +826,13 @@ class GenerationService {
 
   /**
    * Segment, generate, and persist audio for a single chapter.
-   * Returns true if generation was canceled mid-way.
+   *
+   * `yielded` means the reader needs this chapter's place in the queue: the
+   * segments made so far are saved and the rest waits.
    */
   private async generateChapterAudio(
     ch: Chapter,
-    effectiveModel: string,
+    effectiveModel: TTSModelType,
     effectiveVoice: string,
     effectiveLanguage: string,
     currentQuantization: string,
@@ -958,7 +840,7 @@ class GenerationService {
     currentAdvancedSettings: Record<string, unknown>,
     bookId: number,
     watchdog?: StallWatchdog
-  ): Promise<boolean> {
+  ): Promise<'done' | 'canceled' | 'yielded'> {
     logger.info(`[generateChapters] Segmenting HTML for ${effectiveModel}`, {
       chapterId: ch.id,
       contentLength: ch.content.length,
@@ -997,7 +879,7 @@ class GenerationService {
         newMap.delete(ch.id)
         return newMap
       })
-      return false
+      return 'done'
     }
 
     // 2. Persist segmented HTML
@@ -1016,7 +898,6 @@ class GenerationService {
 
     // 3. Generate audio per segment
     const audioSegments: AudioSegment[] = []
-    const worker = getTTSWorker()
     const getParallelChunks = () =>
       Math.max(1, Number(get(advancedSettings)[effectiveModel]?.parallelChunks) || 1)
     // Always flush after every segment so a page refresh or crash never loses a completed segment.
@@ -1058,7 +939,11 @@ class GenerationService {
 
     initChapterSegments(ch.id, textSegments, !!skipIndices)
 
-    const { failed: failedCount, failedIndices } = await this.processSegmentsWithPriority(
+    const {
+      failed: failedCount,
+      failedIndices,
+      yielded,
+    } = await this.processSegmentsWithPriority(
       ch.id,
       textSegments,
       getParallelChunks,
@@ -1067,40 +952,30 @@ class GenerationService {
           throw new Error('Generation canceled')
         if (!segment.text.trim()) return null
 
-        const blob = await worker.generateVoice({
-          text: segment.text,
-          modelType: effectiveModel as import('../tts/ttsModels').TTSModelType,
-          voice: effectiveVoice,
-          config: {
-            dtype:
-              effectiveModel === 'kokoro'
+        return produceSegment(
+          {
+            chapterId: ch.id,
+            index: segment.index,
+            text: segment.text,
+            model: effectiveModel,
+            voice: effectiveVoice,
+            language: effectiveLanguage,
+            quantization:
+              engineCapabilities(effectiveModel).qualityLadder === 'quantization'
                 ? (currentQuantization as import('../../stores/ttsStore').Quantization)
                 : undefined,
             device: currentDevice as import('../../stores/ttsStore').Device,
+            // Forward worker progress messages (model loading, preparing, etc.) to the UI
+            onProgress: (message) =>
+              setProgress(audioSegments.length, textSegments.length, message),
+            persist: (segment) => batchHandler.addSegment(segment),
           },
-          language: effectiveLanguage,
-          // Forward worker progress messages (model loading, preparing, etc.) to the UI
-          onProgress: (message) => {
-            const completed = audioSegments.length
-            setProgress(completed, textSegments.length, message)
-          },
-        })
-
-        return { segment, blob, duration: await parseWavDuration(blob) }
+          bookId
+        )
       },
-      async (result) => {
-        if (!result) return
-        const segment = createSegment({
-          chapterId: ch.id,
-          index: result.segment.index,
-          text: result.segment.text,
-          audioBlob: result.blob as Blob,
-          duration: result.duration,
-          voice: effectiveVoice,
-          model: effectiveModel,
-        })
-        audioSegments.push(segment)
-        await batchHandler.addSegment(segment)
+      async (produced) => {
+        if (!produced) return
+        audioSegments.push(produced)
         // Release blob references for segments already persisted to IndexedDB.
         // This prevents accumulating all segment blobs in memory (OOM on Android).
         batchHandler.releaseBlobs()
@@ -1123,14 +998,14 @@ class GenerationService {
           this.autoPlayTriggered.add(ch.id)
           logger.info(`[AutoPlay] Starting playback of first available segment`, {
             chapterId: ch.id,
-            segmentIndex: segment.index,
+            segmentIndex: produced.index,
           })
           setTimeout(() => {
             if (this.canceled || this.canceledChapters.has(ch.id)) {
               logger.info('[AutoPlay] Skipped — generation was canceled')
               return
             }
-            audioService.playSingleSegment(segment).catch((err) => {
+            audioService.playSingleSegment(produced).catch((err) => {
               logger.warn('[AutoPlay] Failed to auto-play first segment:', err)
             })
           }, 0)
@@ -1145,6 +1020,10 @@ class GenerationService {
     await batchHandler.flush()
     // Release remaining blob references from the final flush to free memory
     batchHandler.releaseBlobs()
+
+    // The reader's chapter waits for this one's place: keep the segments made
+    // so far and finish the chapter after it.
+    if (yielded) return 'yielded'
 
     // Surface failed segments to the user so they know the chapter is incomplete
     if (failedCount > 0) {
@@ -1177,7 +1056,7 @@ class GenerationService {
       )
     }
 
-    if (this.canceled || this.canceledChapters.has(ch.id)) return true
+    if (this.canceled || this.canceledChapters.has(ch.id)) return 'canceled'
 
     markChapterGenerationComplete(ch.id)
 
@@ -1211,7 +1090,7 @@ class GenerationService {
     // Clear audioSegments to free metadata memory before next chapter
     audioSegments.length = 0
 
-    return false
+    return 'done'
   }
 
   /**
@@ -1242,6 +1121,9 @@ class GenerationService {
     // Clear auto-play state for canceled chapters
     this.autoPlayTriggered.clear()
     this.canceledChapters.clear()
+    this.queue = []
+    this.currentChapterId = null
+    this.yieldRequested = false
 
     this.setRunning(false)
     isGenerating.set(false)
@@ -1347,15 +1229,6 @@ class GenerationService {
       // Restore auto-play setting
       this.setAutoPlay(wasAutoPlayEnabled)
     }
-  }
-
-  async exportAudio(
-    chapters: Chapter[],
-    format: AudioExportFormat = 'mp3',
-    bitrate = 192,
-    bookInfo: { title: string; author: string }
-  ) {
-    return exportAudio(chapters, format, bitrate, bookInfo)
   }
 
   async exportEpub(chapters: Chapter[], bookInfo: { title: string; author: string; cover?: Blob }) {

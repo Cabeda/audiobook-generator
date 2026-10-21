@@ -24,10 +24,10 @@
     advancedSettings,
   } from '../stores/ttsStore'
   import { toastStore } from '../stores/toastStore'
-  import { warmUpKokoro } from '../lib/kokoro/kokoroClient'
   import logger from '../lib/utils/logger'
   import { generationService, isGeneratingStore } from '../lib/services/generationService'
-  import { TTS_MODELS } from '../lib/tts/ttsModels'
+  import { exportAudio } from '../lib/services/exportService'
+  import { TTS_MODELS, engineCapabilities, getTTSEngine } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
   import ExportPanel from './ExportPanel.svelte'
   import Skeleton from './Skeleton.svelte'
@@ -96,6 +96,12 @@
     totalCount: number
   } | null>(null)
 
+  // A state captured before this page knew about a running generation is not
+  // an interruption — the generation is writing that state right now.
+  $effect(() => {
+    if (isGenerating) interruptedGeneration = null
+  })
+
   // Scroll-linked hero collapse: progress goes from 0 (fully visible) to 1 (fully hidden).
   // We drive transform + opacity directly from scroll position for smooth, jank-free animation.
   let heroProgress = $state(0)
@@ -151,17 +157,9 @@
    */
   function warmUpSelectedModel() {
     const model = get(selectedModelStore)
-    if (model === 'kokoro') {
-      warmUpKokoro(
-        'onnx-community/Kokoro-82M-v1.0-ONNX',
-        get(selectedQuantization),
-        get(selectedDevice)
-      )
-    } else if (model === 'pocket') {
-      import('../lib/pocket/pocketEngine')
-        .then((pocket) => pocket.getPocketEngine().warmUp())
-        .catch((err) => logger.warn('Could not warm up Pocket TTS:', err))
-    }
+    getTTSEngine(model, { dtype: get(selectedQuantization), device: get(selectedDevice) })
+      .then((engine) => engine.warmUp?.())
+      .catch((err) => logger.warn('Could not warm up the speech model:', err))
   }
 
   onMount(() => {
@@ -180,7 +178,9 @@
     ;(async () => {
       const { getInterruptedGeneration } = await import('../lib/services/generationStateStore')
       const interrupted = getInterruptedGeneration()
-      if (interrupted) {
+      // A state written by a generation that is still running is not an
+      // interruption: that run will clear it when it is done.
+      if (interrupted && !generationService.isRunning()) {
         interruptedGeneration = {
           bookId: interrupted.bookId,
           bookTitle: interrupted.bookTitle,
@@ -459,7 +459,7 @@
     }
 
     // Audio formats (mp3, mp4, m4b, wav)
-    await generationService.exportAudio(relevantChapters, selectedFormat, selectedBitrate, {
+    await exportAudio(relevantChapters, selectedFormat, selectedBitrate, {
       title: $book.title,
       author: $book.author,
     })
@@ -572,7 +572,7 @@
     </div>
 
     <!-- Interrupted generation resume banner -->
-    {#if interruptedGeneration && interruptedGeneration.bookId === $currentLibraryBookId}
+    {#if !isGenerating && interruptedGeneration && interruptedGeneration.bookId === $currentLibraryBookId}
       <div class="resume-banner" transition:fly={{ y: -20, duration: 200 }}>
         <div class="resume-banner-content">
           <span class="resume-banner-icon">⚠</span>
@@ -668,7 +668,7 @@
 
         <div class="setting-group">
           <h4 class="setting-group-title">Device & Precision</h4>
-          {#if $selectedModelStore === 'kokoro'}
+          {#if engineCapabilities($selectedModelStore).qualityLadder === 'quantization'}
             <div class="setting-row">
               <label for="adv-device">
                 <span class="setting-label">Execution Device</span>

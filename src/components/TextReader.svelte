@@ -25,6 +25,7 @@
     segmentStateFor,
   } from '../lib/reader/readerSegments'
   import { generationService } from '../lib/services/generationService'
+  import { claimChapter } from '../lib/reader/chapterReader'
   import { POCKET_VOICES, selectPocketVoiceForLanguage } from '../lib/utils/voiceSelector'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
@@ -33,11 +34,11 @@
   import { saveProgress, loadProgress } from '../stores/progressStore'
   import { loadChapterSegmentProgress } from '../stores/segmentProgressStore'
   import { appSettings } from '../stores/appSettingsStore'
-  import { modelDownloadStore } from '../stores/modelDownloadStore'
   import {
     scheduleUpgradePass,
     cancelUpgrade,
     startFastPass,
+    resolveTierLadder,
   } from '../lib/services/adaptiveQualityService'
 
   let {
@@ -204,6 +205,11 @@
       if (loadedKey === loadKey) return
       loadedKey = loadKey
 
+      // While the book generates, the chapter being read is made first and its
+      // segments are handed over: the reader plays them instead of making its
+      // own copy, which would compete with the book for the same worker.
+      claimChapter(chapter)
+
       // Always load progressive segments from IndexedDB on mount
       // This ensures segments generated before page refresh are available
       loadChapterSegmentProgress(bId, cId).catch((err) => {
@@ -282,9 +288,10 @@
               isLoading = false
               segmentsLoaded = true
 
-              // Schedule background quality upgrade if enabled
+              // Schedule background quality upgrade if enabled. A running
+              // generation makes its own segments; the reader must not.
               const aqSettings = get(appSettings).adaptiveQuality
-              if (aqSettings.enabled && bookId) {
+              if (aqSettings.enabled && bookId && !generationService.isRunning()) {
                 const lang = chapter.detectedLanguage || chapter.language || 'en'
                 const piperVoiceList = piperVoices.map((v) => ({
                   key: v.key,
@@ -356,12 +363,9 @@
                 // Audio not available initially — start fast pass so audio begins immediately
                 isLoading = false
                 segmentsLoaded = true
-                const aqSettings2 = get(appSettings).adaptiveQuality
-                if (aqSettings2.enabled) {
-                  triggerFastPass(cId, bId, true).catch((err) => {
-                    logger.warn('[TextReader] Fast pass failed:', err)
-                  })
-                }
+                triggerFastPass(cId, bId, true).catch((err) => {
+                  logger.warn('[TextReader] Fast pass failed:', err)
+                })
               }
             }
           })
@@ -426,20 +430,37 @@
    * Run the fast pass for a chapter that has no pre-generated audio.
    * Generates all segments at the cheapest available tier so playback starts
    * immediately, then optionally schedules the background upgrade pass.
+   *
+   * When there is no pass to run — the engine has no tier to generate at, or
+   * the feature is off — the chapter is played segment by segment instead, so
+   * the reader always starts by itself.
    */
   async function triggerFastPass(
     cId: string,
     bId: number,
     scheduleUpgrade: boolean
   ): Promise<void> {
-    const aqSettings = get(appSettings).adaptiveQuality
-    if (!aqSettings.enabled) return
-
-    // Web Speech plays, it does not generate: there is nothing to fast pass.
-    if (localModel === 'web_speech') return
-
     const segs = audioService.segments
     if (segs.length === 0) return
+
+    // The book's generation is making this chapter: play the segments as it
+    // hands them over.
+    if (generationService.isRunning()) {
+      audioService.playFromSegment(0)
+      return
+    }
+
+    const aqSettings = get(appSettings).adaptiveQuality
+    if (!aqSettings.enabled) {
+      audioService.playFromSegment(0)
+      return
+    }
+
+    // Web Speech plays, it does not generate: there is nothing to fast pass.
+    if (localModel === 'web_speech') {
+      audioService.playFromSegment(0)
+      return
+    }
 
     const lang = chapter.detectedLanguage || chapter.language || 'en'
     const piperVoiceList = piperVoices.map((v) => ({
@@ -448,6 +469,15 @@
       language: v.language,
       quality: v.quality as 'low' | 'medium' | 'high',
     }))
+
+    const ladder = resolveTierLadder(lang, piperVoiceList, localModel)
+    if (ladder.maxAvailableTier < 0) {
+      // The engine has no tier to generate at — the Piper voices may not have
+      // arrived yet. Play the chapter as the reader needs it.
+      logger.info('[TextReader] No tier to generate at — playing the chapter on demand')
+      audioService.playFromSegment(0)
+      return
+    }
 
     const segInput = segs.map((s) => ({
       index: s.index,
@@ -473,7 +503,9 @@
         }
       },
       aqSettings.skipFastestTier ? 1 : 0,
-      localModel === 'web_speech' ? 'kokoro' : localModel
+      localModel === 'web_speech' ? 'kokoro' : localModel,
+      undefined,
+      bId
     )
 
     if (scheduleUpgrade) {
@@ -1169,25 +1201,6 @@
       </div>
     </div>
 
-    <!-- Model Download Progress -->
-    {#if $modelDownloadStore.active}
-      <div class="model-download-banner" transition:fade={{ duration: 200 }}>
-        <div class="download-info">
-          <span class="download-icon">⬇️</span>
-          <span class="download-message">{$modelDownloadStore.message}</span>
-        </div>
-        {#if $modelDownloadStore.percent != null}
-          <div class="download-progress-bar">
-            <div class="download-progress-fill" style="width: {$modelDownloadStore.percent}%"></div>
-          </div>
-        {:else}
-          <div class="download-progress-bar indeterminate">
-            <div class="download-progress-fill"></div>
-          </div>
-        {/if}
-      </div>
-    {/if}
-
     <!-- Text Content -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
@@ -1289,7 +1302,6 @@
       bind:autoScrollEnabled
       bind:fontSize
       bind:currentTheme
-      {voice}
       {piperVoices}
       {sortedWebSpeechVoices}
       onSpeedChange={updateSpeed}
@@ -1847,55 +1859,5 @@
   .shortcut-item span {
     color: var(--text-color);
     font-size: 14px;
-  }
-
-  /* Model Download Banner */
-  .model-download-banner {
-    padding: 8px 16px;
-    background: var(--surface-color, #2a2a2a);
-    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .download-info {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--text-color, #e0e0e0);
-  }
-
-  .download-icon {
-    font-size: 14px;
-  }
-
-  .download-progress-bar {
-    height: 4px;
-    background: var(--border-color, rgba(255, 255, 255, 0.1));
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .download-progress-fill {
-    height: 100%;
-    background: var(--primary-color, #3b82f6);
-    border-radius: 2px;
-    transition: width 0.3s ease;
-  }
-
-  .download-progress-bar.indeterminate .download-progress-fill {
-    width: 30%;
-    animation: indeterminate 1.5s ease-in-out infinite;
-  }
-
-  @keyframes indeterminate {
-    0% {
-      transform: translateX(-100%);
-    }
-    100% {
-      transform: translateX(400%);
-    }
   }
 </style>

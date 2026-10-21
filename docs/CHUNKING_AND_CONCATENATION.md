@@ -880,7 +880,7 @@ test('slow operation', async ({ page }) => {
 - **Concatenation pipeline**: `src/lib/audioConcat.ts` (lines 400-600)
 - **Audio buffer processing**: `src/lib/audioConcat.ts` (lines 217-250, resampleAndNormalizeAudioBuffers)
 - **FFmpeg integration**: `src/lib/audioConcat.ts` (lines 1-200, getFFmpeg and related functions)
-- **Text preprocessing**: `src/lib/kokoro/textProcessor.ts`
+- **Text preprocessing**: handled by the engine that speaks the text (`src/lib/tts/ttsModels.ts`)
 
 ### Documentation
 

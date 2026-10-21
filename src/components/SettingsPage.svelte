@@ -2,13 +2,12 @@
   import { onMount } from 'svelte'
   import { appSettings, type LanguageDefault } from '../stores/appSettingsStore'
   import { LANGUAGE_OPTIONS, getLanguageLabel } from '../lib/utils/languageResolver'
-  import { TTS_MODELS } from '../lib/tts/ttsModels'
+  import { TTS_MODELS, engineSupportsLanguage } from '../lib/tts/ttsModels'
   import { voiceLabels } from '../stores/ttsStore'
   import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
   import {
     getKokoroVoicesForLanguage,
     getPiperVoicesForLanguage,
-    isKokoroLanguageSupported,
   } from '../lib/utils/voiceSelector'
   import { piperVoices, loadPiperVoices } from '../stores/piperVoicesStore'
   import {
@@ -203,7 +202,7 @@
             >
               <option value="">Use global default</option>
               {#each TTS_MODELS as model}
-                {#if model.id !== 'kokoro' || isKokoroLanguageSupported(langCode)}
+                {#if engineSupportsLanguage(model.id, langCode)}
                   <option value={model.id}>{model.name}</option>
                 {/if}
               {/each}

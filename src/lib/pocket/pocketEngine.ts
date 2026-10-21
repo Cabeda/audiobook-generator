@@ -43,7 +43,8 @@ type Ort = typeof import('onnxruntime-web')
 type Session = import('onnxruntime-web').InferenceSession
 type Tensor = import('onnxruntime-web').Tensor
 
-export class PocketEngine implements TTSEngine {
+/** The engine itself; the seam adds its name and capabilities. */
+export class PocketEngine implements Omit<TTSEngine, 'id' | 'capabilities'> {
   private ort: Ort | null = null
   private bundle: PocketBundle | null = null
   private tokenizer: PocketTokenizer | null = null

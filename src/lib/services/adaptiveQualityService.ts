@@ -8,21 +8,17 @@
  */
 
 import type { AudioSegment } from '../types/audio'
-import { createSegment } from '../segments'
 import type { PiperVoice } from '../piper/piperClient'
+import { normalizeLanguageCode } from '../utils/voiceSelector'
 import {
-  isKokoroLanguageSupported,
-  isPocketLanguageSupported,
-  normalizeLanguageCode,
-  selectPocketVoiceForLanguage,
-} from '../utils/voiceSelector'
-import type { TTSModelType } from '../tts/ttsModels'
+  engineCapabilities,
+  engineSupportsLanguage,
+  engineVoices,
+  type TTSModelType,
+} from '../tts/ttsModels'
 import { getStartingTier, getTargetTier, canRunUpgrade } from '../utils/resourceMonitor'
-import {
-  updateSegmentQuality,
-  getChapterSegmentProgress,
-  markSegmentGenerated,
-} from '../../stores/segmentProgressStore'
+import { updateSegmentQuality, getChapterSegmentProgress } from '../../stores/segmentProgressStore'
+import { produceSegment } from './segmentProduction'
 import logger from '../utils/logger'
 
 // ---------------------------------------------------------------------------
@@ -57,15 +53,17 @@ export function resolveTierLadder(
   piperVoices: PiperVoice[],
   model: TTSModelType = 'kokoro'
 ): TierLadder {
-  if (model === 'pocket' && isPocketLanguageSupported(language)) {
-    // Pocket TTS has one quality level, so there is nothing to upgrade to.
+  const ladder = engineCapabilities(model).qualityLadder
+
+  if (ladder === 'single') {
+    // One quality level, so there is nothing to upgrade to.
     return {
-      tiers: [{ model: 'pocket', voice: selectPocketVoiceForLanguage(language) }],
+      tiers: [{ model, voice: engineVoices(model)?.[0] ?? '' }],
       maxAvailableTier: 0,
     }
   }
 
-  const useKokoro = model === 'kokoro' && isKokoroLanguageSupported(language)
+  const useKokoro = ladder === 'quantization' && engineSupportsLanguage(model, language)
 
   if (useKokoro) {
     return {
@@ -140,7 +138,8 @@ export async function startFastPass(
   onSegmentReady: (segment: AudioSegment) => void,
   minTier = 0,
   model: TTSModelType = 'kokoro',
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  bookId?: number
 ): Promise<void> {
   const startingTier = getStartingTier()
   const ladder = resolveTierLadder(language, piperVoices, model)
@@ -159,29 +158,24 @@ export async function startFastPass(
 
   logger.info(`[AdaptiveQuality] Fast pass at tier ${effectiveTier}`, { language, config })
 
-  const { getTTSWorker } = await import('../ttsWorkerManager')
-  const worker = getTTSWorker()
-
   for (const seg of segments) {
     if (signal?.aborted) return
     try {
-      const blob = await worker.generateVoice({
-        text: seg.text,
-        modelType: config.model,
-        voice: config.voice,
-        config: { dtype: config.quantization, device: config.device },
-      })
-
-      const audioSegment = createSegment({
-        chapterId: seg.chapterId,
-        index: seg.index,
-        text: seg.text,
-        audioBlob: blob,
-        qualityTier: effectiveTier,
-      })
+      const audioSegment = await produceSegment(
+        {
+          chapterId: seg.chapterId,
+          index: seg.index,
+          text: seg.text,
+          model: config.model,
+          voice: config.voice,
+          quantization: config.quantization,
+          device: config.device,
+          qualityTier: effectiveTier,
+        },
+        bookId
+      )
 
       updateSegmentQuality(seg.chapterId, seg.index, effectiveTier)
-      markSegmentGenerated(seg.chapterId, audioSegment)
       onSegmentReady(audioSegment)
     } catch (err) {
       logger.error(`[AdaptiveQuality] Fast pass failed for segment ${seg.index}`, err)
@@ -283,32 +277,27 @@ export function scheduleUpgradePass(
     )
 
     try {
-      const { getTTSWorker } = await import('../ttsWorkerManager')
-      const worker = getTTSWorker()
-
       const segData = progress.generatedSegments.get(segIndex)
       if (!segData) {
         scheduleNext()
         return
       }
 
-      const blob = await worker.generateVoice({
-        text: segData.text,
-        modelType: config.model,
-        voice: config.voice,
-        config: { dtype: config.quantization, device: config.device },
-      })
+      const upgraded = await produceSegment(
+        {
+          chapterId,
+          index: segIndex,
+          text: segData.text,
+          model: config.model,
+          voice: config.voice,
+          quantization: config.quantization,
+          device: config.device,
+          qualityTier: nextTier,
+        },
+        bookId
+      )
 
       if (state.cancelled) return
-
-      const upgraded: AudioSegment = {
-        ...segData,
-        audioBlob: blob,
-        qualityTier: nextTier,
-      }
-
-      // Persist to DB
-      await replaceSegmentInDB(bookId, chapterId, upgraded)
 
       // Update quality tracking
       updateSegmentQuality(chapterId, segIndex, nextTier)
@@ -344,26 +333,5 @@ export function cancelUpgrade(chapterId: string): void {
     clearTimeout(state.timer)
     activeUpgrades.delete(chapterId)
     logger.debug(`[AdaptiveQuality] Cancelled upgrade for chapter ${chapterId}`)
-  }
-}
-
-// ---------------------------------------------------------------------------
-// DB helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Overwrite a segment's blob in IndexedDB with a higher-quality version.
- */
-export async function replaceSegmentInDB(
-  bookId: number,
-  chapterId: string,
-  segment: AudioSegment
-): Promise<void> {
-  try {
-    const { saveSegmentIndividually } = await import('../libraryDB')
-    await saveSegmentIndividually(bookId, chapterId, segment)
-    logger.debug(`[AdaptiveQuality] Replaced segment ${segment.index} in DB`)
-  } catch (err) {
-    logger.warn(`[AdaptiveQuality] Failed to replace segment ${segment.index} in DB`, err)
   }
 }

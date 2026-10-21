@@ -27,6 +27,8 @@ export interface ReaderProbeState {
   created: number
   /** Generation requests the fake worker received. */
   requests: number
+  /** The text of every generation request the fake worker received, in order. */
+  requestTexts: string[]
 }
 
 /**
@@ -91,6 +93,8 @@ export function installReaderProbe(): void {
       errored: audioLog.filter((record) => record.errored).length,
       created,
       requests: (window as unknown as { __ttsWorkerRequests?: number }).__ttsWorkerRequests ?? 0,
+      requestTexts:
+        (window as unknown as { __ttsWorkerRequestTexts?: string[] }).__ttsWorkerRequestTexts ?? [],
     }),
   })
 }
@@ -100,7 +104,8 @@ export function installReaderProbe(): void {
  * WAV. Install it together with the probe when the test does not want to
  * download a real model.
  */
-export function installFakeTtsWorker(): void {
+export function installFakeTtsWorker(options: { delayMs?: number } = {}): void {
+  const delayMs = options.delayMs ?? 10
   const RealWorker = window.Worker
 
   // 24 kHz, mono, 16-bit PCM. Short, so a whole chapter plays in seconds.
@@ -131,6 +136,7 @@ export function installFakeTtsWorker(): void {
 
   const cannedWav = buildWav(40)
   let requests = 0
+  const requestTexts: string[] = []
 
   class FakeTtsWorker {
     onmessage: ((event: MessageEvent) => void) | null = null
@@ -141,15 +147,16 @@ export function installFakeTtsWorker(): void {
       setTimeout(() => this.onmessage?.({ data: { type: 'ready' } } as MessageEvent), 0)
     }
 
-    postMessage(message: { id?: string }) {
+    postMessage(message: { id?: string; text?: string }) {
       const id = message?.id
       if (!id) return
       requests++
+      if (typeof message.text === 'string') requestTexts.push(message.text)
       // A fresh copy per request: the real worker transfers the buffer.
       const audioBuffer = cannedWav.slice(0)
       setTimeout(() => {
         this.onmessage?.({ data: { id, type: 'complete', audioBuffer } } as MessageEvent)
-      }, 10)
+      }, delayMs)
     }
 
     terminate() {}
@@ -166,6 +173,9 @@ export function installFakeTtsWorker(): void {
 
   Object.defineProperty(window, '__ttsWorkerRequests', {
     get: () => requests,
+  })
+  Object.defineProperty(window, '__ttsWorkerRequestTexts', {
+    get: () => requestTexts,
   })
 }
 

@@ -7,7 +7,15 @@
  *
  * Callers only fill in `TTSRequest`. Engine-specific knobs live in
  * `TTSEngineConfig`, which each engine reads for itself and ignores the rest.
+ *
+ * What an engine can do is declared once, as `TTSCapabilities`: a caller asks
+ * whether the engine speaks a language or how it improves quality, instead of
+ * comparing the engine's name. A fourth engine is one loader and one
+ * capabilities entry.
  */
+
+import { normalizeLanguageCode, POCKET_VOICES } from '../utils/voiceSelector'
+import { listVoices as listKokoroVoices } from '../kokoro/kokoroVoices'
 
 export type TTSModelType = 'kokoro' | 'piper' | 'pocket'
 
@@ -34,7 +42,48 @@ export interface TTSEngineConfig {
   device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
 }
 
+export interface TTSCapabilities {
+  /**
+   * ISO 639-1 codes the engine speaks. `'catalogue'` means every language a
+   * voice exists for — the engine has no language of its own.
+   */
+  languages: 'catalogue' | string[]
+  /**
+   * How the engine gets better quality: a different weight precision, a better
+   * voice, or not at all.
+   */
+  qualityLadder: 'quantization' | 'voices' | 'single'
+}
+
+const CAPABILITIES: Record<TTSModelType, TTSCapabilities> = {
+  kokoro: { languages: ['en'], qualityLadder: 'quantization' },
+  piper: { languages: 'catalogue', qualityLadder: 'voices' },
+  pocket: { languages: ['en'], qualityLadder: 'single' },
+}
+
+/** What the engine can do. Synchronous, for callers that only have the name. */
+export function engineCapabilities(model: TTSModelType): TTSCapabilities {
+  return CAPABILITIES[model]
+}
+
+/** Does the engine cover the language? */
+export function engineSupportsLanguage(model: TTSModelType, language: string): boolean {
+  const { languages } = engineCapabilities(model)
+  if (languages === 'catalogue') return true
+  return languages.includes(normalizeLanguageCode(language))
+}
+
+/** The voices the engine ships with, or undefined when it gets them elsewhere. */
+export function engineVoices(model: TTSModelType): string[] | undefined {
+  if (model === 'pocket') return POCKET_VOICES
+  if (model === 'kokoro') return listKokoroVoices()
+  return undefined
+}
+
 export interface TTSEngine {
+  readonly id: TTSModelType
+  readonly capabilities: TTSCapabilities
+
   /**
    * Load the model ahead of time, so the first request does not pay for the
    * download. Engines that cannot do it simply leave it out.
@@ -54,16 +103,14 @@ export interface TTSEngine {
   ): Promise<{ text: string; blob: Blob }[]>
 }
 
-/**
- * Get the appropriate TTS engine based on model type.
- *
- * The config is read by the engine, not by the caller: it carries the knobs
- * only that engine understands.
- */
-export async function getTTSEngine(
+type EngineAdapter = Omit<TTSEngine, 'id' | 'capabilities'>
+
+// A switch, not a string-indexed map: modelType can come from stored book
+// data, so only these three names may ever be dispatched on.
+async function loadEngine(
   modelType: TTSModelType,
-  config: TTSEngineConfig = {}
-): Promise<TTSEngine> {
+  config: TTSEngineConfig
+): Promise<EngineAdapter> {
   switch (modelType) {
     case 'kokoro': {
       const { generateVoice, generateVoiceSegments } = await import('../kokoro/kokoroClient')
@@ -91,14 +138,15 @@ export async function getTTSEngine(
           generateVoiceSegments(kokoroRequest(request), onChunkProgress, onProgress),
       }
     }
+
     case 'piper': {
       const { generateVoice } = await import('../piper/piperClient')
       return {
         warmUp: async () => {
           // Piper loads its model on the first request; fetching the voice
           // list warms the catalogue in the meantime.
-          const { piperClient } = await import('../piper/piperClient')
-          await piperClient.getVoices()
+          const { PiperClient } = await import('../piper/piperClient')
+          await PiperClient.getInstance().getVoices()
         },
         generateVoice: (request, onChunkProgress, onProgress) =>
           generateVoice(
@@ -112,13 +160,33 @@ export async function getTTSEngine(
           ),
       }
     }
+
     case 'pocket': {
       const { getPocketEngine } = await import('../pocket/pocketEngine')
       return getPocketEngine()
     }
+
     default:
       throw new Error(`Unknown TTS model type: ${modelType}`)
   }
+}
+
+/**
+ * Get the TTS engine for a model.
+ *
+ * The config is read by the engine, not by the caller: it carries the knobs
+ * only that engine understands. The engine carries its own name and
+ * capabilities, so a caller never has to pass the name around.
+ */
+export async function getTTSEngine(
+  modelType: TTSModelType,
+  config: TTSEngineConfig = {}
+): Promise<TTSEngine> {
+  const adapter = await loadEngine(modelType, config)
+  return Object.assign(adapter, {
+    id: modelType,
+    capabilities: engineCapabilities(modelType),
+  })
 }
 
 /**

@@ -6,8 +6,7 @@
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
-  import { segmentProgress, getGeneratedSegment } from '../stores/segmentProgressStore'
-  import { segmentHtmlContent } from '../lib/services/segmentationService'
+  import { segmentProgress } from '../stores/segmentProgressStore'
   import {
     applySegmentState,
     findSegmentElement,
@@ -18,14 +17,19 @@
     segmentSelector,
     segmentStateFor,
   } from '../lib/reader/readerSegments'
-  import { generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
-  import logger from '../lib/utils/logger'
   import { saveProgress, loadProgress } from '../stores/progressStore'
-  import { loadChapterSegmentProgress } from '../stores/segmentProgressStore'
-  import { resolveChapterLanguageWithDetection } from '../lib/utils/languageResolver'
   import { getLanguageLabel } from '../lib/utils/languageResolver'
+  import { appSettings } from '../stores/appSettingsStore'
+  import { piperVoices } from '../stores/piperVoicesStore'
+  import {
+    openChapter,
+    planForChapter,
+    playSegmentOf,
+    prepareChapter,
+    type ReaderSettings,
+  } from '../lib/reader/chapterReader'
 
   let {
     chapters,
@@ -185,28 +189,36 @@
     const chapter = chapters.find((c: Chapter) => c.id === chapterId)
     if (!chapter) return
 
-    // Segment the HTML content
-    const { html } = segmentHtmlContent(chapterId, chapter.content)
-    chapterHtml.set(chapterId, html)
+    // Segment the HTML content and load the progress saved for it.
+    chapterHtml.set(chapterId, prepareChapter(chapter, bookId))
     chapterHtml = new Map(chapterHtml) // trigger reactivity
 
     loadedChapters.add(chapterId)
     loadedChapters = new Set(loadedChapters) // trigger reactivity
+  }
 
-    // Load segment progress from DB
-    if (bookId) {
-      loadChapterSegmentProgress(bookId, chapterId).catch((err) => {
-        logger.warn('Failed to load segment progress:', err)
-      })
+  function readerSettings(): ReaderSettings {
+    return {
+      bookId,
+      bookTitle,
+      selectedModel,
+      selectedVoice: voice,
+      quantization,
+      device,
+      languageDefaults: get(appSettings).languageDefaults,
+      piperVoices: $piperVoices,
+      playbackSpeed: audioService.playbackSpeed,
     }
   }
 
   function getChapterPreferences(chapter: Chapter) {
-    const lang = resolveChapterLanguageWithDetection(chapter, book)
-    const langLabel = getLanguageLabel(lang)
-    const model = chapter.model || selectedModel
-    const chVoice = chapter.voice || voice
-    return { lang, langLabel, model, voice: chVoice }
+    const plan = planForChapter(chapter, book, readerSettings())
+    return {
+      lang: plan.language,
+      langLabel: getLanguageLabel(plan.language),
+      model: plan.model,
+      voice: plan.voice,
+    }
   }
 
   // Handle segment clicks
@@ -257,28 +269,16 @@
   }
 
   async function activateSegment(chapterId: string, chapter: Chapter, index: number) {
-    // If switching chapters, load the new chapter audio
+    // If switching chapters, load the new chapter audio — and claim it from a
+    // running generation so it is made first.
     const currentStore = get(audioPlayerStore)
     if (currentStore.chapterId !== chapterId && bookId) {
       activeChapterId = chapterId
-      const prefs = getChapterPreferences(chapter)
-
-      await audioService.loadChapter(bookId, bookTitle, chapter, {
-        voice: prefs.voice,
-        quantization,
-        device,
-        selectedModel: prefs.model as 'kokoro' | 'piper' | 'web_speech',
-        playbackSpeed: audioService.playbackSpeed,
-      })
+      const settings = readerSettings()
+      await openChapter(chapter, planForChapter(chapter, book, settings), settings)
     }
 
-    // Check for progressive segment
-    const segmentData = getGeneratedSegment(chapterId, index)
-    if (segmentData) {
-      audioService.injectProgressiveSegment(segmentData)
-    }
-
-    audioService.playFromSegment(index)
+    await playSegmentOf(chapterId, index)
   }
 
   // Auto-scroll to active segment during playback

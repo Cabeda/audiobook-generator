@@ -13,7 +13,6 @@
     autoScrollEnabled = $bindable(true),
     fontSize = $bindable(18),
     currentTheme = $bindable('dark' as Theme),
-    voice,
     piperVoices = [],
     sortedWebSpeechVoices,
     onSpeedChange,
@@ -28,7 +27,6 @@
     autoScrollEnabled: boolean
     fontSize: number
     currentTheme: Theme
-    voice: string
     piperVoices: Array<{ key: string; name: string; language: string; quality: string }>
     sortedWebSpeechVoices: () => SpeechSynthesisVoice[]
     onSpeedChange: (speed: number) => void
@@ -169,7 +167,7 @@
     <div class="setting-item info">
       <div class="info-row">
         <span class="label">Current:</span>
-        <span class="value">{localModel} / {voice}</span>
+        <span class="value">{localModel} / {localVoice}</span>
       </div>
     </div>
 
