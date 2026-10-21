@@ -1,7 +1,7 @@
 {
   "book": "arthur-conan-doyle_the-sign-of-the-four_advanced.epub",
-  "startedAt": "2026-10-21T00:14:16.157Z",
-  "totalSeconds": 408.99757000017166,
+  "startedAt": "2026-10-21T00:22:54.077Z",
+  "totalSeconds": 422.9300350000858,
   "models": [
     {
       "model": "kokoro",
@@ -9,31 +9,31 @@
       "chapters": 3,
       "segments": 188,
       "audioSeconds": 83.525,
-      "generationSeconds": 151.95400500011442,
+      "generationSeconds": 151.8608250000477,
       "exportSeconds": 0,
       "mp3Bytes": 0,
       "m4bBytes": 0,
-      "realTimeFactor": 0.5496729092460387,
+      "realTimeFactor": 0.550010182020108,
       "complete": false,
       "chapterErrors": [],
-      "estimatedTotalSeconds": 2185.55122085271
+      "estimatedTotalSeconds": 2184.211014894303
     },
     {
       "model": "piper",
       "voice": "en_GB-alan-medium",
       "chapters": 2,
       "segments": 11,
-      "audioSeconds": 67.00117913832199,
-      "generationSeconds": 20.407409999847413,
+      "audioSeconds": 67.58167800453515,
+      "generationSeconds": 21.499855000019075,
       "exportSeconds": 0,
       "mp3Bytes": 0,
       "m4bBytes": 0,
-      "realTimeFactor": 3.2831789599377363,
+      "realTimeFactor": 3.1433550600446,
       "complete": false,
       "chapterErrors": [
         {
           "chapter": "I",
-          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 141 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"” He tossed over, as he spoke, a crumpled sheet of foreign notepaper.\"\n  Error: 4292422104\n\nTroubleshooting: Check text format and voice model compatibility."
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 141 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"” He tossed over, as he spoke, a crumpled sheet of foreign notepaper.\"\n  Error: 4292425704\n\nTroubleshooting: Check text format and voice model compatibility."
         },
         {
           "chapter": "II",
@@ -88,22 +88,22 @@
           "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 11 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"Uncopyright\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
         }
       ],
-      "estimatedTotalSeconds": 5016.512421780673
+      "estimatedTotalSeconds": 5285.055265459235
     },
     {
       "model": "pocket",
       "voice": "alba",
-      "chapters": 4,
-      "segments": 322,
-      "audioSeconds": 938.72,
-      "generationSeconds": 150.62316999959947,
+      "chapters": 5,
+      "segments": 428,
+      "audioSeconds": 1444.6399999999999,
+      "generationSeconds": 150.77694999980926,
       "exportSeconds": 0,
       "mp3Bytes": 0,
       "m4bBytes": 0,
-      "realTimeFactor": 6.232241692977888,
+      "realTimeFactor": 9.581305365321604,
       "complete": false,
       "chapterErrors": [],
-      "estimatedTotalSeconds": 1264.860408940736
+      "estimatedTotalSeconds": 952.5721327090754
     }
   ]
 }
