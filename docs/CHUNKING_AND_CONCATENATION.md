@@ -888,7 +888,7 @@ test('slow operation', async ({ page }) => {
 - [Kokoro Integration](./KOKORO_INTEGRATION.md) - TTS model details, voice catalog
 - [Audio Formats](./AUDIO_FORMATS.md) - Format comparison, quality settings
 - [E2E Testing](./E2E_TESTING.md) - Test coverage, running tests locally
-- [Implementation Summary](./IMPLEMENTATION_SUMMARY.md) - Technical overview
+- [Implementation Summary](./archive/IMPLEMENTATION_SUMMARY.md) - Technical overview (archived)
 
 ### External Links
 

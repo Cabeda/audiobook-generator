@@ -129,7 +129,7 @@ expect(validateSmilStructure(smilFiles[0])).toBe(true)
 
 ## 📚 Documentation
 
-- **Test Plan**: `docs/TEST_IMPROVEMENT_PLAN.md`
+- **Test Plan**: `docs/archive/TEST_IMPROVEMENT_PLAN.md`
 - **Quick Start**: `docs/MATRIX_TESTING_QUICKSTART.md`
 - **Utilities**: `test/utils/audio-validation.ts`
 - **Matrix Tests**: `test/matrix/audiobook-matrix.test.ts`

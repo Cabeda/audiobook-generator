@@ -11,7 +11,7 @@ Architecture at a glance
 
 - **Framework**: Svelte 5 (runes) + TypeScript, bundled with Vite
 - **State management**: Svelte stores (`src/stores/`)
-- **TTS engines**: Kokoro (`src/lib/kokoro/`), Piper (`src/lib/piper/`), Web Speech API (browser-native)
+- **TTS engines**: Kokoro (`src/lib/kokoro/`), Piper (`src/lib/piper/`), Pocket (`src/lib/pocket/`), Web Speech API (browser-native)
 - **Persistence**: IndexedDB for books, audio segments, and model cache
 - **Key patterns**: lazy imports for heavy modules, progressive audio playback, segment-based generation
 - **Styling**: CSS variables for theming (`--bg-color`, `--text-color`, `--border-color`, `--primary-color`, `--surface-color`, `--shadow-color`, etc.). Component-scoped `<style>` blocks.
@@ -35,7 +35,6 @@ Quick environment notes
 Known issues
 
 - **prettier-plugin-svelte@4.0.0** crashes on `{@const}` directives containing `LogicalExpression` (`??`) or `CallExpression` (function calls). Affected files are listed in `.prettierignore`.
-- **`pnpm build`** and **`pnpm type-check`** currently fail due to a `vite.config.ts` `manualChunks` type incompatibility with rolldown. This is pre-existing and unrelated to feature work.
 - ESLint reports ~100+ `@typescript-eslint/no-explicit-any` **warnings** (not errors). These are intentional in test files, mocks, and FFmpeg/worker code.
 
 Workflow: git worktree + branch (recommended for multi-agent)
@@ -93,9 +92,8 @@ Before pushing (checklist)
 
 1. `pnpm lint` — must pass (0 errors; warnings are acceptable)
 2. `pnpm test` — all unit tests pass
-3. `git diff --stat` — review what you're committing
-
-Note: `pnpm type-check` and `pnpm build` have pre-existing failures (see Known issues). Don't block on them.
+3. `pnpm type-check` and `pnpm build` — both must pass (CI runs the same `pnpm type-check`)
+4. `git diff --stat` — review what you're committing
 
 Using `gh` CLI (preferred) for GitHub interactions
 
@@ -104,6 +102,15 @@ Using `gh` CLI (preferred) for GitHub interactions
 - View PRs and open in browser: `gh pr view --web`.
 - Add reviewers: `gh pr edit --add-reviewer username` or during creation use `--reviewer`.
 - Reference GitHub from automation scripts rather than using the web UI when possible.
+
+Code scanning (CodeQL)
+
+CodeQL is GitHub **default setup**: there is no workflow file to edit, and a failing `CodeQL` check on a PR is a new alert on that PR's head ref. Alerts are ref-scoped, so read them per ref:
+
+    gh api 'repos/{owner}/{repo}/code-scanning/alerts?ref=refs%2Fpull%2F<PR>%2Fhead&state=open' \
+      --jq '.[] | "\(.rule.id) \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line) \(.most_recent_instance.message.text)"'
+
+The check's `detailsUrl` (`/runs/<id>`) is a code-scanning results page, not an Actions run, so `gh run view` 404s on it. Quote the URL: the bare `?state=open` is a zsh glob.
 
 E2E tests & debugging (Playwright + Chrome DevTools / CDP (mcp))
 

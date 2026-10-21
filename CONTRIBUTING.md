@@ -55,10 +55,10 @@ For AI agents and multi-agent workflows, see [AGENTS.md](./AGENTS.md) for worktr
 ```bash
 pnpm lint        # Must pass (0 errors)
 pnpm test        # All unit tests pass
+pnpm type-check  # Must pass (CI runs the same command)
+pnpm build       # Must pass
 git diff --stat  # Review what you're committing
 ```
-
-> Note: `pnpm type-check` and `pnpm build` have pre-existing failures unrelated to feature work. Don't block on them.
 
 ## Testing Requirements
 

@@ -373,7 +373,7 @@
 3. **Export/import library backup** — portable library data
 4. **Batch processing** — multiple files at once
 5. **Adaptive quality** — mobile vs desktop audio quality tiers
-6. **Server-side TTS option** — for higher quality voices (see `docs/server-tts-plan.md`)
+6. **Server-side TTS option** — for higher quality voices (see `docs/archive/server-tts-plan.md`)
 
 ---
 
