@@ -202,6 +202,11 @@ test.describe('Full book profiling', () => {
       if (text.includes('[OOM mitigation]')) console.log(`[PAGE] ${text}`)
     })
 
+    // A hot reload or a source edit in the same checkout swaps the page under
+    // us and silently invalidates the memory timeline. Count reloads and fail.
+    let pageReloads = 0
+    page.on('load', () => pageReloads++)
+
     // ─── Start the instruments before upload ───
     // Uploading a book auto-selects every chapter and starts generation, so the
     // instruments have to be running first or the model load is missed.
@@ -298,6 +303,7 @@ test.describe('Full book profiling', () => {
       generatedAt: new Date().toISOString(),
       durationSec: Math.round((Date.now() - startedAt) / 1000),
       traceWindowSec: TRACE_WINDOW_MS / 1000,
+      pageReloads,
       workerRestarts,
       sampleCount: samples.length,
       baseline,
@@ -352,6 +358,8 @@ test.describe('Full book profiling', () => {
       ].join('\n')
     )
 
+    // A reload means the page was swapped mid-run: the timeline is meaningless.
+    expect(pageReloads, 'page reloaded during the run — measurements invalid').toBe(0)
     // Hard ceiling only — growth ratios are reported, not asserted, because the
     // worker restarts and the indexer legitimately move the numbers around.
     expect(peak.agentMB).toBeLessThan(4096)
