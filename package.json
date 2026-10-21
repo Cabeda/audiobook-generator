@@ -12,6 +12,7 @@
     "test:ui": "vitest --ui",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:nightly": "playwright test --config=playwright.nightly.config.ts",
+    "test:e2e:profile": "playwright test --config=playwright.profile.config.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:benchmark": "playwright test --config=playwright.benchmark.config.ts",

@@ -134,6 +134,7 @@
   )
   let pendingPlaySegment: number | null = null // Track segment waiting for generation to auto-play
   let loadGeneration = 0 // Incremented per chapter load to detect stale async results
+  let loadedKey: string | null = null // Chapter + engine currently loaded, so a re-run does not reload it
 
   // Sort voices to show detected language first
   let sortedWebSpeechVoices = $derived(() => {
@@ -182,6 +183,14 @@
     if (chapter && bookId) {
       const cId = chapter.id
       const bId = bookId
+
+      // A chapter is loaded once per engine. This effect re-runs while the
+      // load is in flight — the engine picks a voice, the reader props change —
+      // and loading again would cancel the playback that is starting and would
+      // drop the result of the load that is still running.
+      const loadKey = `${cId}|${localModel}`
+      if (loadedKey === loadKey) return
+      loadedKey = loadKey
 
       // Always load progressive segments from IndexedDB on mount
       // This ensures segments generated before page refresh are available
@@ -346,6 +355,7 @@
           })
           .catch((err) => {
             if (currentLoadId !== loadGeneration) return
+            loadedKey = null // Let a later run try again
             isLoading = false
             loadError = true
             console.error('Failed to load chapter:', err)
