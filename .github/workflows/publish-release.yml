@@ -1,0 +1,85 @@
+name: Publish Release
+
+# The release pull request carries the version bump. Once it is on main, the
+# tag and the GitHub release are made.
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create the tag
+        id: tag
+        run: |
+          git fetch origin main --tags
+          git checkout -B main origin/main
+
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "The tag v${VERSION} already exists."
+            exit 0
+          fi
+
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
+          echo "Tagged v${VERSION}"
+
+      - name: Create GitHub Release
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const version = '${{ steps.tag.outputs.version }}';
+            const previousTag = '${{ steps.tag.outputs.previous_tag }}';
+
+            let commits = [];
+            if (previousTag && previousTag !== 'v0.0.0') {
+              const { data } = await github.rest.repos.compareCommitsWithBasehead({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: previousTag,
+                head: 'v' + version,
+              });
+              commits = (data.commits || []).map((c) => `- ${c.commit.message.split('\n')[0]} (${c.sha.slice(0, 7)})`);
+            }
+
+            const body = [
+              "## What's Changed",
+              "",
+              ...commits,
+              "",
+              `**Full Changelog**: https://github.com/${context.repo.owner}/${context.repo.repo}/compare/${previousTag}...v${version}`,
+            ].join('\n');
+
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: `v${version}`,
+              name: `v${version}`,
+              body,
+              draft: false,
+              prerelease: false,
+            });
+
+            console.log(`Release v${version} created`);
