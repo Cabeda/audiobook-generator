@@ -31,6 +31,31 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 250 * 1024 * 1024,
         clientsClaim: true,
         skipWaiting: false,
+        runtimeCaching: [
+          {
+            // Model weights and voice bundles from HuggingFace. Pocket also
+            // slices voices.bin with Range, so those requests must be handled.
+            urlPattern: /^https:\/\/(huggingface\.co|cdn-lfs[^/]*\.huggingface\.co)\//,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'tts-models',
+              expiration: { maxEntries: 64, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+              rangeRequests: true,
+            },
+          },
+          {
+            // Piper loads its phonemizer and ONNX runtime from public CDNs, so
+            // the app is not offline-capable without them.
+            urlPattern: /^https:\/\/(cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com)\//,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'tts-runtime',
+              expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],
