@@ -44,14 +44,12 @@ vi.mock('kokoro-js', () => ({
 
 // Also aggressively mock 'phonemizer' if some transitive dependency tries to
 // import it directly. This avoids loading heavy Emscripten code during tests.
-try {
-  vi.mock('phonemizer', () => ({
-    // Provide an API surface that some code might use; keep it minimal.
-    phonemize: async (_text: string) => _text.toUpperCase(),
-  }))
-} catch {
-  // vi.mock will throw if already mocked; ignore
-}
+// It has to be at the top level: vitest hoists the call and complains when it
+// is nested.
+vi.mock('phonemizer', () => ({
+  // Provide an API surface that some code might use; keep it minimal.
+  phonemize: async (_text: string) => _text.toUpperCase(),
+}))
 
 // Optional: silence noisy logs during tests
 const originalLog = console.log.bind(console)

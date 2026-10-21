@@ -433,7 +433,9 @@ export function createMockTTSWorkerManager(options: MockWorkerOptions = {}) {
 export function setupTTSWorkerManagerMock(options: MockWorkerOptions = {}) {
   const mockManager = createMockTTSWorkerManager(options)
 
-  vi.mock('../lib/ttsWorkerManager', () => ({
+  // doMock, not mock: the mock is registered when the test asks for it, and
+  // vitest hoists `vi.mock` to the top of the file, where it does not belong.
+  vi.doMock('../lib/ttsWorkerManager', () => ({
     getTTSWorker: vi.fn(() => mockManager),
     terminateTTSWorker: vi.fn(() => mockManager.terminate()),
   }))

@@ -31,13 +31,7 @@ type ChunkProgress = {
 type WorkerResponse = {
   id: string
   type:
-    | 'success'
-    | 'error'
-    | 'progress'
-    | 'ready'
-    | 'chunk-progress'
-    | 'complete'
-    | 'complete-segments'
+    'success' | 'error' | 'progress' | 'ready' | 'chunk-progress' | 'complete' | 'complete-segments'
   data?: ArrayBuffer
   blob?: Blob
   // Transferable alternatives to Blob — avoids copying on postMessage

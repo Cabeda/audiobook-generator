@@ -7,7 +7,9 @@ import process from 'node:process'
  */
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: ['**/smoke/**'],
+  // e2e/profile is a long-running profiling suite with its own config; it would
+  // blow the 5 min timeout here.
+  testIgnore: ['**/smoke/**', '**/profile/**'],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 1,

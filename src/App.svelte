@@ -21,6 +21,7 @@
   import {
     isKokoroLanguageSupported,
     selectPiperVoiceForLanguage,
+    selectPocketVoiceForLanguage,
     POCKET_VOICES,
   } from './lib/utils/voiceSelector'
   import { POCKET_VOICE_LABELS } from './lib/pocket/pocketAssets'
@@ -112,10 +113,13 @@
 
     // 4. Model changed due to language fallback - need to pick appropriate voice
     if (readerModel === 'piper') {
-      return selectPiperVoiceForLanguage(readerLanguage, $piperVoices)
+      return selectPiperVoiceForLanguage(readerLanguage, $piperVoices, $selectedVoice)
     }
     if (readerModel === 'kokoro') {
       return 'af_heart' // Default Kokoro voice
+    }
+    if (readerModel === 'pocket') {
+      return selectPocketVoiceForLanguage(readerLanguage, $selectedVoice)
     }
 
     return $selectedVoice
