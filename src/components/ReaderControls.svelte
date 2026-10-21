@@ -1,6 +1,8 @@
 <script lang="ts">
   import { fade } from 'svelte/transition'
   import { audioService } from '../lib/audioPlaybackService.svelte'
+  import { POCKET_VOICE_LABELS } from '../lib/pocket/pocketAssets'
+  import { POCKET_VOICES } from '../lib/utils/voiceSelector'
 
   type Theme = 'light' | 'dark' | 'sepia'
 
@@ -21,7 +23,7 @@
     onVoiceChange,
   }: {
     showSettings: boolean
-    localModel: 'kokoro' | 'piper' | 'web_speech'
+    localModel: 'kokoro' | 'piper' | 'pocket' | 'web_speech'
     localVoice: string
     autoScrollEnabled: boolean
     fontSize: number
@@ -124,6 +126,7 @@
         <option value="web_speech">Web Speech API</option>
         <option value="kokoro">Kokoro TTS</option>
         <option value="piper">Piper TTS</option>
+        <option value="pocket">Pocket TTS</option>
       </select>
       {#if localModel !== 'web_speech'}
         <span class="hint">Changes sync with chapter settings</span>
@@ -147,6 +150,12 @@
         {:else if localModel === 'piper'}
           {#each piperVoices as piperVoice}
             <option value={piperVoice.key}>{piperVoice.name} ({piperVoice.language})</option>
+          {/each}
+        {:else if localModel === 'pocket'}
+          {#each POCKET_VOICES as pocketVoice}
+            <option value={pocketVoice}>
+              {POCKET_VOICE_LABELS[pocketVoice as keyof typeof POCKET_VOICE_LABELS] ?? pocketVoice}
+            </option>
           {/each}
         {:else}
           {#each sortedWebSpeechVoices() as wsVoice}

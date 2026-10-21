@@ -17,7 +17,10 @@ function firstChapter(page: import('@playwright/test').Page) {
  * First run downloads the voice model (~5MB), subsequent runs use cache.
  */
 test.describe('Generation & Export', () => {
-  test.describe.configure({ timeout: 180000 })
+  // The tests run one after another: each one starts from a clean browser
+  // profile and has to fetch the Piper model, and five downloads at once only
+  // slow each other down.
+  test.describe.configure({ timeout: 240000, mode: 'serial' })
 
   test.beforeEach(async ({ page }) => {
     // Boot with Piper: the app starts generating as soon as a book is imported,
@@ -56,7 +59,7 @@ test.describe('Generation & Export', () => {
     // The import starts a generation, and the controls are disabled while it
     // runs.
     const modelSelect = page.locator('.toolbar-left .premium-select').first()
-    await expect(modelSelect).toBeEnabled({ timeout: 150000 })
+    await expect(modelSelect).toBeEnabled({ timeout: 200000 })
     await expect(modelSelect).toHaveValue('piper')
 
     // Select only first chapter

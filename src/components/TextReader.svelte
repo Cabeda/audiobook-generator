@@ -25,6 +25,7 @@
     segmentStateFor,
   } from '../lib/reader/readerSegments'
   import { generationService } from '../lib/services/generationService'
+  import { POCKET_VOICES, selectPocketVoiceForLanguage } from '../lib/utils/voiceSelector'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
   import ReaderControls from './ReaderControls.svelte'
@@ -57,7 +58,7 @@
     voice: string
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+    selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'web_speech'
     chapters?: Chapter[]
     onBack: () => void
     onChapterChange?: (chapter: Chapter) => void
@@ -69,7 +70,7 @@
 
   // Initialize from localStorage if available
   let initialSpeed = 1.0
-  let initialModel: 'kokoro' | 'piper' | 'web_speech' | null = null
+  let initialModel: 'kokoro' | 'piper' | 'pocket' | 'web_speech' | null = null
   let initialVoice: string | null = null
   try {
     const saved = localStorage.getItem(SPEED_KEY)
@@ -79,7 +80,10 @@
     const savedModel = localStorage.getItem(MODEL_KEY)
     if (
       savedModel &&
-      (savedModel === 'kokoro' || savedModel === 'piper' || savedModel === 'web_speech')
+      (savedModel === 'kokoro' ||
+        savedModel === 'piper' ||
+        savedModel === 'pocket' ||
+        savedModel === 'web_speech')
     ) {
       initialModel = savedModel
     }
@@ -95,10 +99,18 @@
 
   // Local model state for text reader (falls back to prop value if no localStorage)
   // untrack breaks the reactivity chain — these are intentional one-time prop reads
-  let localModel = $state<'kokoro' | 'piper' | 'web_speech'>(
+  let localModel = $state<'kokoro' | 'piper' | 'pocket' | 'web_speech'>(
     initialModel ?? untrack(() => selectedModel)
   )
   let localVoice = $state(initialVoice ?? untrack(() => voice))
+
+  // Pocket only knows its own preset voices, so a voice picked for another
+  // engine cannot be used with it.
+  if (localModel === 'pocket' && !POCKET_VOICES.includes(localVoice)) {
+    localVoice = selectPocketVoiceForLanguage(
+      chapter?.detectedLanguage || chapter?.language || 'en'
+    )
+  }
 
   // Chapter progress
   let chapterIndex = $derived(chapters.findIndex((c: Chapter) => c.id === chapter.id))
@@ -158,7 +170,7 @@
 
   // Track the current model and voice from the store to detect changes
   // Will be initialized after first initialization to avoid false change detection
-  let currentModelFromStore = $state<'kokoro' | 'piper' | null>(null)
+  let currentModelFromStore = $state<'kokoro' | 'piper' | 'pocket' | null>(null)
   let currentVoiceFromStore = $state<string | null>(null)
   let textContentEl: HTMLDivElement | null = null
 
@@ -494,6 +506,13 @@
       localStorage.setItem(MODEL_KEY, localModel)
     } catch (e) {
       console.error('Failed to save model to localStorage:', e)
+    }
+
+    // Pocket only knows its own preset voices
+    if (localModel === 'pocket' && !POCKET_VOICES.includes(localVoice)) {
+      localVoice = selectPocketVoiceForLanguage(
+        chapter?.detectedLanguage || chapter?.language || 'en'
+      )
     }
 
     // For kokoro/piper, sync with chapter settings and store

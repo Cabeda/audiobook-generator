@@ -11,10 +11,15 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { writeFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
-import { installReaderProbe, openReader, readProbe } from '../helpers/readerProbe'
+import {
+  describePlayback,
+  installFakeTtsWorker,
+  installReaderProbe,
+  openReader,
+  waitForPlayback,
+} from '../helpers/readerProbe'
 
 const EXAMPLE_ARTICLE = join(process.cwd(), 'example', 'esim_article.epub')
 
@@ -23,14 +28,13 @@ test.describe('Reader auto-playback', () => {
     test.setTimeout(120_000)
 
     const errors: string[] = []
-    const logs: string[] = []
     page.on('console', (message) => {
-      logs.push(`[${message.type()}] ${message.text()}`)
       if (message.type() === 'error') errors.push(message.text())
     })
     page.on('pageerror', (error) => errors.push(String(error)))
 
     await page.addInitScript(installReaderProbe)
+    await page.addInitScript(installFakeTtsWorker)
 
     await page.goto('/')
     await page.waitForLoadState('networkidle')
@@ -59,34 +63,12 @@ test.describe('Reader auto-playback', () => {
     expect(segmentCount).toBeGreaterThan(5)
 
     // Nothing else happens from here on: the reader has to do it by itself.
-    const deadline = Date.now() + 60_000
-    let state = await readProbe(page)
-    while (
-      Date.now() < deadline &&
-      !(state.ended >= segmentCount && state.active.length >= segmentCount)
-    ) {
-      await page.waitForTimeout(250)
-      state = await readProbe(page)
-    }
-
-    const expected = Array.from({ length: segmentCount }, (_, index) => index)
-    const interesting = logs.filter(
-      (line) =>
-        !/Downloading onnx|KokoroCache|model_quantized|SegmentBatchHandler|saveChapterSegments|MobileDetect|\[vite\]/.test(
-          line
-        )
-    )
-    await writeFile('/tmp/reader-playback.log', logs.join('\n'))
+    const state = await waitForPlayback(page, segmentCount, 60_000)
     const report =
-      `segments=${segmentCount} active=${state.active.length}/${segmentCount} ` +
-      `played=${state.played} ended=${state.ended} errored=${state.errored} ` +
-      `created=${state.created} requests=${state.requests} ` +
-      `lastActive=${state.active[state.active.length - 1]} ` +
-      `errors=${JSON.stringify(errors.slice(0, 5))}\n` +
-      interesting.slice(0, 60).join('\n')
+      describePlayback(state, segmentCount) + `\nerrors=${JSON.stringify(errors.slice(0, 5))}`
 
     // Every segment became active, exactly once, in order.
-    expect(state.active, report).toEqual(expected)
+    expect(state.active, report).toEqual(Array.from({ length: segmentCount }, (_, i) => i))
 
     // Every segment's audio played to its natural end.
     expect(state.ended, report).toBeGreaterThanOrEqual(segmentCount)
