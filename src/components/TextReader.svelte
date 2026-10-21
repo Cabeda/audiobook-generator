@@ -37,6 +37,7 @@
     scheduleUpgradePass,
     cancelUpgrade,
     startFastPass,
+    resolveTierLadder,
   } from '../lib/services/adaptiveQualityService'
 
   let {
@@ -355,12 +356,9 @@
                 // Audio not available initially — start fast pass so audio begins immediately
                 isLoading = false
                 segmentsLoaded = true
-                const aqSettings2 = get(appSettings).adaptiveQuality
-                if (aqSettings2.enabled) {
-                  triggerFastPass(cId, bId, true).catch((err) => {
-                    logger.warn('[TextReader] Fast pass failed:', err)
-                  })
-                }
+                triggerFastPass(cId, bId, true).catch((err) => {
+                  logger.warn('[TextReader] Fast pass failed:', err)
+                })
               }
             }
           })
@@ -425,20 +423,30 @@
    * Run the fast pass for a chapter that has no pre-generated audio.
    * Generates all segments at the cheapest available tier so playback starts
    * immediately, then optionally schedules the background upgrade pass.
+   *
+   * When there is no pass to run — the engine has no tier to generate at, or
+   * the feature is off — the chapter is played segment by segment instead, so
+   * the reader always starts by itself.
    */
   async function triggerFastPass(
     cId: string,
     bId: number,
     scheduleUpgrade: boolean
   ): Promise<void> {
-    const aqSettings = get(appSettings).adaptiveQuality
-    if (!aqSettings.enabled) return
-
-    // Web Speech plays, it does not generate: there is nothing to fast pass.
-    if (localModel === 'web_speech') return
-
     const segs = audioService.segments
     if (segs.length === 0) return
+
+    const aqSettings = get(appSettings).adaptiveQuality
+    if (!aqSettings.enabled) {
+      audioService.playFromSegment(0)
+      return
+    }
+
+    // Web Speech plays, it does not generate: there is nothing to fast pass.
+    if (localModel === 'web_speech') {
+      audioService.playFromSegment(0)
+      return
+    }
 
     const lang = chapter.detectedLanguage || chapter.language || 'en'
     const piperVoiceList = piperVoices.map((v) => ({
@@ -447,6 +455,15 @@
       language: v.language,
       quality: v.quality as 'low' | 'medium' | 'high',
     }))
+
+    const ladder = resolveTierLadder(lang, piperVoiceList, localModel)
+    if (ladder.maxAvailableTier < 0) {
+      // The engine has no tier to generate at — the Piper voices may not have
+      // arrived yet. Play the chapter as the reader needs it.
+      logger.info('[TextReader] No tier to generate at — playing the chapter on demand')
+      audioService.playFromSegment(0)
+      return
+    }
 
     const segInput = segs.map((s) => ({
       index: s.index,
@@ -1269,7 +1286,6 @@
       bind:autoScrollEnabled
       bind:fontSize
       bind:currentTheme
-      {voice}
       {piperVoices}
       {sortedWebSpeechVoices}
       onSpeedChange={updateSpeed}
