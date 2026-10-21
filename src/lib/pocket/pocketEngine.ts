@@ -17,7 +17,6 @@ import { buildWavHeader, floatTo16BitPCM, WAV_HEADER_BYTES } from '../wavUtils'
 import { parseSentencePieceModel, PocketTokenizer } from './pocketTokenizer'
 import {
   parseBundle,
-  parseVoiceSlice,
   parseVoicesBin,
   pocketModelUrls,
   readVoiceTensor,
@@ -77,7 +76,7 @@ export class PocketEngine implements TTSEngine {
 
     const voiceName =
       request.voice && request.voice in (bundle.voices ?? {}) ? request.voice : 'alba'
-    const voice = await this.loadVoice(voiceName)
+    const voice = await this.loadVoice(voiceName, onProgress)
 
     const tokenIds = chunks.map((chunk) => tokenizer.encode(chunk))
     const capacity = flowCacheCapacity(bundle, voiceFrames(voice), tokenIds)
@@ -203,6 +202,7 @@ export class PocketEngine implements TTSEngine {
       }
 
       const loadSession = async (url: string) => {
+        onProgress?.(`Pocket TTS: loading ${url.split('/').pop()}`)
         const bytes = await fetchAndCache(url).then((res) => res.arrayBuffer())
         return ort.InferenceSession.create(new Uint8Array(bytes), sessionOptions)
       }
@@ -225,31 +225,21 @@ export class PocketEngine implements TTSEngine {
     }
   }
 
-  private async loadVoice(name: string): Promise<PocketVoiceBundle> {
-    const bundle = this.bundle!
+  private async loadVoice(
+    name: string,
+    onProgress?: (status: string) => void
+  ): Promise<PocketVoiceBundle> {
     if (this.voices[name]) return this.voices[name]
 
-    const urls = pocketModelUrls()
-    const range = bundle.voices[name]
-
-    if (range) {
-      // Fetch only this voice's slice of the voice bundle.
-      try {
-        const response = await fetch(urls.voices, {
-          headers: { Range: `bytes=${range.start}-${range.end - 1}` },
-        })
-        if (response.status === 206) {
-          const voice = parseVoiceSlice(await response.arrayBuffer())
-          this.voices[name] = voice
-          return voice
-        }
-      } catch (err) {
-        logger.warn('[PocketTTS] Range fetch failed, falling back to the full voice bundle', err)
-      }
-    }
-
+    // The voice bundle is 34 MB and holds all eight voices. Fetching it whole
+    // once is what makes voices work offline: a Range slice cannot be stored in
+    // the Cache API, and HuggingFace answers the redirect with the full body
+    // anyway, so the slice saved nothing.
     if (!this.allVoices) {
-      this.allVoices = parseVoicesBin(await fetchAndCache(urls.voices).then((r) => r.arrayBuffer()))
+      onProgress?.('Pocket TTS: loading voices')
+      this.allVoices = parseVoicesBin(
+        await fetchAndCache(pocketModelUrls().voices).then((r) => r.arrayBuffer())
+      )
     }
     const voice = this.allVoices[name]
     if (!voice) throw new Error(`Pocket TTS: voice ${name} is not in the model`)

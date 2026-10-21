@@ -82,23 +82,42 @@ export async function canRunUpgrade(): Promise<boolean> {
 }
 
 /**
+ * Restart the TTS worker once the whole agent cluster passes this. The WASM heap
+ * that actually grows during generation is invisible to `performance.memory`,
+ * which only sees the main-thread JS heap.
+ */
+export const WORKER_RESTART_MEMORY_LIMIT_BYTES = 2 * 1024 ** 3
+
+type MemoryPerformance = Performance & {
+  measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>
+  memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
+}
+
+/**
  * Check whether the TTS worker should be restarted due to memory pressure.
  * Returns true when:
- *  - JS heap usage exceeds 70% of the limit (Chrome-only performance.memory API)
- *  - Falls back to false on browsers without the API (Firefox, Safari)
+ *  - the agent cluster (page + TTS worker + its WASM heap) exceeds the budget
+ *  - or, where that API is unavailable, JS heap usage exceeds 70% of the limit
+ *  - otherwise false (Firefox, Safari)
  *
  * This is a proactive check — restart the worker BEFORE OOM rather than after.
  */
 export async function shouldRestartWorkerForMemory(): Promise<boolean> {
-  try {
-    const perf = performance as Performance & {
-      memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number }
+  const perf = performance as MemoryPerformance
+
+  if (perf.measureUserAgentSpecificMemory) {
+    try {
+      const { bytes } = await perf.measureUserAgentSpecificMemory()
+      return bytes > WORKER_RESTART_MEMORY_LIMIT_BYTES
+    } catch {
+      // Not cross-origin isolated, or too many contexts — fall through.
     }
+  }
+
+  try {
     if (perf.memory) {
       const ratio = perf.memory.usedJSHeapSize / perf.memory.jsHeapSizeLimit
-      if (ratio > 0.7) {
-        return true
-      }
+      if (ratio > 0.7) return true
     }
   } catch {
     // API not available — ignore

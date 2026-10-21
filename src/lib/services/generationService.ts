@@ -71,6 +71,7 @@ import { get, writable } from 'svelte/store'
 import type { Chapter } from '../types/book'
 import type { VoiceId } from '../kokoro/kokoroVoices'
 import { getTTSWorker, terminateTTSWorker } from '../ttsWorkerManager'
+import { StallWatchdog } from '../utils/stallWatchdog'
 import {
   selectedModel,
   selectedVoice,
@@ -162,6 +163,9 @@ function getBookId(): number {
   }
   return 0
 }
+
+/** A chapter that reports no progress for this long is stuck, not slow. */
+const CHAPTER_STALL_MS = 10 * 60_000
 
 class GenerationService {
   private running = false
@@ -646,15 +650,18 @@ class GenerationService {
 
         try {
           const bookId = explicitBookId ?? getBookId()
-          const canceled = await this.generateChapterAudio(
-            ch,
-            effectiveModel,
-            effectiveVoice,
-            effectiveLanguage,
-            currentQuantization,
-            currentDevice,
-            currentAdvancedSettings,
-            bookId
+          const canceled = await this.withChapterWatchdog(ch.id, (watchdog) =>
+            this.generateChapterAudio(
+              ch,
+              effectiveModel,
+              effectiveVoice,
+              effectiveLanguage,
+              currentQuantization,
+              currentDevice,
+              currentAdvancedSettings,
+              bookId,
+              watchdog
+            )
           )
           if (canceled) break
 
@@ -780,15 +787,18 @@ class GenerationService {
 
         try {
           const bookId = explicitBookId ?? getBookId()
-          const canceled = await this.generateChapterAudio(
-            ch,
-            effectiveModel,
-            effectiveVoice,
-            effectiveLanguage,
-            currentQuantization,
-            currentDevice,
-            currentAdvancedSettings,
-            bookId
+          const canceled = await this.withChapterWatchdog(ch.id, (watchdog) =>
+            this.generateChapterAudio(
+              ch,
+              effectiveModel,
+              effectiveVoice,
+              effectiveLanguage,
+              currentQuantization,
+              currentDevice,
+              currentAdvancedSettings,
+              bookId,
+              watchdog
+            )
           )
           if (canceled) break
 
@@ -909,6 +919,32 @@ class GenerationService {
   }
 
   /**
+   * Runs one chapter under a stall watchdog. When the worker stops reporting
+   * progress the worker is terminated, which rejects the in-flight request and
+   * lets the chapter fail so the run can continue.
+   */
+  private async withChapterWatchdog<T>(
+    chapterId: string,
+    run: (watchdog: StallWatchdog) => Promise<T>
+  ): Promise<T> {
+    const watchdog = new StallWatchdog({
+      limitMs: CHAPTER_STALL_MS,
+      onStall: () => {
+        logger.error(
+          `[Generation] Chapter ${chapterId} made no progress for ${CHAPTER_STALL_MS / 60_000} min — restarting the TTS worker`
+        )
+        terminateTTSWorker()
+      },
+    })
+    watchdog.start()
+    try {
+      return await run(watchdog)
+    } finally {
+      watchdog.stop()
+    }
+  }
+
+  /**
    * Segment, generate, and persist audio for a single chapter.
    * Returns true if generation was canceled mid-way.
    */
@@ -920,7 +956,8 @@ class GenerationService {
     currentQuantization: string,
     currentDevice: string,
     currentAdvancedSettings: Record<string, unknown>,
-    bookId: number
+    bookId: number,
+    watchdog?: StallWatchdog
   ): Promise<boolean> {
     logger.info(`[generateChapters] Segmenting HTML for ${effectiveModel}`, {
       chapterId: ch.id,
@@ -971,6 +1008,7 @@ class GenerationService {
 
     // Helper to update the chapter progress message in the UI
     const setProgress = (current: number, total: number, message: string) => {
+      watchdog?.touch()
       throttledProgress.set(ch.id, { current, total, message })
     }
 

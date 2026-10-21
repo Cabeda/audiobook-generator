@@ -156,11 +156,6 @@ export function parseVoicesBin(buffer: ArrayBuffer): Record<string, PocketVoiceB
   return parsePtvbVoices(buffer, 5)
 }
 
-/** Parse a single voice slice (a range request over voices.bin). */
-export function parseVoiceSlice(buffer: ArrayBuffer): PocketVoiceBundle {
-  return readVoice(buffer, 0).voice
-}
-
 function parsePtvbVoices(buffer: ArrayBuffer, start: number): Record<string, PocketVoiceBundle> {
   const voices: Record<string, PocketVoiceBundle> = {}
   const view = new DataView(buffer)

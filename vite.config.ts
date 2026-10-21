@@ -31,6 +31,22 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 250 * 1024 * 1024,
         clientsClaim: true,
         skipWaiting: false,
+        // Model weights are already cached by the engines themselves (Cache API
+        // for Kokoro/Pocket, OPFS for Piper), so only the CDN runtime is added
+        // here — caching weights again would store every model twice.
+        runtimeCaching: [
+          {
+            // Piper loads its phonemizer and ONNX runtime from public CDNs, so
+            // the app is not offline-capable without them.
+            urlPattern: /^https:\/\/(cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com)\//,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'tts-runtime',
+              expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],
