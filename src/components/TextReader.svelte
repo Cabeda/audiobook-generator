@@ -204,6 +204,12 @@
       if (loadedKey === loadKey) return
       loadedKey = loadKey
 
+      // While the book generates, the chapter being read is made first and its
+      // segments are handed over: the reader plays them instead of making its
+      // own copy, which would compete with the book for the same worker.
+      audioService.setSegmentsAreExternal(generationService.isRunning())
+      if (generationService.isRunning()) generationService.prioritizeChapter(chapter)
+
       // Always load progressive segments from IndexedDB on mount
       // This ensures segments generated before page refresh are available
       loadChapterSegmentProgress(bId, cId).catch((err) => {
@@ -282,9 +288,10 @@
               isLoading = false
               segmentsLoaded = true
 
-              // Schedule background quality upgrade if enabled
+              // Schedule background quality upgrade if enabled. A running
+              // generation makes its own segments; the reader must not.
               const aqSettings = get(appSettings).adaptiveQuality
-              if (aqSettings.enabled && bookId) {
+              if (aqSettings.enabled && bookId && !generationService.isRunning()) {
                 const lang = chapter.detectedLanguage || chapter.language || 'en'
                 const piperVoiceList = piperVoices.map((v) => ({
                   key: v.key,
@@ -435,6 +442,13 @@
   ): Promise<void> {
     const segs = audioService.segments
     if (segs.length === 0) return
+
+    // The book's generation is making this chapter: play the segments as it
+    // hands them over.
+    if (generationService.isRunning()) {
+      audioService.playFromSegment(0)
+      return
+    }
 
     const aqSettings = get(appSettings).adaptiveQuality
     if (!aqSettings.enabled) {

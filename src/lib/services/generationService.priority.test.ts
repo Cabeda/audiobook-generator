@@ -24,6 +24,8 @@ vi.mock('../audioPlaybackService.svelte', () => ({
     playSingleSegment: vi.fn(),
     injectProgressiveSegment: vi.fn(),
     replaceSegmentAudio: vi.fn(),
+    setSegmentsAreExternal: vi.fn(),
+    playingChapterId: () => null,
   },
 }))
 

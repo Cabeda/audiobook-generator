@@ -44,6 +44,9 @@ class AudioPlaybackService {
   private wordsMeasured = 0
   private pendingGenerations = new Map<number, Promise<void>>()
   private bufferTarget = 5
+  /** True when a generation service is making this chapter's segments. */
+  private externalGeneration = false
+  private segmentWaiters = new Map<number, Array<() => void>>()
   private chapterAudioUrl: string | null = null // Track chapter audio URL for cleanup
   private isLoadingChapter = false // Guard against concurrent loadChapter calls
 
@@ -704,23 +707,62 @@ class AudioPlaybackService {
   }
 
   /**
+   * The reader is listening to a chapter that a generation service is making.
+   * Playback waits for the segments instead of making its own copy of them.
+   */
+  setSegmentsAreExternal(external: boolean): void {
+    this.externalGeneration = external
+  }
+
+  /** The chapter the player is on, if any. */
+  playingChapterId(): string | null {
+    return get(audioPlayerStore).chapterId || null
+  }
+
+  /**
    * Inject a segment from progressive generation store into audioSegments map
    * This allows playback of progressively generated audio without regeneration
    */
   injectProgressiveSegment(segment: AudioSegment): void {
-    if (this.audioSegments.has(segment.index)) {
-      // Already have this segment, no need to inject
-      return
+    if (!this.audioSegments.has(segment.index)) {
+      try {
+        // Create blob URL for the segment
+        const url = URL.createObjectURL(segment.audioBlob)
+        this.audioSegments.set(segment.index, url)
+        logger.debug('Injected progressive segment', { index: segment.index })
+      } catch (err) {
+        logger.error('Failed to inject progressive segment', { index: segment.index, error: err })
+      }
     }
 
-    try {
-      // Create blob URL for the segment
-      const url = URL.createObjectURL(segment.audioBlob)
-      this.audioSegments.set(segment.index, url)
-      logger.debug('Injected progressive segment', { index: segment.index })
-    } catch (err) {
-      logger.error('Failed to inject progressive segment', { index: segment.index, error: err })
+    // Wake anyone waiting for this segment.
+    const waiters = this.segmentWaiters.get(segment.index)
+    if (waiters) {
+      this.segmentWaiters.delete(segment.index)
+      for (const wake of waiters) wake()
     }
+  }
+
+  /**
+   * Wait for a segment the generation service is making.
+   *
+   * shortcut: gives up after 20 s and makes the segment here, so a generation
+   * that stops cannot leave the reader silent.
+   */
+  private waitForSegment(index: number, timeoutMs = 20_000): Promise<void> {
+    return new Promise((resolve) => {
+      const waiters = this.segmentWaiters.get(index) ?? []
+      const settle = () => {
+        clearTimeout(timer)
+        const left = (this.segmentWaiters.get(index) ?? []).filter((wake) => wake !== settle)
+        if (left.length > 0) this.segmentWaiters.set(index, left)
+        else this.segmentWaiters.delete(index)
+        resolve()
+      }
+      const timer = setTimeout(settle, timeoutMs)
+      waiters.push(settle)
+      this.segmentWaiters.set(index, waiters)
+    })
   }
 
   /**
@@ -1000,6 +1042,13 @@ class AudioPlaybackService {
 
     // Web Speech doesn't need generation
     if (this.selectedModel === 'web_speech') return
+
+    if (this.externalGeneration) {
+      logger.info(`Waiting for the book's generation to make segment ${index}`)
+      await this.waitForSegment(index)
+      if (this.audioSegments.has(index)) return
+      logger.warn(`Segment ${index} did not arrive from the generation service, making it here`)
+    }
 
     const promise = (async () => {
       const MAX_RETRIES = 3

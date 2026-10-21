@@ -97,6 +97,12 @@
     totalCount: number
   } | null>(null)
 
+  // A state captured before this page knew about a running generation is not
+  // an interruption — the generation is writing that state right now.
+  $effect(() => {
+    if (isGenerating) interruptedGeneration = null
+  })
+
   // Scroll-linked hero collapse: progress goes from 0 (fully visible) to 1 (fully hidden).
   // We drive transform + opacity directly from scroll position for smooth, jank-free animation.
   let heroProgress = $state(0)
@@ -181,7 +187,9 @@
     ;(async () => {
       const { getInterruptedGeneration } = await import('../lib/services/generationStateStore')
       const interrupted = getInterruptedGeneration()
-      if (interrupted) {
+      // A state written by a generation that is still running is not an
+      // interruption: that run will clear it when it is done.
+      if (interrupted && !generationService.isRunning()) {
         interruptedGeneration = {
           bookId: interrupted.bookId,
           bookTitle: interrupted.bookTitle,
@@ -573,7 +581,7 @@
     </div>
 
     <!-- Interrupted generation resume banner -->
-    {#if interruptedGeneration && interruptedGeneration.bookId === $currentLibraryBookId}
+    {#if !isGenerating && interruptedGeneration && interruptedGeneration.bookId === $currentLibraryBookId}
       <div class="resume-banner" transition:fly={{ y: -20, duration: 200 }}>
         <div class="resume-banner-content">
           <span class="resume-banner-icon">⚠</span>
