@@ -57,6 +57,8 @@ export interface ModelBenchmarkResult {
   realTimeFactor: number
   /** True when the whole book was processed. */
   complete: boolean
+  /** The chapters the engine could not speak. */
+  chapterErrors: { chapter: string; error: string }[]
   /**
    * How long the whole book would take, in seconds. Measured when the run
    * was cut short, the time it took when it was not.
@@ -91,7 +93,8 @@ export interface BenchmarkOptions {
    * omitted.
    */
   budgetSeconds?: number
-  /** Encode each chapter to MP3 and M4B as well. On by default. */
+  /** Encode each chapter to MP3 and M4B as well. Off by default: the export
+   * formats are covered by their own test, and encoding a whole book is slow. */
   encodeFormats?: boolean
   onProgress?: (progress: BenchmarkProgress) => void
 }
@@ -164,17 +167,27 @@ export function segmentBook(
 async function generateChapter(
   engine: TTSEngine,
   chapter: ChapterText,
-  voice: string
-): Promise<{ blob: Blob; duration: number }> {
-  const blobs: Blob[] = []
+  voice: string,
+  deadline?: number
+): Promise<{ blob: Blob; duration: number; stopped: boolean }> {
+  const blobs: (Blob | null)[] = []
   for (const segment of chapter.segments) {
+    if (deadline && performance.now() > deadline) {
+      return { blob: new Blob(), duration: 0, stopped: true }
+    }
     const blob = await engine.generateVoice({ text: segment.text, voice })
     blobs.push(blob)
   }
 
-  const blob = await incrementalConcatWav(blobs.length, async (index) => blobs[index] ?? null)
+  // The segments are released as they are concatenated: a long chapter does
+  // not fit twice in memory.
+  const blob = await incrementalConcatWav(blobs.length, async (index) => {
+    const segment = blobs[index]
+    blobs[index] = null
+    return segment
+  })
   const duration = await parseWavDuration(blob)
-  return { blob, duration }
+  return { blob, duration, stopped: false }
 }
 
 /**
@@ -205,6 +218,7 @@ export async function benchmarkBook(options: BenchmarkOptions): Promise<Benchmar
       m4bBytes: 0,
       realTimeFactor: 0,
       complete: false,
+      chapterErrors: [],
       estimatedTotalSeconds: 0,
     }
 
@@ -212,13 +226,34 @@ export async function benchmarkBook(options: BenchmarkOptions): Promise<Benchmar
       options.onProgress?.({ model, phase: 'loading', done: 0, total: chapters.length })
 
       const engine = await getTTSEngine(model, benchmarkConfig(model))
+      // Load the model first, so the measurement is generation and not the
+      // one-off download.
+      await engine.warmUp?.()
       const modelStart = performance.now()
+      const deadline = options.budgetSeconds ? modelStart + options.budgetSeconds * 1000 : undefined
 
       for (const chapter of chapters) {
         if (chapter.segments.length === 0) continue
 
         const generationStart = performance.now()
-        const { blob, duration } = await generateChapter(engine, chapter, voice)
+        let blob: Blob
+        let duration: number
+        let stopped = false
+        try {
+          const generated = await generateChapter(engine, chapter, voice, deadline)
+          blob = generated.blob
+          duration = generated.duration
+          stopped = generated.stopped
+        } catch (error) {
+          // One chapter failing does not stop the run: the report says how far
+          // the engine got and what went wrong.
+          result.chapterErrors.push({
+            chapter: chapter.title,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          logger.warn('[benchmark] Chapter failed', { model, chapter: chapter.title, error })
+          continue
+        }
         result.generationSeconds += (performance.now() - generationStart) / 1000
         result.audioSeconds += duration
         result.segments += chapter.segments.length
@@ -232,7 +267,7 @@ export async function benchmarkBook(options: BenchmarkOptions): Promise<Benchmar
           chapter: chapter.title,
         })
 
-        if (options.encodeFormats !== false) {
+        if (options.encodeFormats) {
           const encodeStart = performance.now()
           const [mp3, m4b] = await Promise.all([
             concatenateAudioChapters([{ id: chapter.id, title: chapter.title, blob }], {
@@ -249,10 +284,7 @@ export async function benchmarkBook(options: BenchmarkOptions): Promise<Benchmar
 
         // The chapter audio is released here: the whole book does not fit in
         // memory, so each chapter is encoded and dropped.
-        if (
-          options.budgetSeconds &&
-          (performance.now() - modelStart) / 1000 >= options.budgetSeconds
-        ) {
+        if (stopped) {
           logger.info('[benchmark] Time budget reached', { model, chapters: result.chapters })
           break
         }

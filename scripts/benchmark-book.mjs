@@ -26,6 +26,8 @@ function parseArgs(argv) {
     models: ['kokoro', 'piper', 'pocket'],
     maxChapters: undefined,
     maxSegments: undefined,
+    budgetSeconds: undefined,
+    encodeFormats: false,
     out: 'benchmark',
     baseUrl: process.env.BENCHMARK_BASE_URL ?? 'http://localhost:5173',
   }
@@ -52,6 +54,13 @@ function parseArgs(argv) {
       case '--max-segments':
         args.maxSegments = Number(value)
         i++
+        break
+      case '--budget-seconds':
+        args.budgetSeconds = Number(value)
+        i++
+        break
+      case '--encode':
+        args.encodeFormats = true
         break
       case '--out':
         args.out = value
@@ -128,6 +137,15 @@ function reportToMarkdown(report) {
         `${formatDuration(model.exportSeconds)} | ${model.realTimeFactor.toFixed(1)}x | ${whole} | ` +
         `${(model.mp3Bytes / 1e6).toFixed(1)} MB | ${(model.m4bBytes / 1e6).toFixed(1)} MB |`
     )
+    const failures = model.chapterErrors ?? []
+    if (failures.length > 0) {
+      lines.push('')
+      lines.push(
+        `> **${model.model} could not speak ${failures.length} of the chapters.** ` +
+          'The first failure was: ' +
+          failures[0].error.split('\n')[0]
+      )
+    }
   }
 
   lines.push('')
@@ -170,7 +188,7 @@ await page.goto(args.baseUrl)
 const bookUrl = `/${args.book.replace(/^\//, '')}`
 
 const report = await page.evaluate(
-  async ({ url, name, models, maxChapters, maxSegments }) => {
+  async ({ url, name, models, maxChapters, maxSegments, budgetSeconds, encodeFormats }) => {
     const harness = await import('/src/lib/benchmark/harness.ts')
     const response = await fetch(url)
     const book = await response.arrayBuffer()
@@ -180,6 +198,8 @@ const report = await page.evaluate(
       models,
       maxChapters,
       maxSegments,
+      budgetSeconds,
+      encodeFormats,
       onProgress: (progress) => {
         console.log(
           `  ${progress.model} ${progress.phase} ${progress.done}/${progress.total}` +
@@ -194,6 +214,8 @@ const report = await page.evaluate(
     models: args.models,
     maxChapters: args.maxChapters,
     maxSegments: args.maxSegments,
+    budgetSeconds: args.budgetSeconds,
+    encodeFormats: args.encodeFormats,
   }
 )
 

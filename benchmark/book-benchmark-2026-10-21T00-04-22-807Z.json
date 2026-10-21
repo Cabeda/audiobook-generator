@@ -1,0 +1,50 @@
+{
+  "book": "arthur-conan-doyle_the-sign-of-the-four_advanced.epub",
+  "startedAt": "2026-10-21T00:04:22.807Z",
+  "totalSeconds": 396.2012799999714,
+  "models": [
+    {
+      "model": "kokoro",
+      "voice": "af_heart",
+      "chapters": 3,
+      "segments": 188,
+      "audioSeconds": 83.525,
+      "generationSeconds": 154.14051499986647,
+      "exportSeconds": 0,
+      "mp3Bytes": 0,
+      "m4bBytes": 0,
+      "realTimeFactor": 0.5418757034779101,
+      "complete": false,
+      "estimatedTotalSeconds": 2216.9997476576536
+    },
+    {
+      "model": "piper",
+      "voice": "en_GB-alan-medium",
+      "chapters": 2,
+      "segments": 11,
+      "audioSeconds": 66.56,
+      "generationSeconds": 20.858970000028613,
+      "exportSeconds": 0,
+      "mp3Bytes": 0,
+      "m4bBytes": 0,
+      "realTimeFactor": 0,
+      "complete": false,
+      "estimatedTotalSeconds": 0,
+      "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 141 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"” He tossed over, as he spoke, a crumpled sheet of foreign notepaper.\"\n  Error: 4293734264\n\nTroubleshooting: Check text format and voice model compatibility."
+    },
+    {
+      "model": "pocket",
+      "voice": "alba",
+      "chapters": 5,
+      "segments": 428,
+      "audioSeconds": 1437.92,
+      "generationSeconds": 150.60422000026702,
+      "exportSeconds": 0,
+      "mp3Bytes": 0,
+      "m4bBytes": 0,
+      "realTimeFactor": 9.547674029303101,
+      "complete": false,
+      "estimatedTotalSeconds": 951.480866543743
+    }
+  ]
+}
