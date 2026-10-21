@@ -2,11 +2,19 @@ name: Publish Release
 
 # The release pull request carries the version bump. Once it is on main, the
 # tag and the GitHub release are made.
+#
+# It can also be run by hand, to publish a release that did not go through.
 on:
   pull_request:
     types: [closed]
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to publish, for example 0.32.0'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -15,7 +23,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: ${{ github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/') }}
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+       startsWith(github.event.pull_request.head.ref, 'release/'))
 
     steps:
       - name: Checkout code
@@ -24,13 +35,24 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Create the tag
         id: tag
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           git fetch origin main --tags
           git checkout -B main origin/main
 
-          VERSION=$(node -p "require('./package.json').version")
+          if [ -n "$REQUESTED_VERSION" ]; then
+            VERSION="$REQUESTED_VERSION"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
