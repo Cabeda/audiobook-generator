@@ -16,9 +16,10 @@ import { piperClient } from './piperClient'
 const ptVoiceId = 'pt_PT-tugão-medium'
 // Single-sentence excerpt from docs/expresso_article.html to keep segmentation to one chunk
 const articleExcerpt = 'Quem é Ricardo Machado, o novo dono de um bocado disto tudo'
-// Multi-sentence excerpt to exercise segmentation and concatenation
+// Multi-sentence excerpt to exercise segmentation and concatenation. It has to
+// be longer than the largest chunk the client uses, so it is really split.
 const articleFull =
-  'Quem é Ricardo Machado, o novo dono de um bocado disto tudo. Começou a conduzir tratores no Cadaval, quis ser padre e arquiteto, mas hoje é dono do Vale Feitoso.'
+  'Quem é Ricardo Machado, o novo dono de um bocado disto tudo. Começou a conduzir tratores no Cadaval, quis ser padre e arquiteto, mas hoje é dono do Vale Feitoso. O negócio nasceu de uma herança inesperada e de muita teimosia. Em poucos anos, o campo deu lugar a um projeto que hoje emprega meia dúzia de pessoas.'
 
 const makeWav = (bytes = 120) => new Blob([new Uint8Array(bytes)], { type: 'audio/wav' })
 
@@ -67,12 +68,14 @@ const mockPredict = vi.mocked(tts.predict)
 describe('piperClient.generate (pt-PT)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // The calls of one test must not count for the next one.
+    mockPredict.mockReset()
     mockStored.mockResolvedValue([ptVoiceId] as unknown as Awaited<ReturnType<typeof tts.stored>>)
     mockDownload.mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof tts.download>>)
   })
 
   it('produces audio for a Portuguese article excerpt', async () => {
-    mockPredict.mockResolvedValue(makeWav())
+    mockPredict.mockResolvedValue(makePlayableWav())
 
     const blob = await piperClient.generate(articleExcerpt, { voiceId: ptVoiceId })
 
@@ -81,7 +84,7 @@ describe('piperClient.generate (pt-PT)', () => {
   })
 
   it('concatenates multiple segments for the full article excerpt', async () => {
-    mockPredict.mockResolvedValue(makeWav())
+    mockPredict.mockResolvedValue(makePlayableWav())
 
     const blob = await piperClient.generate(articleFull, { voiceId: ptVoiceId })
 
@@ -238,7 +241,7 @@ describe('piperClient MIN_TEXT_LENGTH filtering', () => {
 
   it('filters out segments shorter than MIN_TEXT_LENGTH (3 chars) during chunking', async () => {
     // Text with very short segments that should be filtered
-    mockPredict.mockResolvedValue(makeWav())
+    mockPredict.mockResolvedValue(makePlayableWav())
 
     const text = 'Valid sentence here. 1. Another valid sentence. 2. Final valid text.'
     const blob = await piperClient.generate(text, { voiceId: ptVoiceId })
@@ -288,7 +291,7 @@ describe('piperClient MIN_TEXT_LENGTH filtering', () => {
   })
 
   it('handles mixed short and long segments correctly', async () => {
-    mockPredict.mockResolvedValue(makeWav())
+    mockPredict.mockResolvedValue(makePlayableWav())
 
     // Mix of valid and short segments
     const text = 'This is a valid sentence. 1. Another valid sentence here. 2. 3. Final sentence.'

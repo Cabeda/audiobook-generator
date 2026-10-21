@@ -147,3 +147,6 @@ benchmark/book-benchmark-*.json
 
 # A big book for local profiling runs
 books/large_readeck.epub
+
+# macOS
+.DS_Store
