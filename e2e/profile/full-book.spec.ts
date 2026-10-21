@@ -17,6 +17,12 @@ const SAMPLE_INTERVAL_MS = 5_000
  */
 const TRACE_WINDOW_MS = 90_000
 
+/**
+ * A chapter that does not finish within this is stuck, not slow — bail out with
+ * the chapter name instead of sitting on the four-hour test timeout.
+ */
+const CHAPTER_STALL_MS = 20 * 60_000
+
 type MemorySample = {
   elapsedSec: number
   /** Whole agent cluster: main thread + TTS worker + its WASM heap. */
@@ -181,9 +187,11 @@ test.describe('Full book profiling', () => {
     ).toBe(true)
 
     let workerRestarts = 0
+    let lastChapterAt = Date.now()
     page.on('console', (msg) => {
       const text = msg.text()
       if (text.includes('Restarting TTS worker')) workerRestarts++
+      if (text.includes('Skipping concatenation for chapter')) lastChapterAt = Date.now()
       if (text.includes('[OOM mitigation]')) console.log(`[PAGE] ${text}`)
     })
 
@@ -244,15 +252,21 @@ test.describe('Full book profiling', () => {
 
     // Generation must actually be running before waiting for it to finish.
     await page.waitForSelector('button[aria-label="Cancel this chapter"]', { timeout: 120_000 })
-    await page.waitForFunction(
-      () => {
-        const stateCleared = localStorage.getItem('audiobook_generation_state') === null
-        const noCancel =
+    let finished = false
+    while (!finished) {
+      finished = await page.evaluate(
+        () =>
+          localStorage.getItem('audiobook_generation_state') === null &&
           document.querySelectorAll('button[aria-label="Cancel this chapter"]').length === 0
-        return stateCleared && noCancel
-      },
-      { timeout: 3_000_000, polling: 10_000 }
-    )
+      )
+      if (finished) break
+      if (Date.now() - lastChapterAt > CHAPTER_STALL_MS) {
+        throw new Error(
+          `no chapter finished in ${CHAPTER_STALL_MS / 60_000} min — the run is stuck, not slow`
+        )
+      }
+      await page.waitForTimeout(10_000)
+    }
     console.log('[PROFILE] generation finished')
 
     // Let the final IndexedDB writes and store updates settle before measuring.
