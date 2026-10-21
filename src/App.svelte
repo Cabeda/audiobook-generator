@@ -152,7 +152,7 @@
       // Warm the model up eagerly so the first generation doesn't pay for the
       // download, the same way Kokoro is warmed up.
       import('./lib/pocket/pocketEngine')
-        .then((pocket) => pocket.warmUpPocket())
+        .then((pocket) => pocket.getPocketEngine().warmUp())
         .catch((err) => logger.warn('Could not warm up Pocket TTS:', err))
       availableVoices.set(
         POCKET_VOICES.map((v) => ({

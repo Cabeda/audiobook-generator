@@ -525,17 +525,21 @@ export function numberToWords(value: number): string {
   return rest ? `${millions} ${numberToWords(rest)}` : millions
 }
 
-/** Replace digits with words, so the model reads them instead of the digits. */
+/**
+ * Replace digits with words, so the model reads them instead of the digits.
+ *
+ * A comma groups thousands ("1,000" is one thousand) and a point separates
+ * the fraction ("1.5" is one point five).
+ */
 export function normalizeNumbers(text: string): string {
-  return text.replace(/\d+(?:[.,]\d+)*/g, (match) => {
-    const isDecimal = match.includes('.')
-    const parts = match.split(/[.,]/)
-    const whole = Number(parts[0])
+  return text.replace(/\d[\d,]*(?:\.\d+)?/g, (match) => {
+    const [wholePart, fractionPart] = match.split('.')
+    const whole = Number(wholePart.replace(/,/g, ''))
     if (!Number.isFinite(whole)) return match
 
     let out = numberToWords(whole)
-    if (isDecimal) {
-      const decimals = parts[1]
+    if (fractionPart !== undefined) {
+      const decimals = fractionPart
         .split('')
         .map((digit) => ONES[Number(digit)])
         .join(' ')
@@ -602,14 +606,4 @@ let engine: PocketEngine | null = null
 export function getPocketEngine(): PocketEngine {
   if (!engine) engine = new PocketEngine()
   return engine
-}
-
-/**
- * Download and initialise the Pocket TTS model.
- *
- * Call this when the model is selected, so the first request does not pay for
- * the download.
- */
-export async function warmUpPocket(onProgress?: (status: string) => void): Promise<void> {
-  await getPocketEngine().warmUp(onProgress)
 }

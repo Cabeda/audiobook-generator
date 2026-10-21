@@ -38,7 +38,7 @@
   } from '../lib/utils/textStats'
   import { ADVANCED_SETTINGS_SCHEMA } from '../lib/types/settings'
   import { segmentProgress } from '../stores/segmentProgressStore'
-  import { exportFileExtension, type ExportFormat } from '../lib/exportFormats'
+  import { type ExportFormat } from '../lib/exportFormats'
 
   let { onread }: { onread: (detail: { chapter: Chapter }) => void } = $props()
 
@@ -503,7 +503,7 @@
 
       const { downloadAudioFile } = await import('../lib/audioConcat')
       const safeTitle = chapter.title.replace(/[^a-z0-9]/gi, '_')
-      downloadAudioFile(downloadBlob, `${safeTitle}.${exportFileExtension(format)}`)
+      downloadAudioFile(downloadBlob, `${safeTitle}.${format}`)
 
       toastStore.success(`Downloaded ${chapter.title} as ${format.toUpperCase()}`)
     } catch (error) {

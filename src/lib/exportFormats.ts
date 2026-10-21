@@ -19,11 +19,6 @@ export const EXPORT_FORMATS: { value: ExportFormat; label: string }[] = [
   { value: 'wav', label: 'WAV' },
 ]
 
-/** File extension for a format. */
-export function exportFileExtension(format: ExportFormat): string {
-  return format
-}
-
 /** MIME type for an audio format. */
 export function exportMimeType(format: AudioExportFormat): string {
   switch (format) {

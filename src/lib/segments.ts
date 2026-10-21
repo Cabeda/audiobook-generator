@@ -15,8 +15,10 @@ import type { AudioSegment } from './types/audio'
  * the chapter content, so the EPUB export can tie a segment to the text it
  * belongs to.
  */
+export const SEGMENT_ID_PREFIX = 'seg-'
+
 export function segmentId(index: number): string {
-  return `seg-${index}`
+  return `${SEGMENT_ID_PREFIX}${index}`
 }
 
 /** Create the record for one chunk of generated audio. */

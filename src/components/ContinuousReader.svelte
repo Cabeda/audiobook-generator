@@ -15,6 +15,7 @@
     highlightActiveSegment,
     scrollSegmentIntoView,
     segmentIndexFromEvent,
+    segmentSelector,
     segmentStateFor,
   } from '../lib/reader/readerSegments'
   import { generationService } from '../lib/services/generationService'
@@ -237,7 +238,7 @@
 
   function handleContentKeyDown(event: KeyboardEvent) {
     const target = event.target as HTMLElement
-    if (target.classList.contains('segment') && target.id.startsWith('seg-')) {
+    if (target.classList.contains('segment') && getSegmentIndex(target) !== null) {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
         const index = getSegmentIndex(target)
@@ -315,7 +316,7 @@
     const chapterEl = chapterRefs.get(activeChapterId)
     if (!chapterEl) return
 
-    const segmentEls = chapterEl.querySelectorAll('span[id^="seg-"]')
+    const segmentEls = chapterEl.querySelectorAll(segmentSelector())
     segmentEls.forEach((el) => {
       const idx = getSegmentIndex(el as HTMLElement)
       if (idx === null) return

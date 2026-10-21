@@ -17,7 +17,7 @@ import logger from '../utils/logger'
 import { toastStore } from '../../stores/toastStore'
 import { generatedAudio, book } from '../../stores/bookStore'
 import { parseMp3Duration } from './mp3DurationParser'
-import { exportFileExtension, type AudioExportFormat } from '../exportFormats'
+import type { AudioExportFormat } from '../exportFormats'
 import type { LibraryBook } from '../libraryDB'
 
 /**
@@ -234,7 +234,7 @@ export async function exportAudio(
       (p) => console.log('Concatenating:', p.message)
     )
 
-    const filename = `${bookInfo.title.replace(/[^a-z0-9]/gi, '_')}_audiobook.${exportFileExtension(format)}`
+    const filename = `${bookInfo.title.replace(/[^a-z0-9]/gi, '_')}_audiobook.${format}`
     downloadAudioFile(combined, filename)
   } catch (e) {
     logger.error('Export failed', e)

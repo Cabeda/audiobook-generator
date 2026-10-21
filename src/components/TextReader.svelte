@@ -13,7 +13,7 @@
     markSegmentGenerated,
   } from '../stores/segmentProgressStore'
   import { segmentHtmlContent } from '../lib/services/segmentationService'
-  import { segmentId } from '../lib/segments'
+  import { SEGMENT_ID_PREFIX, segmentId } from '../lib/segments'
   import {
     applySegmentState,
     findSegmentElement,
@@ -21,6 +21,7 @@
     highlightActiveSegment,
     scrollSegmentIntoView,
     segmentIndexFromEvent,
+    segmentSelector,
     segmentStateFor,
   } from '../lib/reader/readerSegments'
   import { generationService } from '../lib/services/generationService'
@@ -520,7 +521,7 @@
     const root = textContentEl
 
     // If segments are already present (e.g., pre-wrapped content), keep them
-    const existing = root.querySelectorAll('span[id^="seg-"]')
+    const existing = root.querySelectorAll(segmentSelector())
     if (existing.length) {
       existing.forEach((el) => el.classList.add('segment'))
       return
@@ -625,7 +626,7 @@
         if (!range.collapsed) {
           const span = document.createElement('span')
           span.className = 'segment'
-          span.id = `seg-${segment.index}`
+          span.id = segmentId(segment.index)
           span.setAttribute('role', 'button')
           span.setAttribute('tabindex', '0')
           span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
@@ -642,7 +643,7 @@
 
           const span = document.createElement('span')
           span.className = 'segment'
-          span.id = `seg-${segment.index}`
+          span.id = segmentId(segment.index)
           span.setAttribute('role', 'button')
           span.setAttribute('tabindex', '0')
           span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
@@ -741,7 +742,7 @@
   // Segments are now pre-wrapped in the HTML, just ensure they have the segment class
   $effect(() => {
     if (audioService.segments.length > 0 && textContentEl) {
-      const existingSegments = textContentEl.querySelectorAll('span[id^="seg-"]')
+      const existingSegments = textContentEl.querySelectorAll(segmentSelector())
       existingSegments.forEach((el) => el.classList.add('segment'))
 
       if (audioService.currentSegmentIndex >= 0) {
@@ -770,11 +771,11 @@
 
     if (!prevGeneratedIndices || generatingChanged) {
       // First run or generating state changed - update all segments
-      const segmentEls = textContentEl.querySelectorAll('span[id^="seg-"]')
+      const segmentEls = textContentEl.querySelectorAll(segmentSelector())
       segmentEls.forEach((el) => {
-        const indexMatch = el.id.match(/seg-(\d+)/)
-        if (indexMatch) {
-          changedIndices.add(parseInt(indexMatch[1], 10))
+        const index = getSegmentIndex(el as HTMLElement)
+        if (index !== null) {
+          changedIndices.add(index)
         }
       })
     } else {
@@ -799,7 +800,7 @@
 
     // Update only changed segments
     for (const index of changedIndices) {
-      const el = textContentEl.querySelector(`#seg-${index}`)
+      const el = findSegmentElement(index, textContentEl)
       if (!el) continue
 
       // Update classes for visual state
@@ -920,7 +921,7 @@
 
   function handleContentKeyDown(event: KeyboardEvent) {
     const target = event.target as HTMLElement
-    if (target.classList.contains('segment') && target.id.startsWith('seg-')) {
+    if (target.classList.contains('segment') && getSegmentIndex(target) !== null) {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
         const index = getSegmentIndex(target)

@@ -240,36 +240,3 @@ export function readVoiceTensor(
   new Uint8Array(data.buffer).set(bytes)
   return data
 }
-
-// ─── .npy ────────────────────────────────────────────────────────────────────
-
-/** Read a float32 .npy file. */
-export function parseNpyFloat32(buffer: ArrayBuffer): { data: Float32Array; shape: number[] } {
-  const bytes = new Uint8Array(buffer)
-  const expected = [0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59]
-  for (let i = 0; i < expected.length; i++) {
-    if (bytes[i] !== expected[i]) throw new Error('Invalid NPY header')
-  }
-
-  const view = new DataView(buffer)
-  const major = view.getUint8(6)
-  const headerLength = major === 1 ? view.getUint16(8, true) : view.getUint32(8, true)
-  const headerOffset = major === 1 ? 10 : 12
-  const headerText = new TextDecoder().decode(new Uint8Array(buffer, headerOffset, headerLength))
-
-  const shapeMatch = headerText.match(/\(\s*([0-9,\s]+)\)/)
-  if (!shapeMatch) throw new Error('Could not parse NPY shape')
-
-  const shape = shapeMatch[1]
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map(Number)
-
-  const dataOffset = headerOffset + headerLength
-  const byteLength = buffer.byteLength - dataOffset
-  const data = new Float32Array(byteLength / 4)
-  new Uint8Array(data.buffer).set(new Uint8Array(buffer, dataOffset, byteLength))
-
-  return { data, shape }
-}

@@ -9,8 +9,14 @@
  * or a whole book at once — so every lookup takes the container to look in.
  */
 
+import { SEGMENT_ID_PREFIX } from '../segments'
+
 export const SEGMENT_CLASS = 'segment'
-export const SEGMENT_ID_PREFIX = 'seg-'
+
+/** The selector for every segment in a container. */
+export function segmentSelector(): string {
+  return `span[id^="${SEGMENT_ID_PREFIX}"]`
+}
 
 /** The index of the segment an element belongs to, or null when it is not one. */
 export function getSegmentIndex(element: HTMLElement | null): number | null {

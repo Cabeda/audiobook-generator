@@ -130,7 +130,6 @@ export class PocketTokenizer {
   private readonly normalPieces = new Map<string, VocabEntry>()
   private readonly bytePieces = new Map<number, number>()
   private readonly maxPieceLength: number
-  private readonly scores = new Map<number, number>()
   readonly unkId: number
 
   constructor(model: SentencePieceModel) {
@@ -138,7 +137,6 @@ export class PocketTokenizer {
     let maxLength = 1
 
     model.pieces.forEach((piece, id) => {
-      this.scores.set(id, piece.score)
       if (piece.type === TYPE_NORMAL) {
         this.normalPieces.set(piece.piece, { id, score: piece.score, chars: [...piece.piece] })
         maxLength = Math.max(maxLength, [...piece.piece].length)
@@ -228,10 +226,6 @@ export class PocketTokenizer {
 
     ids.reverse()
     return ids
-  }
-
-  private scoreOf(id: number): number {
-    return this.scores.get(id) ?? 0
   }
 
   private bytePiecesFor(char: string): number[] {

@@ -13,13 +13,12 @@ import {
   isKokoroLanguageSupported,
   isPocketLanguageSupported,
   normalizeLanguageCode,
+  selectKokoroVoiceForLanguage,
+  selectPiperVoiceForLanguage,
 } from '../utils/voiceSelector'
-import { selectKokoroVoiceForLanguage } from '../utils/voiceSelector'
 import type { TTSModelType } from '../tts/ttsModels'
 import type { PiperVoice } from '../piper/piperClient'
-
-export type Quantization = 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-export type Device = 'auto' | 'wasm' | 'webgpu' | 'cpu'
+import type { Device, Quantization } from '../../stores/ttsStore'
 
 export interface ChapterPlanInput {
   /** The chapter's own overrides. */
@@ -110,16 +109,4 @@ function pickFallbackVoice(
   }
 
   return explicitVoice
-}
-
-/** Pick a Piper voice for a language. Mirrors the reader's picker. */
-function selectPiperVoiceForLanguage(language: string, voices: PiperVoice[]): string {
-  const normalized = normalizeLanguageCode(language)
-  const matching = voices.filter((voice) => normalizeLanguageCode(voice.language) === normalized)
-  if (matching.length > 0) {
-    const medium = matching.find((voice) => voice.quality === 'medium')
-    return (medium ?? matching[0]).key
-  }
-  const english = voices.filter((voice) => normalizeLanguageCode(voice.language) === 'en')
-  return (english[0] ?? voices[0]).key
 }

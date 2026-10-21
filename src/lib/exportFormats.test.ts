@@ -1,22 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import {
-  EXPORT_FORMATS,
-  exportFileExtension,
-  exportMimeType,
-  isAudioExportFormat,
-  type ExportFormat,
-} from './exportFormats'
+import { EXPORT_FORMATS, exportMimeType, isAudioExportFormat } from './exportFormats'
 
 describe('export formats', () => {
   it('offers every format the export button can produce', () => {
     expect(EXPORT_FORMATS.map((f) => f.value)).toEqual(['mp3', 'm4b', 'epub', 'mp4', 'wav'])
-  })
-
-  it('names each format with its own extension', () => {
-    const formats: ExportFormat[] = ['mp3', 'm4b', 'mp4', 'wav', 'epub']
-    for (const format of formats) {
-      expect(exportFileExtension(format)).toBe(format)
-    }
   })
 
   it('gives each audio format its own MIME type', () => {

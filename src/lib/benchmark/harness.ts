@@ -107,7 +107,6 @@ export function benchmarkConfig(model: TTSModelType): TTSEngineConfig {
       return { model: 'onnx-community/Kokoro-82M-v1.0-ONNX', dtype: 'q8', device: 'wasm' }
     case 'piper':
     case 'pocket':
-    default:
       return {}
   }
 }
@@ -123,7 +122,6 @@ export async function benchmarkVoice(model: TTSModelType, language: string): Pro
       return selectPiperVoiceForLanguage(language, voices)
     }
     case 'pocket':
-    default:
       return POCKET_VOICE_IDS[0]
   }
 }
