@@ -107,7 +107,7 @@ Code scanning (CodeQL)
 
 CodeQL is GitHub **default setup**: there is no workflow file to edit, and a failing `CodeQL` check on a PR is a new alert on that PR's head ref. Alerts are ref-scoped, so read them per ref:
 
-    gh api 'repos/Cabeda/audiobook-generator/code-scanning/alerts?ref=refs%2Fpull%2F<PR>%2Fhead&state=open' \
+    gh api 'repos/{owner}/{repo}/code-scanning/alerts?ref=refs%2Fpull%2F<PR>%2Fhead&state=open' \
       --jq '.[] | "\(.rule.id) \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line) \(.most_recent_instance.message.text)"'
 
 The check's `detailsUrl` (`/runs/<id>`) is a code-scanning results page, not an Actions run, so `gh run view` 404s on it. Quote the URL: the bare `?state=open` is a zsh glob.
