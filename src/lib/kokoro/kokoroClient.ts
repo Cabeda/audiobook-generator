@@ -269,10 +269,10 @@ export function warmUpKokoro(
   model = 'onnx-community/Kokoro-82M-v1.0-ONNX',
   dtype: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8',
   device: 'wasm' | 'webgpu' | 'cpu' | 'auto' = 'auto'
-): void {
+): Promise<void> {
   // If already loaded, nothing to do
-  if (ttsInstance) return
-  ;(async () => {
+  if (ttsInstance) return Promise.resolve()
+  return (async () => {
     try {
       const { setModelLoading, setModelReady } = await import('../../stores/modelLoadingStore')
       let actualDevice: 'wasm' | 'webgpu' | 'cpu' = 'wasm'

@@ -15,8 +15,8 @@ export interface LanguageDefault {
 export interface AdaptiveQualitySettings {
   /** Master toggle for adaptive quality TTS */
   enabled: boolean
-  /** Skip Tier 0 (Web Speech), start at Tier 1 */
-  skipWebSpeech: boolean
+  /** Skip the cheapest tier (Tier 0) and start at Tier 1 */
+  skipFastestTier: boolean
   /** Upgrade already-played segments in the background */
   upgradePlayedSegments: boolean
 }
@@ -30,7 +30,7 @@ export interface AppSettings {
 
 const DEFAULT_ADAPTIVE_QUALITY: AdaptiveQualitySettings = {
   enabled: true,
-  skipWebSpeech: false,
+  skipFastestTier: false,
   upgradePlayedSegments: true,
 }
 

@@ -12,7 +12,7 @@ vi.mock('../audioPlaybackService.svelte', () => ({
 }))
 
 import { segmentHtmlContent } from './segmentationService'
-import { parseWavDuration } from './wavParser'
+import { parseWavDuration } from '../wavUtils'
 import { createMockTTSWorkerManager, createMockWavBlob } from '../../test/ttsClientMocks'
 import { flushPromises } from '../../test/svelteRunesTestUtils'
 

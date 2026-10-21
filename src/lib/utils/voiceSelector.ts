@@ -2,6 +2,40 @@ import type { VoiceId } from '../kokoro/kokoroVoices'
 import type { PiperVoice } from '../piper/piperClient'
 
 /**
+ * Pocket TTS ships a small set of preset English voices.
+ */
+export const POCKET_VOICES: string[] = [
+  'alba',
+  'azelma',
+  'cosette',
+  'eponine',
+  'fantine',
+  'javert',
+  'jean',
+  'marius',
+]
+
+/**
+ * Check if the Pocket TTS model supports a given language.
+ * The published model is English only.
+ */
+export function isPocketLanguageSupported(language: string): boolean {
+  const normalized = language.toLowerCase().trim()
+  const base = normalized.split(/[-_]/)[0]
+  return base === 'en'
+}
+
+/**
+ * Select an appropriate Pocket TTS voice based on language.
+ */
+export function selectPocketVoiceForLanguage(language: string, preferredVoice?: string): string {
+  if (preferredVoice && POCKET_VOICES.includes(preferredVoice)) {
+    return preferredVoice
+  }
+  return POCKET_VOICES[0]
+}
+
+/**
  * Language to Kokoro voice mapping
  * Kokoro voices use prefixes: af_ = American Female, am_ = American Male, bf_ = British Female, bm_ = British Male
  */

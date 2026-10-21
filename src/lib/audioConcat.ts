@@ -8,7 +8,8 @@
  */
 import logger from './utils/logger'
 import { EncodingError } from './errors'
-import { writeString, audioBufferToWav } from './wavUtils'
+import { audioBufferToWav, concatWavBlobs } from './wavUtils'
+import { exportMimeType, type AudioExportFormat } from './exportFormats'
 import { convertWavToMp3 as mediabunnyConvertWavToMp3, convertWavToM4b } from './mediabunnyEncoder'
 
 // Re-export WAV utilities so existing consumers don't break
@@ -23,8 +24,6 @@ export {
   incrementalConcatWav,
   downloadAudioFile,
 } from './wavUtils'
-
-export type AudioFormat = 'wav' | 'mp3' | 'm4b' | 'mp4'
 
 export type AudioChapter = {
   id: string
@@ -41,7 +40,7 @@ export type ConcatenationProgress = {
 }
 
 export type ConcatenationOptions = {
-  format?: AudioFormat
+  format?: AudioExportFormat
   bitrate?: number // For MP3: 128, 192, 256, 320 kbps
   bookTitle?: string
   bookAuthor?: string
@@ -244,7 +243,7 @@ export async function concatenateAudioChapters(
   if (format === 'wav' && chapters.every((c) => c.blob.type.includes('wav'))) {
     try {
       logger.info('[audioConcat]', 'Using optimized WAV concatenation')
-      return await concatWavBlobs(chapters)
+      return await concatWavBlobs(chapters.map((c) => c.blob))
     } catch (err) {
       logger.warn('[audioConcat]', 'Optimized WAV concat failed, falling back:', err)
     }
@@ -261,7 +260,7 @@ export async function concatenateAudioChapters(
   // First, produce a single WAV blob from all chapters
   let wavBlob: Blob
   try {
-    wavBlob = await concatWavBlobs(chapters)
+    wavBlob = await concatWavBlobs(chapters.map((c) => c.blob))
   } catch {
     // If optimized concat fails (format mismatch), fall back to WebAudio decode path
     wavBlob = await webAudioConcatToWav(chapters, onProgress)
@@ -283,6 +282,9 @@ export async function concatenateAudioChapters(
       case 'm4b':
       case 'mp4': {
         outputBlob = await convertWavToM4b(wavBlob, bitrate)
+        if (format === 'mp4') {
+          outputBlob = new Blob([outputBlob], { type: exportMimeType('mp4') })
+        }
         // Inject Nero chapter markers if we have multiple chapters with durations
         if (chapters.length > 1) {
           const { injectChapterMarkers } = await import('./m4bChapters')
@@ -348,100 +350,6 @@ export async function audioBufferToMp3(
     default:
       return mediabunnyConvertWavToMp3(wavBlob, bitrate)
   }
-}
-
-/**
- * Lightweight WAV-only concatenation (zero-copy Blob composition).
- */
-async function concatWavBlobs(chapters: AudioChapter[]): Promise<Blob> {
-  if (!chapters || chapters.length === 0) throw new Error('No chapters')
-
-  const parts: BlobPart[] = []
-  let totalDataLength = 0
-
-  async function parseWavHeader(blob: Blob) {
-    const headerData = new Uint8Array(await blob.slice(0, 1024).arrayBuffer())
-    const view = new DataView(headerData.buffer)
-
-    if (String.fromCharCode(...headerData.slice(0, 4)) !== 'RIFF')
-      throw new Error('Not a RIFF WAV file')
-    if (String.fromCharCode(...headerData.slice(8, 12)) !== 'WAVE')
-      throw new Error('Not a WAVE file')
-
-    let offset = 12
-    let fmt: any = null
-    let dataOffset = -1
-    let dataLength = 0
-
-    while (offset < headerData.length) {
-      const chunkId = String.fromCharCode(...headerData.slice(offset, offset + 4))
-      const chunkSize = view.getUint32(offset + 4, true)
-
-      if (chunkId === 'fmt ') {
-        fmt = {
-          audioFormat: view.getUint16(offset + 8, true),
-          numChannels: view.getUint16(offset + 10, true),
-          sampleRate: view.getUint32(offset + 12, true),
-          byteRate: view.getUint32(offset + 16, true),
-          blockAlign: view.getUint16(offset + 20, true),
-          bitsPerSample: view.getUint16(offset + 22, true),
-        }
-      } else if (chunkId === 'data') {
-        dataOffset = offset + 8
-        dataLength = chunkSize
-        break
-      }
-
-      offset += 8 + chunkSize
-    }
-
-    if (!fmt || dataOffset === -1) throw new Error('Invalid WAV: missing fmt or data chunk')
-    return { fmt, dataOffset, dataLength }
-  }
-
-  const firstInfo = await parseWavHeader(chapters[0].blob)
-  parts.push(
-    chapters[0].blob.slice(firstInfo.dataOffset, firstInfo.dataOffset + firstInfo.dataLength)
-  )
-  totalDataLength += firstInfo.dataLength
-
-  for (let i = 1; i < chapters.length; i++) {
-    const info = await parseWavHeader(chapters[i].blob)
-
-    if (
-      info.fmt.audioFormat !== firstInfo.fmt.audioFormat ||
-      info.fmt.numChannels !== firstInfo.fmt.numChannels ||
-      info.fmt.sampleRate !== firstInfo.fmt.sampleRate ||
-      info.fmt.bitsPerSample !== firstInfo.fmt.bitsPerSample
-    ) {
-      throw new Error(
-        `Chapter ${i + 1} format mismatch (SR: ${info.fmt.sampleRate} vs ${firstInfo.fmt.sampleRate}, CH: ${info.fmt.numChannels} vs ${firstInfo.fmt.numChannels})`
-      )
-    }
-
-    parts.push(chapters[i].blob.slice(info.dataOffset, info.dataOffset + info.dataLength))
-    totalDataLength += info.dataLength
-  }
-
-  const headerBuffer = new ArrayBuffer(44)
-  const headerView = new DataView(headerBuffer)
-
-  writeString(headerView, 0, 'RIFF')
-  headerView.setUint32(4, 36 + totalDataLength, true)
-  writeString(headerView, 8, 'WAVE')
-  writeString(headerView, 12, 'fmt ')
-  headerView.setUint32(16, 16, true)
-  headerView.setUint16(20, firstInfo.fmt.audioFormat, true)
-  headerView.setUint16(22, firstInfo.fmt.numChannels, true)
-  headerView.setUint32(24, firstInfo.fmt.sampleRate, true)
-  headerView.setUint32(28, firstInfo.fmt.byteRate, true)
-  headerView.setUint16(32, firstInfo.fmt.blockAlign, true)
-  headerView.setUint16(34, firstInfo.fmt.bitsPerSample, true)
-  writeString(headerView, 36, 'data')
-  headerView.setUint32(40, totalDataLength, true)
-
-  parts.unshift(headerBuffer)
-  return new Blob(parts, { type: 'audio/wav' })
 }
 
 /**

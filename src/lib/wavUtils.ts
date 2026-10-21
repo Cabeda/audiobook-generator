@@ -1,13 +1,28 @@
 /**
- * WAV file format utilities.
+ * WAV module.
  *
- * Pure functions for creating, parsing, and manipulating WAV audio data.
+ * The single place that reads and writes WAV bytes: header parsing, duration
+ * derivation and concatenation. Everything else asks this module instead of
+ * walking chunk bytes itself.
+ *
  * No FFmpeg dependency — these work with raw ArrayBuffers and Blobs.
- *
- * Extracted from audioConcat to isolate WAV-specific concerns.
  */
 
 import logger from './utils/logger'
+
+/** Size of a canonical 44-byte WAV header (RIFF + fmt + data). */
+export const WAV_HEADER_BYTES = 44
+
+export type WavFormat = {
+  audioFormat: number
+  numChannels: number
+  sampleRate: number
+  byteRate: number
+  blockAlign: number
+  bitsPerSample: number
+}
+
+export type WavHeader = { fmt: WavFormat; dataOffset: number; dataLength: number }
 
 // ─── Low-level WAV helpers ───────────────────────────────────────────────────
 
@@ -44,6 +59,32 @@ export function interleave(audioBuffer: AudioBuffer): Float32Array {
 
 // ─── WAV creation / conversion ───────────────────────────────────────────────
 
+/**
+ * Build a canonical 44-byte WAV header for a data region of `dataLength` bytes.
+ * Every writer in this module goes through here, so the header layout lives in
+ * one place.
+ */
+export function buildWavHeader(fmt: WavFormat, dataLength: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(WAV_HEADER_BYTES)
+  const view = new DataView(buffer)
+
+  writeString(view, 0, 'RIFF')
+  view.setUint32(4, 36 + dataLength, true)
+  writeString(view, 8, 'WAVE')
+  writeString(view, 12, 'fmt ')
+  view.setUint32(16, 16, true) // fmt chunk size
+  view.setUint16(20, fmt.audioFormat, true)
+  view.setUint16(22, fmt.numChannels, true)
+  view.setUint32(24, fmt.sampleRate, true)
+  view.setUint32(28, fmt.byteRate, true)
+  view.setUint16(32, fmt.blockAlign, true)
+  view.setUint16(34, fmt.bitsPerSample, true)
+  writeString(view, 36, 'data')
+  view.setUint32(40, dataLength, true)
+
+  return buffer
+}
+
 /** Convert an AudioBuffer to a 16-bit PCM WAV Blob. */
 export function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
   const numberOfChannels = audioBuffer.numberOfChannels
@@ -56,26 +97,27 @@ export function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
 
   const data = interleave(audioBuffer)
   const dataLength = data.length * bytesPerSample
-  const buffer = new ArrayBuffer(44 + dataLength)
+  const buffer = new ArrayBuffer(WAV_HEADER_BYTES + dataLength)
   const view = new DataView(buffer)
 
-  // Write WAV header
-  writeString(view, 0, 'RIFF')
-  view.setUint32(4, 36 + dataLength, true)
-  writeString(view, 8, 'WAVE')
-  writeString(view, 12, 'fmt ')
-  view.setUint32(16, 16, true) // fmt chunk size
-  view.setUint16(20, format, true)
-  view.setUint16(22, numberOfChannels, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * blockAlign, true) // byte rate
-  view.setUint16(32, blockAlign, true)
-  view.setUint16(34, bitDepth, true)
-  writeString(view, 36, 'data')
-  view.setUint32(40, dataLength, true)
+  new Uint8Array(buffer).set(
+    new Uint8Array(
+      buildWavHeader(
+        {
+          audioFormat: format,
+          numChannels: numberOfChannels,
+          sampleRate,
+          byteRate: sampleRate * blockAlign,
+          blockAlign,
+          bitsPerSample: bitDepth,
+        },
+        dataLength
+      )
+    )
+  )
 
   // Write audio data
-  floatTo16BitPCM(view, 44, data)
+  floatTo16BitPCM(view, WAV_HEADER_BYTES, data)
 
   return new Blob([buffer], { type: 'audio/wav' })
 }
@@ -88,59 +130,78 @@ export function createSilentWav(durationSeconds: number = 1, sampleRate: number 
   const totalSamples = sampleRate * durationSeconds
   const dataLength = totalSamples * numChannels * bytesPerSample
 
-  const buffer = new ArrayBuffer(44 + dataLength)
-  const view = new DataView(buffer)
+  const header = buildWavHeader(
+    {
+      audioFormat: 1, // PCM
+      numChannels,
+      sampleRate,
+      byteRate: sampleRate * numChannels * bytesPerSample,
+      blockAlign: numChannels * bytesPerSample,
+      bitsPerSample: bitDepth,
+    },
+    dataLength
+  )
 
-  const writeStr = (offset: number, s: string) => {
-    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i))
-  }
-
-  writeStr(0, 'RIFF')
-  view.setUint32(4, 36 + dataLength, true)
-  writeStr(8, 'WAVE')
-  writeStr(12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true) // PCM
-  view.setUint16(22, numChannels, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * numChannels * bytesPerSample, true)
-  view.setUint16(32, numChannels * bytesPerSample, true)
-  view.setUint16(34, bitDepth, true)
-  writeStr(36, 'data')
-  view.setUint32(40, dataLength, true)
-
-  // Data is already 0 (silence) in new ArrayBuffer
-
-  return new Blob([buffer], { type: 'audio/wav' })
+  // Data is already 0 (silence) in a fresh ArrayBuffer
+  return new Blob([header, new ArrayBuffer(dataLength)], { type: 'audio/wav' })
 }
 
 // ─── WAV parsing ─────────────────────────────────────────────────────────────
 
 /**
- * Parse WAV header from a blob, returning format info and data region.
- * Only reads the first 1024 bytes — does NOT load the full blob into memory.
+ * Read a Blob (or a slice of it) as a Uint8Array.
+ * Works in both browser and jsdom test environments where
+ * Blob.arrayBuffer() or Blob.slice().arrayBuffer() may be missing.
  */
-export async function parseWavHeaderFromBlob(blob: Blob) {
-  const headerData = new Uint8Array(await blob.slice(0, 1024).arrayBuffer())
+export async function readBlobAsUint8Array(blob: Blob, maxBytes?: number): Promise<Uint8Array> {
+  const target = maxBytes != null && maxBytes < blob.size ? blob.slice(0, maxBytes) : blob
+
+  if (typeof target.arrayBuffer === 'function') {
+    try {
+      return new Uint8Array(await target.arrayBuffer())
+    } catch {
+      // fall through
+    }
+  }
+
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(new Uint8Array(reader.result))
+      } else {
+        reject(new Error('FileReader did not return ArrayBuffer'))
+      }
+    }
+    reader.onerror = () => reject(reader.error || new Error('FileReader error'))
+    reader.readAsArrayBuffer(target)
+  })
+}
+
+/**
+ * Walk the RIFF chunks of a WAV blob once and report what was found.
+ * Never throws: `isRiffWav` tells you whether the bytes are a RIFF/WAVE file,
+ * `fmt` is null when the fmt chunk is missing.
+ */
+export async function readWavHeader(blob: Blob): Promise<{
+  isRiffWav: boolean
+  fmt: WavFormat | null
+  dataOffset: number
+  dataLength: number
+}> {
+  const headerData = await readBlobAsUint8Array(blob, 1024)
   const view = new DataView(headerData.buffer)
 
-  if (String.fromCharCode(...headerData.slice(0, 4)) !== 'RIFF')
-    throw new Error('Not a RIFF WAV file')
-  if (String.fromCharCode(...headerData.slice(8, 12)) !== 'WAVE') throw new Error('Not a WAVE file')
+  const isRiffWav =
+    String.fromCharCode(...headerData.slice(0, 4)) === 'RIFF' &&
+    String.fromCharCode(...headerData.slice(8, 12)) === 'WAVE'
 
   let offset = 12
-  let fmt: {
-    audioFormat: number
-    numChannels: number
-    sampleRate: number
-    byteRate: number
-    blockAlign: number
-    bitsPerSample: number
-  } | null = null
+  let fmt: WavFormat | null = null
   let dataOffset = -1
   let dataLength = 0
 
-  while (offset < headerData.length) {
+  while (offset + 8 <= headerData.length) {
     const chunkId = String.fromCharCode(...headerData.slice(offset, offset + 4))
     const chunkSize = view.getUint32(offset + 4, true)
 
@@ -162,9 +223,51 @@ export async function parseWavHeaderFromBlob(blob: Blob) {
     offset += 8 + chunkSize
   }
 
+  return { isRiffWav, fmt, dataOffset, dataLength }
+}
+
+/**
+ * Parse WAV header from a blob, returning format info and data region.
+ * Only reads the first 1024 bytes — does NOT load the full blob into memory.
+ */
+export async function parseWavHeaderFromBlob(blob: Blob): Promise<WavHeader> {
+  const { isRiffWav, fmt, dataOffset, dataLength } = await readWavHeader(blob)
+
+  if (!isRiffWav) throw new Error('Not a RIFF WAV file')
   if (!fmt || dataOffset === -1) throw new Error('Invalid WAV: missing fmt or data chunk')
 
   return { fmt, dataOffset, dataLength }
+}
+
+/**
+ * Parse a WAV blob header and return the accurate duration in seconds.
+ * Handles arbitrary chunk layouts (extra LIST/fact/etc. chunks before data).
+ *
+ * Never throws: a blob that is not a WAV falls back to a size estimate, so one
+ * bad segment cannot take down a whole generation run.
+ */
+export async function parseWavDuration(blob: Blob): Promise<number> {
+  const { isRiffWav, fmt, dataLength } = await readWavHeader(blob)
+
+  if (!isRiffWav) {
+    // Not a valid WAV — fall back to blob-size estimate (24kHz 16-bit mono)
+    const fallback = (blob.size - WAV_HEADER_BYTES) / (24000 * 2)
+    return fallback > 0 ? fallback : 0
+  }
+
+  const sampleRate = fmt?.sampleRate ?? 24000
+  const numChannels = fmt?.numChannels ?? 1
+  const bitsPerSample = fmt?.bitsPerSample ?? 16
+
+  if (dataLength <= 0) {
+    // Could not find data chunk — fall back using parsed fmt values
+    const fallback =
+      (blob.size - WAV_HEADER_BYTES) / (sampleRate * (bitsPerSample / 8) * numChannels)
+    return fallback > 0 ? fallback : 0
+  }
+
+  const bytesPerSec = sampleRate * (bitsPerSample / 8) * numChannels
+  return bytesPerSec > 0 ? dataLength / bytesPerSec : 0
 }
 
 // ─── WAV duration / metadata ─────────────────────────────────────────────────
@@ -186,31 +289,13 @@ export function getAudioDuration(blob: Blob): Promise<number> {
 // ─── WAV concatenation ──────────────────────────────────────────────────────
 
 /**
- * Incrementally concatenate WAV segments, loading one at a time.
- * This keeps peak memory at ~1 segment blob instead of N segments.
- *
- * @param segmentCount - Total number of segments
- * @param getSegmentBlob - Async function that loads a single segment blob by index.
- *   The caller is responsible for releasing the blob after this function returns.
-/**
  * Resample a WAV blob's PCM data to match a target format.
  * Uses linear interpolation. Returns a new WAV blob in the target format.
  */
 async function resampleWavBlob(
   blob: Blob,
-  srcInfo: {
-    fmt: { sampleRate: number; numChannels: number; bitsPerSample: number }
-    dataOffset: number
-    dataLength: number
-  },
-  targetFmt: {
-    sampleRate: number
-    numChannels: number
-    bitsPerSample: number
-    byteRate: number
-    blockAlign: number
-    audioFormat: number
-  }
+  srcInfo: WavHeader,
+  targetFmt: WavFormat
 ): Promise<Blob> {
   const srcData = new Int16Array(
     await blob.slice(srcInfo.dataOffset, srcInfo.dataOffset + srcInfo.dataLength).arrayBuffer()
@@ -240,27 +325,18 @@ async function resampleWavBlob(
   }
 
   const targetDataLength = targetData.byteLength
-  const headerBuffer = new ArrayBuffer(44)
-  const view = new DataView(headerBuffer)
-  writeString(view, 0, 'RIFF')
-  view.setUint32(4, 36 + targetDataLength, true)
-  writeString(view, 8, 'WAVE')
-  writeString(view, 12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, targetFmt.audioFormat, true)
-  view.setUint16(22, targetChannels, true)
-  view.setUint32(24, targetSampleRate, true)
-  view.setUint32(28, targetFmt.byteRate, true)
-  view.setUint16(32, targetFmt.blockAlign, true)
-  view.setUint16(34, targetFmt.bitsPerSample, true)
-  writeString(view, 36, 'data')
-  view.setUint32(40, targetDataLength, true)
+  const headerBuffer = buildWavHeader(targetFmt, targetDataLength)
 
   return new Blob([headerBuffer, targetData.buffer], { type: 'audio/wav' })
 }
 
-/** @param onProgress - Optional progress callback
- * @returns Combined WAV blob
+/**
+ * Incrementally concatenate WAV segments, loading one at a time.
+ * This keeps peak memory at ~1 segment blob instead of N segments.
+ *
+ * @param segmentCount - Total number of segments
+ * @param getSegmentBlob - Async function that loads a single segment blob by index.
+ *   The caller is responsible for releasing the blob after this function returns.
  */
 export async function incrementalConcatWav(
   segmentCount: number,
@@ -271,7 +347,7 @@ export async function incrementalConcatWav(
 
   const parts: BlobPart[] = []
   let totalDataLength = 0
-  let referenceFmt: Awaited<ReturnType<typeof parseWavHeaderFromBlob>>['fmt'] | null = null
+  let referenceFmt: WavFormat | null = null
 
   for (let i = 0; i < segmentCount; i++) {
     onProgress?.(i, segmentCount)
@@ -327,27 +403,45 @@ export async function incrementalConcatWav(
 
   if (!referenceFmt) throw new Error('No valid segments found')
 
-  // Build WAV header
-  const headerBuffer = new ArrayBuffer(44)
-  const headerView = new DataView(headerBuffer)
-
-  writeString(headerView, 0, 'RIFF')
-  headerView.setUint32(4, 36 + totalDataLength, true)
-  writeString(headerView, 8, 'WAVE')
-  writeString(headerView, 12, 'fmt ')
-  headerView.setUint32(16, 16, true)
-  headerView.setUint16(20, referenceFmt.audioFormat, true)
-  headerView.setUint16(22, referenceFmt.numChannels, true)
-  headerView.setUint32(24, referenceFmt.sampleRate, true)
-  headerView.setUint32(28, referenceFmt.byteRate, true)
-  headerView.setUint16(32, referenceFmt.blockAlign, true)
-  headerView.setUint16(34, referenceFmt.bitsPerSample, true)
-  writeString(headerView, 36, 'data')
-  headerView.setUint32(40, totalDataLength, true)
-
-  parts.unshift(headerBuffer)
+  parts.unshift(buildWavHeader(referenceFmt, totalDataLength))
 
   onProgress?.(segmentCount, segmentCount)
+
+  return new Blob(parts, { type: 'audio/wav' })
+}
+
+/**
+ * Concatenate WAV blobs into one WAV blob (zero-copy Blob composition).
+ *
+ * The header of each blob is parsed, so blobs whose header is longer than the
+ * canonical 44 bytes are spliced correctly. Blobs must share a format.
+ */
+export async function concatWavBlobs(blobs: Blob[]): Promise<Blob> {
+  if (!blobs || blobs.length === 0) throw new Error('No chapters to concatenate')
+
+  const parts: BlobPart[] = []
+  let totalDataLength = 0
+  const referenceFmt = (await parseWavHeaderFromBlob(blobs[0])).fmt
+
+  for (let i = 0; i < blobs.length; i++) {
+    const info = await parseWavHeaderFromBlob(blobs[i])
+
+    if (
+      info.fmt.audioFormat !== referenceFmt.audioFormat ||
+      info.fmt.numChannels !== referenceFmt.numChannels ||
+      info.fmt.sampleRate !== referenceFmt.sampleRate ||
+      info.fmt.bitsPerSample !== referenceFmt.bitsPerSample
+    ) {
+      throw new Error(
+        `WAV format mismatch at blob ${i + 1} (SR: ${info.fmt.sampleRate} vs ${referenceFmt.sampleRate}, CH: ${info.fmt.numChannels} vs ${referenceFmt.numChannels})`
+      )
+    }
+
+    parts.push(blobs[i].slice(info.dataOffset, info.dataOffset + info.dataLength))
+    totalDataLength += info.dataLength
+  }
+
+  parts.unshift(buildWavHeader(referenceFmt, totalDataLength))
 
   return new Blob(parts, { type: 'audio/wav' })
 }

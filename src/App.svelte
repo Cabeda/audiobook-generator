@@ -16,10 +16,16 @@
 
   // APIs & Logic
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroVoices'
-  import { warmUpKokoro } from './lib/kokoro/kokoroClient'
   import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
-  import { isKokoroLanguageSupported, selectPiperVoiceForLanguage } from './lib/utils/voiceSelector'
+  import {
+    isKokoroLanguageSupported,
+    selectPiperVoiceForLanguage,
+    POCKET_VOICES,
+  } from './lib/utils/voiceSelector'
+  import { POCKET_VOICE_LABELS } from './lib/pocket/pocketAssets'
+  import { planChapter } from './lib/services/chapterPlan'
+  import logger from './lib/utils/logger'
   import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
   import { generationService } from './lib/services/generationService'
   import type { Chapter, Book } from './lib/types/book'
@@ -70,17 +76,18 @@
     return resolveChapterLanguageWithDetection(currentChapter, $book)
   })
 
-  // Compute effective model (with language-based fallback from Kokoro to Piper)
-  // Priority: chapter override > app language default > global toolbar selection
-  let readerModel = $derived.by(() => {
-    const langDefault = $appSettings.languageDefaults[readerLanguage]
-    const baseModel = currentChapter?.model || langDefault?.model || $selectedModel
-    // If Kokoro is selected but doesn't support the language, fallback to Piper
-    if (baseModel === 'kokoro' && !isKokoroLanguageSupported(readerLanguage)) {
-      return 'piper' as const
-    }
-    return baseModel as 'kokoro' | 'piper'
-  })
+  // The plan decides the engine, the voice and the settings for this chapter.
+  let readerPlan = $derived.by(() =>
+    planChapter({
+      chapter: { model: currentChapter?.model, voice: currentChapter?.voice },
+      language: readerLanguage,
+      languageDefaults: $appSettings.languageDefaults,
+      selectedModel: $selectedModel,
+      selectedVoice: $selectedVoice,
+    })
+  )
+
+  let readerModel = $derived(readerPlan.model)
 
   // Compute effective voice considering model fallback
   // Priority: chapter override > app language default > global toolbar > auto-select
@@ -126,8 +133,6 @@
   $effect(() => {
     const model = $selectedModel
     if (model === 'kokoro') {
-      // Warm up the model eagerly so the first generation doesn't pay load cost
-      warmUpKokoro('onnx-community/Kokoro-82M-v1.0-ONNX', $selectedQuantization, $selectedDevice)
       availableVoices.set(
         kokoroVoices.map((v) => ({
           id: v,
@@ -138,6 +143,18 @@
       untrack(() => {
         if (kokoroVoices.includes($lastKokoroVoice as any)) {
           selectedVoice.set($lastKokoroVoice)
+        }
+      })
+    } else if (model === 'pocket') {
+      availableVoices.set(
+        POCKET_VOICES.map((v) => ({
+          id: v,
+          label: POCKET_VOICE_LABELS[v as keyof typeof POCKET_VOICE_LABELS] || v,
+        }))
+      )
+      untrack(() => {
+        if (!POCKET_VOICES.includes($selectedVoice as any)) {
+          selectedVoice.set(POCKET_VOICES[0])
         }
       })
     } else if (model === 'piper') {

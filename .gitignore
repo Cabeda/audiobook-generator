@@ -141,3 +141,6 @@ test-results/
 playwright-report/
 playwright/.cache/
 package-lock.json
+
+# Benchmark runs are kept in latest.* only
+benchmark/book-benchmark-*.json

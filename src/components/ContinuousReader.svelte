@@ -8,6 +8,16 @@
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
   import { segmentProgress, getGeneratedSegment } from '../stores/segmentProgressStore'
   import { segmentHtmlContent } from '../lib/services/segmentationService'
+  import {
+    applySegmentState,
+    findSegmentElement,
+    getSegmentIndex,
+    highlightActiveSegment,
+    scrollSegmentIntoView,
+    segmentIndexFromEvent,
+    segmentSelector,
+    segmentStateFor,
+  } from '../lib/reader/readerSegments'
   import { generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
@@ -228,7 +238,7 @@
 
   function handleContentKeyDown(event: KeyboardEvent) {
     const target = event.target as HTMLElement
-    if (target.classList.contains('segment') && target.id.startsWith('seg-')) {
+    if (target.classList.contains('segment') && getSegmentIndex(target) !== null) {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
         const index = getSegmentIndex(target)
@@ -244,12 +254,6 @@
         activateSegment(chapterId, chapter, index)
       }
     }
-  }
-
-  function getSegmentIndex(element: HTMLElement | null): number | null {
-    if (!element || !element.id.startsWith('seg-')) return null
-    const index = parseInt(element.id.replace('seg-', ''), 10)
-    return isNaN(index) ? null : index
   }
 
   async function activateSegment(chapterId: string, chapter: Chapter, index: number) {
@@ -286,32 +290,20 @@
     // Scope to the playing chapter's container to avoid matching seg-N in a different chapter
     const playingChapterId = get(audioPlayerStore).chapterId
     const chapterEl = playingChapterId ? chapterRefs.get(playingChapterId) : null
-    const segmentEl = chapterEl
-      ? (chapterEl.querySelector(`#seg-${currentIndex}`) as HTMLElement | null)
-      : document.getElementById(`seg-${currentIndex}`)
+    const segmentEl = findSegmentElement(currentIndex, chapterEl)
     if (!segmentEl) return
 
-    const rect = segmentEl.getBoundingClientRect()
-    const isOutsideViewport = rect.top < 100 || rect.bottom > window.innerHeight - 100
-    if (isOutsideViewport) {
-      segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
+    scrollSegmentIntoView(segmentEl, { top: 100, bottom: window.innerHeight - 100 })
   })
 
   // Highlight active segment
   $effect(() => {
     const index = audioService.currentSegmentIndex
     if (index >= 0) {
-      const active = document.querySelectorAll('.segment.active')
-      active.forEach((el) => el.classList.remove('active'))
-
       // Scope to the playing chapter's container to avoid cross-chapter ID collisions
       const playingChapterId = get(audioPlayerStore).chapterId
       const chapterEl = playingChapterId ? chapterRefs.get(playingChapterId) : null
-      const el = chapterEl
-        ? (chapterEl.querySelector(`#seg-${index}`) as HTMLElement | null)
-        : document.getElementById(`seg-${index}`)
-      if (el) el.classList.add('active')
+      highlightActiveSegment(index, chapterEl)
     }
   })
 
@@ -324,21 +316,11 @@
     const chapterEl = chapterRefs.get(activeChapterId)
     if (!chapterEl) return
 
-    const segmentEls = chapterEl.querySelectorAll('span[id^="seg-"]')
+    const segmentEls = chapterEl.querySelectorAll(segmentSelector())
     segmentEls.forEach((el) => {
-      const indexMatch = el.id.match(/seg-(\d+)/)
-      if (!indexMatch) return
-      const idx = parseInt(indexMatch[1], 10)
-      const isGenerated = progress.generatedIndices.has(idx)
-
-      el.classList.remove('segment-pending', 'segment-generated', 'segment-generating')
-      if (isGenerated) {
-        el.classList.add('segment-generated')
-      } else if (progress.isGenerating && idx === progress.processingIndex) {
-        el.classList.add('segment-generating')
-      } else if (progress.isGenerating) {
-        el.classList.add('segment-pending')
-      }
+      const idx = getSegmentIndex(el as HTMLElement)
+      if (idx === null) return
+      applySegmentState(el, segmentStateFor(idx, progress))
     })
   })
 

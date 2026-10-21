@@ -1,5 +1,5 @@
 import logger from './lib/utils/logger'
-import { getTTSEngine, type TTSModelType } from './lib/tts/ttsModels'
+import { getTTSEngine, type TTSEngineConfig, type TTSModelType } from './lib/tts/ttsModels'
 
 console.log('[Worker] Worker script loaded')
 
@@ -18,11 +18,9 @@ type WorkerRequest = {
   voice?: string
   speed?: number
   pitch?: number
-  // Kokoro-specific
-  dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
-  model?: string
-  device?: 'wasm' | 'webgpu' | 'cpu' | 'auto'
-  advancedSettings?: Record<string, any>
+  language?: string
+  /** Knobs only some engines understand. */
+  config?: TTSEngineConfig
 }
 
 type ChunkProgress = {
@@ -61,28 +59,18 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     voice,
     speed,
     pitch,
-    model,
-    dtype,
-    device = 'auto',
-    advancedSettings = {},
+    language,
+    config = {},
   } = event.data
 
   console.log('[Worker] Received message:', type, id)
 
   if (type === 'generate') {
     try {
-      // Log device selection
-      logger.info(`[Worker] Generating with device: ${device}`)
+      logger.info(`[Worker] Generating with ${modelType}`)
 
-      // Send progress update
-      self.postMessage({
-        id,
-        type: 'progress',
-        message: modelType === 'kokoro' ? 'Preparing...' : 'Initializing speech...',
-      } as WorkerResponse)
-
-      // Get the appropriate TTS engine
-      const engine = await getTTSEngine(modelType)
+      // Get the appropriate TTS engine. The engine owns its own configuration.
+      const engine = await getTTSEngine(modelType, config)
 
       // Generate audio with chunk progress tracking
       const blob = await engine.generateVoice(
@@ -91,10 +79,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           voice,
           speed,
           pitch,
-          model,
-          dtype,
-          device,
-          ...advancedSettings,
+          language,
         },
         (current, total) => {
           // Send chunk progress update
@@ -137,14 +122,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     }
   } else if (type === 'generate-segments') {
     try {
-      // Send progress update
-      self.postMessage({
-        id,
-        type: 'progress',
-        message: modelType === 'kokoro' ? 'Preparing...' : 'Initializing speech...',
-      } as WorkerResponse)
-
-      const engine = await getTTSEngine(modelType)
+      const engine = await getTTSEngine(modelType, config)
 
       if (!engine.generateSegments) {
         throw new Error(`Model ${modelType} does not support segment generation`)
@@ -156,10 +134,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           voice,
           speed,
           pitch,
-          model,
-          dtype,
-          device,
-          ...advancedSettings,
+          language,
         },
         (current, total) => {
           self.postMessage({

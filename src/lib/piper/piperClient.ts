@@ -1,6 +1,6 @@
 import logger from '../utils/logger'
 import { MIN_TEXT_LENGTH } from '../audioConstants'
-import { createSilentWav } from '../wavUtils'
+import { concatWavBlobs, createSilentWav } from '../wavUtils'
 import {
   getPiperChunkSize,
   getPiperThreadingMode,
@@ -292,49 +292,9 @@ export class PiperClient {
       return blobs[0]
     }
 
-    const buffers = await Promise.all(blobs.map((b) => this.toArrayBufferSafe(b)))
-
-    // Calculate total length (excluding headers of all but first)
-    // WAV header is 44 bytes
-    const headerLength = 44
-    let totalDataLength = 0
-
-    for (const buffer of buffers) {
-      if (buffer.byteLength > headerLength) {
-        totalDataLength += buffer.byteLength - headerLength
-      }
-    }
-
-    if (totalDataLength === 0) {
-      logger.warn('All WAV buffers are too small to concatenate')
-      return blobs[0]
-    }
-
-    const resultBuffer = new Uint8Array(headerLength + totalDataLength)
-
-    // Copy header from first valid buffer
-    const firstBuffer = buffers.find((b) => b.byteLength > headerLength) || buffers[0]
-    resultBuffer.set(new Uint8Array(firstBuffer.slice(0, headerLength)), 0)
-
-    // Update total size in header (bytes 4-7) = 36 + SubChunk2Size
-    const totalSize = 36 + totalDataLength
-    const view = new DataView(resultBuffer.buffer)
-    view.setUint32(4, totalSize, true)
-
-    // Update data size in header (bytes 40-43) = SubChunk2Size
-    view.setUint32(40, totalDataLength, true)
-
-    // Copy data
-    let offset = headerLength
-    for (const buffer of buffers) {
-      if (buffer.byteLength > headerLength) {
-        const data = new Uint8Array(buffer.slice(headerLength))
-        resultBuffer.set(data, offset)
-        offset += data.length
-      }
-    }
-
-    return new Blob([resultBuffer], { type: 'audio/wav' })
+    // The WAV module owns header parsing, so blobs with a header longer than
+    // the canonical 44 bytes are spliced correctly.
+    return concatWavBlobs(blobs)
   }
 
   private async generateChunkWithRetry(

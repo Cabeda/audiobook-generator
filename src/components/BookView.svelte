@@ -24,6 +24,8 @@
     advancedSettings,
   } from '../stores/ttsStore'
   import { toastStore } from '../stores/toastStore'
+  import { warmUpKokoro } from '../lib/kokoro/kokoroClient'
+  import logger from '../lib/utils/logger'
   import { generationService, isGeneratingStore } from '../lib/services/generationService'
   import { TTS_MODELS } from '../lib/tts/ttsModels'
   import ChapterItem from './ChapterItem.svelte'
@@ -143,7 +145,30 @@
   )
 
   // Actions
+  /**
+   * Warm the selected speech model up, so the first generation does not pay for
+   * the download.
+   */
+  function warmUpSelectedModel() {
+    const model = get(selectedModelStore)
+    if (model === 'kokoro') {
+      warmUpKokoro(
+        'onnx-community/Kokoro-82M-v1.0-ONNX',
+        get(selectedQuantization),
+        get(selectedDevice)
+      )
+    } else if (model === 'pocket') {
+      import('../lib/pocket/pocketEngine')
+        .then((pocket) => pocket.getPocketEngine().warmUp())
+        .catch((err) => logger.warn('Could not warm up Pocket TTS:', err))
+    }
+  }
+
   onMount(() => {
+    // Warm the speech model up while the reader is choosing a chapter, so the
+    // first generation does not pay for the download.
+    warmUpSelectedModel()
+
     // Detect mobile screen size
     const checkMobile = () => {
       isMobile = window.innerWidth <= 768
@@ -430,18 +455,14 @@
         author: $book.author,
         // Cover is optional in Book type
       })
-    } else {
-      // Audio formats (mp3, mp4, m4b, wav)
-      await generationService.exportAudio(
-        relevantChapters,
-        selectedFormat as any,
-        selectedBitrate,
-        {
-          title: $book.title,
-          author: $book.author,
-        }
-      )
+      return
     }
+
+    // Audio formats (mp3, mp4, m4b, wav)
+    await generationService.exportAudio(relevantChapters, selectedFormat, selectedBitrate, {
+      title: $book.title,
+      author: $book.author,
+    })
   }
 
   function handleRead(chapter: Chapter) {
@@ -466,31 +487,21 @@
     }
 
     // Lazy-load audio from DB if not already in memory
-    let audioData = audioMap.get(chapterId) || (await ensureChapterAudio(chapterId))
+    const merged = audioMap.get(chapterId) || (await ensureChapterAudio(chapterId))
 
-    // If no merged audio, try concatenating segments from IndexedDB
-    if (!audioData) {
+    // If no merged audio, build it from the chapter's segments
+    let audioBlob = merged?.blob
+    if (!audioBlob) {
       try {
-        const { getBookId } = await import('../lib/services/exportService')
-        const bookId = getBookId()
-        if (bookId) {
-          const { getChapterSegments } = await import('../lib/libraryDB')
-          const { incrementalConcatWav } = await import('../lib/wavUtils')
-          const segments = await getChapterSegments(bookId, chapterId)
-          if (segments.length > 0) {
-            const sortedSegments = [...segments].sort((a, b) => a.index - b.index)
-            const blob = await incrementalConcatWav(sortedSegments.length, async (index) => {
-              return sortedSegments[index]?.audioBlob ?? null
-            })
-            audioData = { url: URL.createObjectURL(blob), blob }
-          }
-        }
+        const { buildChapterAudio, getBookId } = await import('../lib/services/exportService')
+        const built = await buildChapterAudio(chapterId, getBookId())
+        audioBlob = built?.blob
       } catch (e) {
         console.warn('[handleDownload] Failed to concatenate segments:', e)
       }
     }
 
-    if (!audioData) {
+    if (!audioBlob) {
       toastStore.error('No audio data available for this chapter')
       return
     }
@@ -498,13 +509,13 @@
     try {
       toastStore.info(`Preparing ${format.toUpperCase()} download...`)
 
-      let downloadBlob = audioData.blob
+      let downloadBlob = audioBlob
 
       // Convert if needed
       if (format !== 'wav') {
         const { concatenateAudioChapters } = await import('../lib/audioConcat')
         const converted = await concatenateAudioChapters(
-          [{ id: chapter.id, title: chapter.title, blob: audioData.blob }],
+          [{ id: chapter.id, title: chapter.title, blob: audioBlob }],
           { format, bitrate: selectedBitrate },
           (progress) => {
             if (progress.message) {
@@ -516,10 +527,8 @@
       }
 
       const { downloadAudioFile } = await import('../lib/audioConcat')
-      const ext =
-        format === 'm4b' ? 'm4b' : format === 'mp4' ? 'mp4' : format === 'mp3' ? 'mp3' : 'wav'
       const safeTitle = chapter.title.replace(/[^a-z0-9]/gi, '_')
-      downloadAudioFile(downloadBlob, `${safeTitle}.${ext}`)
+      downloadAudioFile(downloadBlob, `${safeTitle}.${format}`)
 
       toastStore.success(`Downloaded ${chapter.title} as ${format.toUpperCase()}`)
     } catch (error) {

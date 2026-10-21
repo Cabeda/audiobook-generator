@@ -27,7 +27,11 @@
     getKokoroVoicesForLanguage,
     getPiperVoicesForLanguage,
     isKokoroLanguageSupported,
+    POCKET_VOICES,
+    isPocketLanguageSupported,
   } from '../lib/utils/voiceSelector'
+  import { POCKET_VOICE_LABELS } from '../lib/pocket/pocketAssets'
+  import { planChapter } from '../lib/services/chapterPlan'
   import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
   import { piperVoices } from '../stores/piperVoicesStore'
   import { EXPORT_FORMATS, type ExportFormat } from '../lib/exportFormats'
@@ -113,24 +117,21 @@
   // Compute the effective language for this chapter
   let effectiveLanguage = $derived(book ? resolveChapterLanguageWithDetection(chapter, book) : 'en')
 
-  // Compute the effective model (with automatic fallback if language not supported)
-  // Priority: chapter override > app language default > global toolbar selection
-  let effectiveModel = $derived.by(() => {
-    const langDefault = $appSettings.languageDefaults[effectiveLanguage]
-    const baseModel = chapterModel || langDefault?.model || $selectedModel
-    // If Kokoro is selected but doesn't support the language, fallback to Piper
-    if (baseModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
-      return 'piper'
-    }
-    return baseModel
-  })
+  // The plan decides the engine, the voice and the settings for this chapter.
+  let chapterPlan = $derived.by(() =>
+    planChapter({
+      chapter: { model: chapterModel, voice: chapterVoice },
+      language: effectiveLanguage,
+      languageDefaults: $appSettings.languageDefaults,
+      selectedModel: $selectedModel,
+      selectedVoice: $selectedVoice,
+    })
+  )
+
+  let effectiveModel = $derived(chapterPlan.model)
 
   // Is this a fallback from the user's choice?
-  let isModelFallback = $derived.by(() => {
-    const langDefault = $appSettings.languageDefaults[effectiveLanguage]
-    const userChoice = chapterModel || langDefault?.model || $selectedModel
-    return userChoice === 'kokoro' && effectiveModel === 'piper'
-  })
+  let isModelFallback = $derived(chapterPlan.isFallbackModel)
 
   // Compute available voices for the effective model and language
   let chapterAvailableVoices = $derived.by(() => {
@@ -148,6 +149,12 @@
         return matchingVoices.map((v) => ({ id: v.key, label: v.name }))
       }
       return []
+    } else if (effectiveModel === 'pocket') {
+      if (!isPocketLanguageSupported(effectiveLanguage)) return []
+      return POCKET_VOICES.map((v) => ({
+        id: v,
+        label: POCKET_VOICE_LABELS[v as keyof typeof POCKET_VOICE_LABELS] || v,
+      }))
     }
     return []
   })

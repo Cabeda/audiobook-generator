@@ -1,0 +1,109 @@
+{
+  "book": "arthur-conan-doyle_the-sign-of-the-four_advanced.epub",
+  "startedAt": "2026-10-21T00:22:54.077Z",
+  "totalSeconds": 422.9300350000858,
+  "models": [
+    {
+      "model": "kokoro",
+      "voice": "af_heart",
+      "chapters": 3,
+      "segments": 188,
+      "audioSeconds": 83.525,
+      "generationSeconds": 151.8608250000477,
+      "exportSeconds": 0,
+      "mp3Bytes": 0,
+      "m4bBytes": 0,
+      "realTimeFactor": 0.550010182020108,
+      "complete": false,
+      "chapterErrors": [],
+      "estimatedTotalSeconds": 2184.211014894303
+    },
+    {
+      "model": "piper",
+      "voice": "en_GB-alan-medium",
+      "chapters": 2,
+      "segments": 11,
+      "audioSeconds": 67.58167800453515,
+      "generationSeconds": 21.499855000019075,
+      "exportSeconds": 0,
+      "mp3Bytes": 0,
+      "m4bBytes": 0,
+      "realTimeFactor": 3.1433550600446,
+      "complete": false,
+      "chapterErrors": [
+        {
+          "chapter": "I",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 141 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"” He tossed over, as he spoke, a crumpled sheet of foreign notepaper.\"\n  Error: 4292425704\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "II",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 25 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"The Statement of the Case\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "III",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 3 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"III\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "IV",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 32 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"The Story of the Bald-Headed Man\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "V",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 32 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"The Tragedy of Pondicherry Lodge\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "VI",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 37 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"Sherlock Holmes Gives a Demonstration\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "VII",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 3 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"VII\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "VIII",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 4 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"VIII\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "IX",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 20 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"A Break in the Chain\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "X",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 23 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"The End of the Islander\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "XI",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 23 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"The Great Agra Treasure\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "XII",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 3 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"XII\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "Colophon",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 8 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"Colophon\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        },
+        {
+          "chapter": "Uncopyright",
+          "error": "TTS generation failed: No audio generated from 1 text segment(s).\n\nVoice model: en_GB-alan-medium\nText length: 11 characters\nTotal sentences: 1\nFailed segments: 1\n\nFallback attempt also failed:\nAborted(). Build with -sASSERTIONS for more info.\n\nFailed segment details:\n  Segment 1: \"Uncopyright\"\n  Error: Aborted(). Build with -sASSERTIONS for more info.\n\nTroubleshooting: Check text format and voice model compatibility."
+        }
+      ],
+      "estimatedTotalSeconds": 5285.055265459235
+    },
+    {
+      "model": "pocket",
+      "voice": "alba",
+      "chapters": 5,
+      "segments": 428,
+      "audioSeconds": 1444.6399999999999,
+      "generationSeconds": 150.77694999980926,
+      "exportSeconds": 0,
+      "mp3Bytes": 0,
+      "m4bBytes": 0,
+      "realTimeFactor": 9.581305365321604,
+      "complete": false,
+      "chapterErrors": [],
+      "estimatedTotalSeconds": 952.5721327090754
+    }
+  ]
+}

@@ -13,6 +13,17 @@
     markSegmentGenerated,
   } from '../stores/segmentProgressStore'
   import { segmentHtmlContent } from '../lib/services/segmentationService'
+  import { SEGMENT_ID_PREFIX, segmentId } from '../lib/segments'
+  import {
+    applySegmentState,
+    findSegmentElement,
+    getSegmentIndex,
+    highlightActiveSegment,
+    scrollSegmentIntoView,
+    segmentIndexFromEvent,
+    segmentSelector,
+    segmentStateFor,
+  } from '../lib/reader/readerSegments'
   import { generationService } from '../lib/services/generationService'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
@@ -402,6 +413,9 @@
     const aqSettings = get(appSettings).adaptiveQuality
     if (!aqSettings.enabled) return
 
+    // Web Speech plays, it does not generate: there is nothing to fast pass.
+    if (localModel === 'web_speech') return
+
     const segs = audioService.segments
     if (segs.length === 0) return
 
@@ -416,7 +430,7 @@
     const segInput = segs.map((s) => ({
       index: s.index,
       text: s.text,
-      id: `${cId}-${s.index}`,
+      id: segmentId(s.index),
       chapterId: cId,
     }))
 
@@ -436,7 +450,8 @@
           audioService.playFromSegment(segment.index)
         }
       },
-      aqSettings.skipWebSpeech
+      aqSettings.skipFastestTier ? 1 : 0,
+      localModel === 'web_speech' ? 'kokoro' : localModel
     )
 
     if (scheduleUpgrade) {
@@ -447,7 +462,8 @@
         piperVoiceList,
         () => audioService.currentSegmentIndex,
         (upgraded) => audioService.replaceSegmentAudio(upgraded.index, upgraded.audioBlob),
-        aqSettings.upgradePlayedSegments
+        aqSettings.upgradePlayedSegments,
+        localModel === 'web_speech' ? 'kokoro' : localModel
       )
     }
   }
@@ -505,7 +521,7 @@
     const root = textContentEl
 
     // If segments are already present (e.g., pre-wrapped content), keep them
-    const existing = root.querySelectorAll('span[id^="seg-"]')
+    const existing = root.querySelectorAll(segmentSelector())
     if (existing.length) {
       existing.forEach((el) => el.classList.add('segment'))
       return
@@ -610,7 +626,7 @@
         if (!range.collapsed) {
           const span = document.createElement('span')
           span.className = 'segment'
-          span.id = `seg-${segment.index}`
+          span.id = segmentId(segment.index)
           span.setAttribute('role', 'button')
           span.setAttribute('tabindex', '0')
           span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
@@ -627,7 +643,7 @@
 
           const span = document.createElement('span')
           span.className = 'segment'
-          span.id = `seg-${segment.index}`
+          span.id = segmentId(segment.index)
           span.setAttribute('role', 'button')
           span.setAttribute('tabindex', '0')
           span.setAttribute('aria-label', `Play segment ${segment.index + 1}`)
@@ -717,21 +733,16 @@
     const currentIndex = audioService.currentSegmentIndex
     if (currentIndex < 0) return
 
-    const segmentEl = document.getElementById(`seg-${currentIndex}`)
+    const segmentEl = findSegmentElement(currentIndex)
     if (!segmentEl) return
 
-    const rect = segmentEl.getBoundingClientRect()
-    const isOutsideViewport = rect.top < 100 || rect.bottom > window.innerHeight - 100
-
-    if (isOutsideViewport) {
-      segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
+    scrollSegmentIntoView(segmentEl, { top: 100, bottom: window.innerHeight - 100 })
   })
 
   // Segments are now pre-wrapped in the HTML, just ensure they have the segment class
   $effect(() => {
     if (audioService.segments.length > 0 && textContentEl) {
-      const existingSegments = textContentEl.querySelectorAll('span[id^="seg-"]')
+      const existingSegments = textContentEl.querySelectorAll(segmentSelector())
       existingSegments.forEach((el) => el.classList.add('segment'))
 
       if (audioService.currentSegmentIndex >= 0) {
@@ -760,11 +771,11 @@
 
     if (!prevGeneratedIndices || generatingChanged) {
       // First run or generating state changed - update all segments
-      const segmentEls = textContentEl.querySelectorAll('span[id^="seg-"]')
+      const segmentEls = textContentEl.querySelectorAll(segmentSelector())
       segmentEls.forEach((el) => {
-        const indexMatch = el.id.match(/seg-(\d+)/)
-        if (indexMatch) {
-          changedIndices.add(parseInt(indexMatch[1], 10))
+        const index = getSegmentIndex(el as HTMLElement)
+        if (index !== null) {
+          changedIndices.add(index)
         }
       })
     } else {
@@ -787,30 +798,13 @@
       }
     }
 
-    // The segment currently being processed gets the pulse animation
-    const pulseIndex = progress.isGenerating ? progress.processingIndex : -1
-
     // Update only changed segments
     for (const index of changedIndices) {
-      const el = textContentEl.querySelector(`#seg-${index}`)
+      const el = findSegmentElement(index, textContentEl)
       if (!el) continue
 
-      const isGenerated = progress.generatedIndices.has(index)
-
       // Update classes for visual state
-      el.classList.remove('segment-pending', 'segment-generated', 'segment-generating')
-
-      if (isGenerated) {
-        el.classList.add('segment-generated')
-      } else if (progress.isGenerating) {
-        if (index === pulseIndex) {
-          el.classList.add('segment-generating')
-        } else {
-          el.classList.add('segment-pending')
-        }
-      } else {
-        el.classList.add('segment-pending')
-      }
+      applySegmentState(el, segmentStateFor(index, progress))
     }
 
     // Store current state for next comparison
@@ -827,44 +821,24 @@
   })
 
   function updateActiveSegment(index: number) {
-    // Remove active class from all segments
-    const active = document.querySelectorAll('.segment.active')
-    active.forEach((el) => el.classList.remove('active'))
-
-    // Add to current
-    const el = document.getElementById(`seg-${index}`)
-    if (el) {
-      el.classList.add('active')
-    }
+    highlightActiveSegment(index)
   }
 
   function scrollToSegment(index: number) {
     requestAnimationFrame(() => {
-      const element = document.getElementById(`seg-${index}`)
+      const element = findSegmentElement(index)
       const container = document.querySelector('.reader-container')
 
-      if (element && container) {
-        const elementRect = element.getBoundingClientRect()
-        const containerRect = container.getBoundingClientRect()
+      if (!element || !container) return
 
-        // Check if element is within the comfortable reading zone (middle 60% of view)
-        const topThreshold = containerRect.top + containerRect.height * 0.2
-        const bottomThreshold = containerRect.bottom - containerRect.height * 0.2
+      const containerRect = container.getBoundingClientRect()
 
-        const isAbove = elementRect.top < topThreshold
-        const isBelow = elementRect.bottom > bottomThreshold
-
-        if (isAbove || isBelow) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }
-      }
+      // Check if element is within the comfortable reading zone (middle 60% of view)
+      scrollSegmentIntoView(element, {
+        top: containerRect.top + containerRect.height * 0.2,
+        bottom: containerRect.bottom - containerRect.height * 0.2,
+      })
     })
-  }
-
-  function getSegmentIndex(element: HTMLElement | null): number | null {
-    if (!element || !element.id.startsWith('seg-')) return null
-    const index = parseInt(element.id.replace('seg-', ''), 10)
-    return isNaN(index) ? null : index
   }
 
   function activateSegment(index: number) {
@@ -939,8 +913,7 @@
       event.preventDefault()
     }
 
-    const segmentEl = target.closest('.segment') as HTMLElement | null
-    const index = getSegmentIndex(segmentEl)
+    const index = segmentIndexFromEvent(event)
     if (index !== null) {
       activateSegment(index)
     }
@@ -948,7 +921,7 @@
 
   function handleContentKeyDown(event: KeyboardEvent) {
     const target = event.target as HTMLElement
-    if (target.classList.contains('segment') && target.id.startsWith('seg-')) {
+    if (target.classList.contains('segment') && getSegmentIndex(target) !== null) {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
         const index = getSegmentIndex(target)

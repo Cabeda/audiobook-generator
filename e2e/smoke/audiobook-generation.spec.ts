@@ -8,7 +8,7 @@ const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 test.describe('Audiobook Generation - Smoke', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
   })
 
   test('should load the application', async ({ page }) => {
@@ -54,5 +54,13 @@ test.describe('Audiobook Generation - Smoke', () => {
     const options = modelSelect.locator('option')
     const optionCount = await options.count()
     expect(optionCount).toBeGreaterThanOrEqual(2)
+
+    // Kokoro, Piper and Pocket TTS are offered
+    const values = await options.evaluateAll((els) =>
+      els.map((el) => (el as HTMLOptionElement).value)
+    )
+    expect(values).toContain('kokoro')
+    expect(values).toContain('piper')
+    expect(values).toContain('pocket')
   })
 })

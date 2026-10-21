@@ -8,8 +8,15 @@
  */
 
 import type { AudioSegment } from '../types/audio'
+import { createSegment } from '../segments'
 import type { PiperVoice } from '../piper/piperClient'
-import { isKokoroLanguageSupported, normalizeLanguageCode } from '../utils/voiceSelector'
+import {
+  isKokoroLanguageSupported,
+  isPocketLanguageSupported,
+  normalizeLanguageCode,
+  selectPocketVoiceForLanguage,
+} from '../utils/voiceSelector'
+import type { TTSModelType } from '../tts/ttsModels'
 import { getStartingTier, getTargetTier, canRunUpgrade } from '../utils/resourceMonitor'
 import {
   updateSegmentQuality,
@@ -23,7 +30,7 @@ import logger from '../utils/logger'
 // ---------------------------------------------------------------------------
 
 export interface TierConfig {
-  model: 'kokoro' | 'piper' | 'web_speech'
+  model: TTSModelType
   voice: string
   quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
@@ -40,34 +47,45 @@ interface TierLadder {
 
 /**
  * Build the tier ladder for a given language.
- * English uses Kokoro; other languages use Piper.
+ *
+ * English uses Kokoro; other languages use Piper. Every tier is a generating
+ * engine — Web Speech plays, it does not produce audio, so it is not a tier.
  * Tiers with no available voice are set to null.
  */
-export function resolveTierLadder(language: string, piperVoices: PiperVoice[]): TierLadder {
-  const useKokoro = isKokoroLanguageSupported(language)
+export function resolveTierLadder(
+  language: string,
+  piperVoices: PiperVoice[],
+  model: TTSModelType = 'kokoro'
+): TierLadder {
+  if (model === 'pocket' && isPocketLanguageSupported(language)) {
+    // Pocket TTS has one quality level, so there is nothing to upgrade to.
+    return {
+      tiers: [{ model: 'pocket', voice: selectPocketVoiceForLanguage(language) }],
+      maxAvailableTier: 0,
+    }
+  }
+
+  const useKokoro = model === 'kokoro' && isKokoroLanguageSupported(language)
 
   if (useKokoro) {
     return {
       tiers: [
-        { model: 'web_speech', voice: '' }, // tier 0
-        { model: 'kokoro', voice: 'af_heart', quantization: 'q4', device: 'wasm' }, // tier 1
-        { model: 'kokoro', voice: 'af_heart', quantization: 'q8', device: 'wasm' }, // tier 2
-        { model: 'kokoro', voice: 'af_heart', quantization: 'fp16', device: 'auto' }, // tier 3
+        { model: 'kokoro', voice: 'af_heart', quantization: 'q4', device: 'wasm' }, // tier 0
+        { model: 'kokoro', voice: 'af_heart', quantization: 'q8', device: 'wasm' }, // tier 1
+        { model: 'kokoro', voice: 'af_heart', quantization: 'fp16', device: 'auto' }, // tier 2
       ],
-      maxAvailableTier: 3,
+      maxAvailableTier: 2,
     }
   }
 
   // Piper ladder — skip tiers with no available voice for this language
-  const tierConfigs: Array<TierConfig | null> = [
-    { model: 'web_speech', voice: '' }, // tier 0 always available
-  ]
+  const tierConfigs: Array<TierConfig | null> = []
 
-  let maxAvailableTier = 0
+  let maxAvailableTier = -1
 
-  const qualityForTier: Record<number, PiperVoice['quality']> = { 1: 'low', 2: 'medium', 3: 'high' }
+  const qualityForTier: Record<number, PiperVoice['quality']> = { 0: 'low', 1: 'medium', 2: 'high' }
 
-  for (const piperTier of [1, 2, 3] as const) {
+  for (const piperTier of [0, 1, 2] as const) {
     const targetQuality = qualityForTier[piperTier]
     const langVoices = piperVoices.filter((v) => {
       return normalizeLanguageCode(v.language) === normalizeLanguageCode(language)
@@ -91,9 +109,10 @@ export function resolveTierLadder(language: string, piperVoices: PiperVoice[]): 
 export function getTierConfig(
   tier: number,
   language: string,
-  piperVoices: PiperVoice[]
+  piperVoices: PiperVoice[],
+  model: TTSModelType = 'kokoro'
 ): TierConfig | null {
-  const ladder = resolveTierLadder(language, piperVoices)
+  const ladder = resolveTierLadder(language, piperVoices, model)
   return ladder.tiers[tier] ?? null
 }
 
@@ -119,14 +138,14 @@ export async function startFastPass(
   language: string,
   piperVoices: PiperVoice[],
   onSegmentReady: (segment: AudioSegment) => void,
-  skipWebSpeech = false,
+  minTier = 0,
+  model: TTSModelType = 'kokoro',
   signal?: AbortSignal
 ): Promise<void> {
   const startingTier = getStartingTier()
-  const ladder = resolveTierLadder(language, piperVoices)
+  const ladder = resolveTierLadder(language, piperVoices, model)
 
-  // If skipWebSpeech, bump starting tier to at least 1
-  let effectiveTier = skipWebSpeech ? Math.max(1, startingTier) : startingTier
+  let effectiveTier = Math.max(minTier, startingTier)
   // Walk down to find the first available tier
   while (effectiveTier > 0 && !ladder.tiers[effectiveTier]) {
     effectiveTier--
@@ -148,22 +167,18 @@ export async function startFastPass(
     try {
       const blob = await worker.generateVoice({
         text: seg.text,
-        modelType: config.model === 'web_speech' ? 'kokoro' : config.model,
+        modelType: config.model,
         voice: config.voice,
-        dtype: config.quantization,
-        device: config.device,
+        config: { dtype: config.quantization, device: config.device },
       })
 
-      const audioSegment: AudioSegment = {
-        id: seg.id,
+      const audioSegment = createSegment({
         chapterId: seg.chapterId,
         index: seg.index,
         text: seg.text,
         audioBlob: blob,
-        duration: 0,
-        startTime: 0,
         qualityTier: effectiveTier,
-      }
+      })
 
       updateSegmentQuality(seg.chapterId, seg.index, effectiveTier)
       markSegmentGenerated(seg.chapterId, audioSegment)
@@ -189,13 +204,14 @@ export function scheduleUpgradePass(
   piperVoices: PiperVoice[],
   getCurrentIndex: () => number,
   onSegmentUpgraded: (segment: AudioSegment) => void,
-  upgradePlayedSegments = true
+  upgradePlayedSegments = true,
+  model: TTSModelType = 'kokoro'
 ): void {
   // Cancel any existing upgrade for this chapter
   cancelUpgrade(chapterId)
 
   const targetTier = getTargetTier()
-  const ladder = resolveTierLadder(language, piperVoices)
+  const ladder = resolveTierLadder(language, piperVoices, model)
 
   // Find the actual max available tier
   let effectiveTarget = targetTier as number
@@ -203,8 +219,8 @@ export function scheduleUpgradePass(
     effectiveTarget--
   }
 
-  if (effectiveTarget === 0) {
-    logger.info('[AdaptiveQuality] No upgrade possible — only Web Speech available')
+  if (effectiveTarget <= 0) {
+    logger.info('[AdaptiveQuality] No upgrade possible — only the cheapest tier is available')
     return
   }
 
@@ -278,10 +294,9 @@ export function scheduleUpgradePass(
 
       const blob = await worker.generateVoice({
         text: segData.text,
-        modelType: config.model === 'web_speech' ? 'kokoro' : config.model,
+        modelType: config.model,
         voice: config.voice,
-        dtype: config.quantization,
-        device: config.device,
+        config: { dtype: config.quantization, device: config.device },
       })
 
       if (state.cancelled) return

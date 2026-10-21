@@ -1,0 +1,451 @@
+{
+  "format": "pocket-tts-onnx",
+  "version": 2,
+  "model": "english_18m_refl_2026-10",
+  "weights": "hf://kyutai/pocket-tts/languages/english_18m_refl_2026-10/model.safetensors@a0172fa05a0725a745539c88e4b58f1ee19cb9a7",
+  "sample_rate": 24000,
+  "frame_rate": 12.5,
+  "frame_size": 1920,
+  "dims": {
+    "latent": 32,
+    "conditioning": 64,
+    "text_embedding": 512,
+    "kv_heads": 8,
+    "head_dim": 64,
+    "layers": 8
+  },
+  "flow": {
+    "type": "drifting",
+    "decode_steps": 1
+  },
+  "temperature": 0.3,
+  "noise_clamp": null,
+  "eos": {
+    "threshold": -1.0,
+    "min_frames": 6,
+    "frames_after_eos": {
+      "max_short_words": 4,
+      "short": 5,
+      "long": 3
+    }
+  },
+  "max_gen": {
+    "tokens_per_second": 3.0,
+    "padding_seconds": 2.0
+  },
+  "decoder_steps_per_latent": 16,
+  "insert_bos_before_voice": true,
+  "graphs": {
+    "text_conditioner": {
+      "inputs": ["token_ids"],
+      "outputs": ["embeddings"]
+    },
+    "mimi_encoder": {
+      "inputs": ["audio"],
+      "outputs": ["conditioning"]
+    },
+    "flow_lm_main": {
+      "inputs": [
+        "sequence",
+        "text_embeddings",
+        "state_offset",
+        "state_cache_0",
+        "state_cache_1",
+        "state_cache_2",
+        "state_cache_3",
+        "state_cache_4",
+        "state_cache_5",
+        "state_cache_6",
+        "state_cache_7"
+      ],
+      "outputs": [
+        "conditioning",
+        "eos_logit",
+        "out_state_offset",
+        "out_state_cache_0",
+        "out_state_cache_1",
+        "out_state_cache_2",
+        "out_state_cache_3",
+        "out_state_cache_4",
+        "out_state_cache_5",
+        "out_state_cache_6",
+        "out_state_cache_7"
+      ],
+      "states": [
+        {
+          "name": "state_offset",
+          "output": "out_state_offset",
+          "shape": [1],
+          "dtype": "int64",
+          "dynamic": {}
+        },
+        {
+          "name": "state_cache_0",
+          "output": "out_state_cache_0",
+          "shape": [2, 1, -1, 8, 64],
+          "dtype": "float32",
+          "dynamic": {
+            "2": "cache_len"
+          }
+        },
+        {
+          "name": "state_cache_1",
+          "output": "out_state_cache_1",
+          "shape": [2, 1, -1, 8, 64],
+          "dtype": "float32",
+          "dynamic": {
+            "2": "cache_len"
+          }
+        },
+        {
+          "name": "state_cache_2",
+          "output": "out_state_cache_2",
+          "shape": [2, 1, -1, 8, 64],
+          "dtype": "float32",
+          "dynamic": {
+            "2": "cache_len"
+          }
+        },
+        {
+          "name": "state_cache_3",
+          "output": "out_state_cache_3",
+          "shape": [2, 1, -1, 8, 64],
+          "dtype": "float32",
+          "dynamic": {
+            "2": "cache_len"
+          }
+        },
+        {
+          "name": "state_cache_4",
+          "output": "out_state_cache_4",
+          "shape": [2, 1, -1, 8, 64],
+          "dtype": "float32",
+          "dynamic": {
+            "2": "cache_len"
+          }
+        },
+        {
+          "name": "state_cache_5",
+          "output": "out_state_cache_5",
+          "shape": [2, 1, -1, 8, 64],
+          "dtype": "float32",
+          "dynamic": {
+            "2": "cache_len"
+          }
+        },
+        {
+          "name": "state_cache_6",
+          "output": "out_state_cache_6",
+          "shape": [2, 1, -1, 8, 64],
+          "dtype": "float32",
+          "dynamic": {
+            "2": "cache_len"
+          }
+        },
+        {
+          "name": "state_cache_7",
+          "output": "out_state_cache_7",
+          "shape": [2, 1, -1, 8, 64],
+          "dtype": "float32",
+          "dynamic": {
+            "2": "cache_len"
+          }
+        }
+      ]
+    },
+    "flow_lm_flow": {
+      "inputs": ["c", "x"],
+      "outputs": ["latent"]
+    },
+    "mimi_decoder": {
+      "inputs": [
+        "latent",
+        "state_step",
+        "state_upsample_1",
+        "state_window_0",
+        "state_window_1",
+        "state_window_2",
+        "state_window_3",
+        "state_window_4",
+        "state_window_5",
+        "state_window_6",
+        "state_window_7",
+        "state_window_8",
+        "state_window_9",
+        "state_window_10",
+        "state_window_11",
+        "state_conv_14",
+        "state_convtr_15",
+        "state_conv_16",
+        "state_convtr_17",
+        "state_conv_18",
+        "state_convtr_19",
+        "state_conv_20",
+        "state_conv_21"
+      ],
+      "outputs": [
+        "audio",
+        "out_state_step",
+        "out_state_upsample_1",
+        "out_state_window_0",
+        "out_state_window_1",
+        "out_state_window_2",
+        "out_state_window_3",
+        "out_state_window_4",
+        "out_state_window_5",
+        "out_state_window_6",
+        "out_state_window_7",
+        "out_state_window_8",
+        "out_state_window_9",
+        "out_state_window_10",
+        "out_state_window_11",
+        "out_state_conv_14",
+        "out_state_convtr_15",
+        "out_state_conv_16",
+        "out_state_convtr_17",
+        "out_state_conv_18",
+        "out_state_convtr_19",
+        "out_state_conv_20",
+        "out_state_conv_21"
+      ],
+      "states": [
+        {
+          "name": "state_step",
+          "output": "out_state_step",
+          "shape": [1],
+          "dtype": "int64",
+          "dynamic": {}
+        },
+        {
+          "name": "state_upsample_1",
+          "output": "out_state_upsample_1",
+          "shape": [1, 128, 16],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_0",
+          "output": "out_state_window_0",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_1",
+          "output": "out_state_window_1",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_2",
+          "output": "out_state_window_2",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_3",
+          "output": "out_state_window_3",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_4",
+          "output": "out_state_window_4",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_5",
+          "output": "out_state_window_5",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_6",
+          "output": "out_state_window_6",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_7",
+          "output": "out_state_window_7",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_8",
+          "output": "out_state_window_8",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_9",
+          "output": "out_state_window_9",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_10",
+          "output": "out_state_window_10",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_window_11",
+          "output": "out_state_window_11",
+          "shape": [2, 1, 50, 4, 32],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_conv_14",
+          "output": "out_state_conv_14",
+          "shape": [1, 128, 2],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_convtr_15",
+          "output": "out_state_convtr_15",
+          "shape": [1, 128, 6],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_conv_16",
+          "output": "out_state_conv_16",
+          "shape": [1, 128, 2],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_convtr_17",
+          "output": "out_state_convtr_17",
+          "shape": [1, 64, 5],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_conv_18",
+          "output": "out_state_conv_18",
+          "shape": [1, 64, 2],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_convtr_19",
+          "output": "out_state_convtr_19",
+          "shape": [1, 32, 4],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_conv_20",
+          "output": "out_state_conv_20",
+          "shape": [1, 32, 2],
+          "dtype": "float32",
+          "dynamic": {}
+        },
+        {
+          "name": "state_conv_21",
+          "output": "out_state_conv_21",
+          "shape": [1, 32, 2],
+          "dtype": "float32",
+          "dynamic": {}
+        }
+      ]
+    }
+  },
+  "predefined_voices": [
+    "alba",
+    "azelma",
+    "cosette",
+    "eponine",
+    "fantine",
+    "javert",
+    "jean",
+    "marius"
+  ],
+  "voices": {
+    "alba": {
+      "start": 9,
+      "end": 4161913
+    },
+    "azelma": {
+      "start": 4161913,
+      "end": 8946411
+    },
+    "cosette": {
+      "start": 8946411,
+      "end": 13108318
+    },
+    "eponine": {
+      "start": 13108318,
+      "end": 17728977
+    },
+    "fantine": {
+      "start": 17728977,
+      "end": 22021956
+    },
+    "javert": {
+      "start": 22021956,
+      "end": 26118326
+    },
+    "jean": {
+      "start": 26118326,
+      "end": 30181926
+    },
+    "marius": {
+      "start": 30181926,
+      "end": 34343832
+    }
+  },
+  "files": {
+    "bos_before_voice.npy": {
+      "bytes": 2176,
+      "sha256": "d97e3da56daa983e0413ba4ef0658f5a62882b3096ad55e8c84508924c5fc2d4"
+    },
+    "flow_lm_flow.onnx": {
+      "bytes": 3402841,
+      "sha256": "328ad17e38feafd0f4bd23022d4c62d3066e826d1028305a7710a561aa2ff61d"
+    },
+    "flow_lm_main.onnx": {
+      "bytes": 50808640,
+      "sha256": "a80e8f1123b8b6bbacc0a30cd8a7a6e1874a552b2ece2296f427c09b61fed6e9"
+    },
+    "flow_lm_main_int8.onnx": {
+      "bytes": 13321868,
+      "sha256": "64a79e04a020b0719eb8e2f21474d1b0ca9d8e94c14f7091bf57b8f787e3040a"
+    },
+    "mimi_decoder.onnx": {
+      "bytes": 10806594,
+      "sha256": "93a0020ea8e55a51921bf3f2c49234b6aace265b13a8123e4af10dd6d1b352da"
+    },
+    "mimi_encoder.onnx": {
+      "bytes": 39127272,
+      "sha256": "d112b95bf28e6c9971fb1bfde5982b4fc11e89594367891ed6d5b736bb298c32"
+    },
+    "text_conditioner.onnx": {
+      "bytes": 8194294,
+      "sha256": "48f1d6edfaebced28b110992625a29209eb96dd303ae70fed0538a50f59e62ec"
+    },
+    "tokenizer.model": {
+      "bytes": 59339,
+      "sha256": "d461765ae179566678c93091c5fa6f2984c31bbe990bf1aa62d92c64d91bc3f6"
+    },
+    "voices.bin": {
+      "bytes": 34343832,
+      "sha256": "10ff17abc9d38dc851bdad17ee04c21fe4c54b2684bb86995a9093b7f4f0b580"
+    }
+  }
+}

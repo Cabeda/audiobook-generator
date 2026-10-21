@@ -8,6 +8,7 @@ import type { Chapter } from './types/book'
 import { getChapterSegments, getChapterAudio, saveChapterSegments } from './libraryDB'
 import { segmentHtmlContent } from './services/segmentationService'
 import type { AudioSegment } from './types/audio'
+import { createSegment } from './segments'
 import { selectPiperVoiceForLanguage, normalizeLanguageCode } from './utils/voiceSelector'
 import { getGeneratedSegment, markSegmentGenerated } from '../stores/segmentProgressStore'
 import { handleModelProgress, clearModelProgress } from '../stores/modelDownloadStore'
@@ -641,7 +642,6 @@ class AudioPlaybackService {
     }
 
     // Clear store caches and segments to avoid cross-chapter bleed
-    audioPlayerStore.clearAudioSegments()
     this.segments = []
 
     this.currentSegmentIndex = -1
@@ -996,8 +996,10 @@ class AudioPlaybackService {
             text: segment.text,
             modelType: this.selectedModel as TTSModelType,
             voice: this.voice,
-            dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
-            device: this.device,
+            config: {
+              dtype: this.selectedModel === 'kokoro' ? this.quantization : undefined,
+              device: this.device,
+            },
             onProgress: handleModelProgress,
           })
           clearModelProgress()
@@ -1010,7 +1012,6 @@ class AudioPlaybackService {
 
           const url = URL.createObjectURL(blob)
           this.audioSegments.set(index, url)
-          audioPlayerStore.setAudioSegment(index, url) // Sync with store
           // If this was the current segment we were waiting for, clear buffering
           if (index === this.currentSegmentIndex) audioPlayerStore.setBuffering(false)
           // Attempt to read duration for this generated segment and refine chapter duration estimate
@@ -1043,17 +1044,15 @@ class AudioPlaybackService {
           const currentBookId = storeState.bookId
           const currentChapterId = storeState.chapterId
           if (currentBookId && currentChapterId) {
-            const audioSegment: AudioSegment = {
-              id: `${currentChapterId}-seg-${index}`,
+            const audioSegment = createSegment({
               chapterId: currentChapterId,
               index,
               text: segment.text,
               audioBlob: blob,
               duration: dur || 0,
-              startTime: 0,
               voice: this.voice,
               model: this.selectedModel,
-            }
+            })
             markSegmentGenerated(currentChapterId, audioSegment)
             saveChapterSegments(currentBookId, currentChapterId, [audioSegment]).catch((err) =>
               logger.warn('Failed to persist reader segment to IndexedDB', err)

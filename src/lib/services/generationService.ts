@@ -100,7 +100,6 @@ import { audioService } from '../audioPlaybackService.svelte'
 import {
   selectKokoroVoiceForLanguage,
   selectPiperVoiceForLanguage,
-  isKokoroLanguageSupported,
   normalizeLanguageCode,
 } from '../utils/voiceSelector'
 import {
@@ -112,7 +111,10 @@ import {
 import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
-import { parseWavDuration } from './wavParser'
+import { parseWavDuration } from '../wavUtils'
+import { planChapter } from './chapterPlan'
+import { createSegment, segmentId } from '../segments'
+import type { AudioExportFormat } from '../exportFormats'
 import { segmentHtmlContent } from './segmentationService'
 import type { SegmentOptions } from './segmentationService'
 import { SegmentBatchHandler } from './segmentBatchHandler'
@@ -484,7 +486,7 @@ class GenerationService {
       // Create placeholder segments with the known count
       const placeholderSegments = Array.from({ length: totalSegments }, (_, i) => ({
         text: '',
-        id: `${chapter.id}-seg-${i}`,
+        id: segmentId(i),
         index: i,
       }))
       initChapterSegments(chapter.id, placeholderSegments)
@@ -588,26 +590,29 @@ class GenerationService {
           ? resolveChapterLanguageWithDetection(ch, currentBook)
           : DEFAULT_LANGUAGE
 
-        // Check app-level per-language defaults (priority: chapter > app language defaults > global)
-        const langDefaults = appSettings.getLanguageDefault(get(appSettings), effectiveLanguage)
+        // The plan decides the engine, the voice and the settings for this chapter.
+        const plan = planChapter({
+          chapter: ch,
+          language: effectiveLanguage,
+          languageDefaults: get(appSettings).languageDefaults,
+          selectedModel: model,
+          selectedVoice: get(selectedVoice),
+          selectedQuantization: get(selectedQuantization),
+          selectedDevice: get(selectedDevice),
+          isMobile: isMobileDevice(),
+        })
+        const effectiveModel = plan.model
+        const isFallbackModel = plan.isFallbackModel
 
-        // Resolve model: chapter override > app language default > global selected model
-        // Fallback: If current model doesn't support the language, try to switch
-        let effectiveModel = ch.model || langDefaults?.model || model
-        let isFallbackModel = false
-
-        if (effectiveModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
+        if (isFallbackModel) {
           logger.warn(
-            `Language '${effectiveLanguage}' not supported by Kokoro. Switching to Piper for chapter ${ch.id}`
+            `Language '${effectiveLanguage}' not supported by ${plan.model}. Switching to Piper for chapter ${ch.id}`
           )
-          effectiveModel = 'piper'
-          isFallbackModel = true
         }
 
-        const currentVoice = ch.voice || langDefaults?.voice || get(selectedVoice)
-        // Cap quantization to q4 on mobile to avoid loading a ~100MB q8 model
-        const currentQuantization = isMobileDevice() ? 'q4' : get(selectedQuantization)
-        const currentDevice = get(selectedDevice)
+        const currentVoice = plan.voice
+        const currentQuantization = plan.quantization
+        const currentDevice = plan.device
         const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
 
         // Validate content — skip empty chapters gracefully without an error
@@ -742,14 +747,23 @@ class GenerationService {
         const effectiveLanguage = currentBook
           ? resolveChapterLanguageWithDetection(ch, currentBook)
           : DEFAULT_LANGUAGE
-        const langDefaults = appSettings.getLanguageDefault(get(appSettings), effectiveLanguage)
-        let effectiveModel = ch.model || langDefaults?.model || model
-        if (effectiveModel === 'kokoro' && !isKokoroLanguageSupported(effectiveLanguage)) {
-          effectiveModel = 'piper'
-        }
-        const currentVoice = ch.voice || langDefaults?.voice || get(selectedVoice)
-        const currentQuantization = isMobileDevice() ? 'q4' : get(selectedQuantization)
-        const currentDevice = get(selectedDevice)
+        // The same plan the first run uses, so a resumed chapter is read the
+        // same way as a chapter that was never started.
+        const plan = planChapter({
+          chapter: ch,
+          language: effectiveLanguage,
+          languageDefaults: get(appSettings).languageDefaults,
+          selectedModel: model,
+          selectedVoice: get(selectedVoice),
+          selectedQuantization: get(selectedQuantization),
+          selectedDevice: get(selectedDevice),
+          isMobile: isMobileDevice(),
+        })
+        const effectiveModel = plan.model
+        const isFallbackModel = plan.isFallbackModel
+        const currentVoice = plan.voice
+        const currentQuantization = plan.quantization
+        const currentDevice = plan.device
         const currentAdvancedSettings = get(advancedSettings)[effectiveModel] || {}
 
         if (!ch.content || !ch.content.trim()) continue
@@ -760,7 +774,7 @@ class GenerationService {
           ch,
           effectiveModel,
           effectiveLanguage,
-          false,
+          isFallbackModel,
           currentVoice
         )
 
@@ -1019,13 +1033,14 @@ class GenerationService {
           text: segment.text,
           modelType: effectiveModel as import('../tts/ttsModels').TTSModelType,
           voice: effectiveVoice,
-          dtype:
-            effectiveModel === 'kokoro'
-              ? (currentQuantization as import('../../stores/ttsStore').Quantization)
-              : undefined,
-          device: currentDevice as import('../../stores/ttsStore').Device,
+          config: {
+            dtype:
+              effectiveModel === 'kokoro'
+                ? (currentQuantization as import('../../stores/ttsStore').Quantization)
+                : undefined,
+            device: currentDevice as import('../../stores/ttsStore').Device,
+          },
           language: effectiveLanguage,
-          advancedSettings: currentAdvancedSettings,
           // Forward worker progress messages (model loading, preparing, etc.) to the UI
           onProgress: (message) => {
             const completed = audioSegments.length
@@ -1037,17 +1052,15 @@ class GenerationService {
       },
       async (result) => {
         if (!result) return
-        const segment: AudioSegment = {
-          id: result.segment.id,
+        const segment = createSegment({
           chapterId: ch.id,
           index: result.segment.index,
           text: result.segment.text,
           audioBlob: result.blob as Blob,
           duration: result.duration,
-          startTime: 0,
           voice: effectiveVoice,
           model: effectiveModel,
-        }
+        })
         audioSegments.push(segment)
         await batchHandler.addSegment(segment)
         // Release blob references for segments already persisted to IndexedDB.
@@ -1300,7 +1313,7 @@ class GenerationService {
 
   async exportAudio(
     chapters: Chapter[],
-    format: 'mp3' | 'm4b' | 'wav' = 'mp3',
+    format: AudioExportFormat = 'mp3',
     bitrate = 192,
     bookInfo: { title: string; author: string }
   ) {
