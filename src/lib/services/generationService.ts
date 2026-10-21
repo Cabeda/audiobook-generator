@@ -919,10 +919,6 @@ class GenerationService {
   }
 
   /**
-   * Segment, generate, and persist audio for a single chapter.
-   * Returns true if generation was canceled mid-way.
-   */
-  /**
    * Runs one chapter under a stall watchdog. When the worker stops reporting
    * progress the worker is terminated, which rejects the in-flight request and
    * lets the chapter fail so the run can continue.
@@ -948,6 +944,10 @@ class GenerationService {
     }
   }
 
+  /**
+   * Segment, generate, and persist audio for a single chapter.
+   * Returns true if generation was canceled mid-way.
+   */
   private async generateChapterAudio(
     ch: Chapter,
     effectiveModel: string,

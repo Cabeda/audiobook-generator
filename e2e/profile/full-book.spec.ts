@@ -19,7 +19,7 @@ const TRACE_WINDOW_MS = 90_000
 
 /**
  * A chapter that does not finish within this is stuck, not slow — bail out with
- * the chapter name instead of sitting on the four-hour test timeout.
+ * the last page log instead of sitting on the four-hour test timeout.
  */
 const CHAPTER_STALL_MS = 20 * 60_000
 
@@ -188,8 +188,10 @@ test.describe('Full book profiling', () => {
 
     let workerRestarts = 0
     let lastChapterAt = Date.now()
+    let lastPageLog = ''
     page.on('console', (msg) => {
       const text = msg.text()
+      lastPageLog = text.slice(0, 200)
       if (text.includes('Restarting TTS worker')) workerRestarts++
       if (text.includes('Skipping concatenation for chapter')) lastChapterAt = Date.now()
       if (text.includes('[OOM mitigation]')) console.log(`[PAGE] ${text}`)
@@ -262,7 +264,7 @@ test.describe('Full book profiling', () => {
       if (finished) break
       if (Date.now() - lastChapterAt > CHAPTER_STALL_MS) {
         throw new Error(
-          `no chapter finished in ${CHAPTER_STALL_MS / 60_000} min — the run is stuck, not slow`
+          `no chapter finished in ${CHAPTER_STALL_MS / 60_000} min — the run is stuck, not slow. Last page log: ${lastPageLog}`
         )
       }
       await page.waitForTimeout(10_000)
