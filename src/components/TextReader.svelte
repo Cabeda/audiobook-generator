@@ -25,6 +25,7 @@
     segmentStateFor,
   } from '../lib/reader/readerSegments'
   import { generationService } from '../lib/services/generationService'
+  import { claimChapter } from '../lib/reader/chapterReader'
   import { POCKET_VOICES, selectPocketVoiceForLanguage } from '../lib/utils/voiceSelector'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
@@ -207,8 +208,7 @@
       // While the book generates, the chapter being read is made first and its
       // segments are handed over: the reader plays them instead of making its
       // own copy, which would compete with the book for the same worker.
-      audioService.setSegmentsAreExternal(generationService.isRunning())
-      if (generationService.isRunning()) generationService.prioritizeChapter(chapter)
+      claimChapter(chapter)
 
       // Always load progressive segments from IndexedDB on mount
       // This ensures segments generated before page refresh are available
