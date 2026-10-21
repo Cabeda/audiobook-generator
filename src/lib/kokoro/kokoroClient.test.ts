@@ -137,14 +137,19 @@ describe('kokoroClient', () => {
     })
 
     it('should warn when toBlob returns a non-Blob JSHandle-like object', async () => {
+      // Mock the logger as well: the client holds its own instance of it, and
+      // the module registry is reset between tests, so spying on an instance
+      // imported here is not the same object the client writes to.
+      const warn = vi.fn()
+      vi.doMock('../utils/logger', () => ({
+        default: { info: vi.fn(), warn, error: vi.fn(), debug: vi.fn() },
+      }))
+
       // Use per-test mock to return a JSHandle-like value
       vi.doMock('kokoro-js', () => createJSHandleKokoroMock())
 
       // Re-import the module after setting the per-test mock
       const { generateVoice } = await import('./kokoroClient.ts')
-      // Spy on logger.warn to assert our detection logs
-      const logger = await import('../utils/logger')
-      const warnSpy = vi.spyOn(logger.default, 'warn').mockImplementation(() => {})
 
       // The per-test mock `createJSHandleKokoroMock()` will provide the JSHandle-like
       // values used to trigger strict handling in `generateVoice`. We re-import the
@@ -155,10 +160,13 @@ describe('kokoroClient', () => {
           generateVoice({ text: 'This is a long text that should go streaming' as string })
         ).rejects.toThrow()
       } finally {
-        expect(warnSpy).toHaveBeenCalled()
-        warnSpy.mockRestore()
-        // Restore original kokoro mock for other tests
+        // The warning has to be the one about the JSHandle, not another one.
+        expect(
+          warn.mock.calls.some((call) => call.some((arg) => String(arg).includes('JSHandle')))
+        ).toBe(true)
+        // Restore the original mocks for the other tests
         vi.doUnmock('kokoro-js')
+        vi.doUnmock('../utils/logger')
         vi.resetModules()
       }
     })
