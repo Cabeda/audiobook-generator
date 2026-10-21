@@ -55,17 +55,17 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
-            echo "The tag v${VERSION} already exists."
-            exit 0
-          fi
-
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          # The tag before this one, for the changelog.
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --exclude "v${VERSION}" 2>/dev/null || echo "v0.0.0")
           echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
 
-          git tag -a "v${VERSION}" -m "Release v${VERSION}"
-          git push origin "v${VERSION}"
-          echo "Tagged v${VERSION}"
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "The tag v${VERSION} already exists."
+          else
+            git tag -a "v${VERSION}" -m "Release v${VERSION}"
+            git push origin "v${VERSION}"
+            echo "Tagged v${VERSION}"
+          fi
 
       - name: Create GitHub Release
         uses: actions/github-script@v8
@@ -77,13 +77,21 @@ jobs:
 
             let commits = [];
             if (previousTag && previousTag !== 'v0.0.0') {
-              const { data } = await github.rest.repos.compareCommitsWithBasehead({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                base: previousTag,
-                head: 'v' + version,
-              });
-              commits = (data.commits || []).map((c) => `- ${c.commit.message.split('\n')[0]} (${c.sha.slice(0, 7)})`);
+              try {
+                const { data } = await github.rest.repos.compareCommitsWithBasehead({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: previousTag,
+                  head: 'v' + version,
+                });
+                commits = (data.commits || []).map(
+                  (c) => `- ${c.commit.message.split('\n')[0]} (${c.sha.slice(0, 7)})`
+                );
+              } catch (error) {
+                // A tag that was just pushed may not be visible yet. The release
+                // matters more than the list of commits.
+                console.log('Could not list the commits:', error.message);
+              }
             }
 
             const body = [
