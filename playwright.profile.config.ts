@@ -21,7 +21,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: 'list',
-  timeout: 3_600_000,
+  // A 4.5 h audiobook takes ~2 h to generate on WASM; the trace and the heap
+  // diffs add a few minutes on top.
+  timeout: 4 * 60 * 60 * 1000,
   use: {
     baseURL: BASE_URL,
     // measureUserAgentSpecificMemory() and the Memory domain sampling profiler
