@@ -1,327 +1,124 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import { fade } from 'svelte/transition'
 
-  // Components
-  import LandingPage from './components/LandingPage.svelte'
-  import BookView from './components/BookView.svelte'
-  import TextReader from './components/TextReader.svelte'
-  import ContinuousReader from './components/ContinuousReader.svelte'
-  import SettingsPage from './components/SettingsPage.svelte'
+  // Revamp shell: one reading surface (option A) with its overlays — library,
+  // import, per-chapter settings, export, activity and app settings live inside
+  // ReaderShell. This file owns deep links, the library list and app chrome.
+  import ReaderShell from './ui/ReaderShell.svelte'
   import Toast from './components/Toast.svelte'
   import ToastContainer from './components/ToastContainer.svelte'
   import ReloadPrompt from './components/ReloadPrompt.svelte'
   import ModelLoadingIndicator from './components/ModelLoadingIndicator.svelte'
   import ErrorBoundary from './components/ErrorBoundary.svelte'
 
-  // APIs & Logic
-  import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
-  import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
-  import { planChapter } from './lib/services/chapterPlan'
-  import { voiceOptionsFor } from './lib/tts/ttsModels'
-  import logger from './lib/utils/logger'
-  import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
-  import { generationService } from './lib/services/generationService'
-  import type { Chapter, Book } from './lib/types/book'
-
-  // Stores
-  import {
-    book,
-    selectedChapters,
-    generatedAudio,
-    chapterStatus,
-    chapterErrors,
-  } from './stores/bookStore'
-  import {
-    selectedModel,
-    selectedVoice,
-    availableVoices,
-    selectedQuantization,
-    selectedDevice,
-    lastKokoroVoice,
-    lastPiperVoice,
-  } from './stores/ttsStore'
-  import { audioPlayerStore } from './stores/audioPlayerStore'
+  import { book as bookStore } from './stores/bookStore'
   import { currentLibraryBookId } from './stores/libraryStore'
   import { appTheme as theme } from './stores/themeStore'
-  import { appSettings } from './stores/appSettingsStore'
+  import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
+  import { openBook } from './lib/services/bookSession'
+  import { getAllBooksMetadata, getBook, type LibraryBook } from './lib/libraryDB'
+  import { shellViewFromHash, buildBookHash, buildReaderHash } from './lib/utils/hashRoutes'
+  import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroVoices'
+  import {
+    availableVoices,
+    lastKokoroVoice,
+    lastPiperVoice,
+    selectedModel,
+    selectedVoice,
+  } from './stores/ttsStore'
+  import { POCKET_VOICES } from './lib/utils/voiceSelector'
+  import { POCKET_VOICE_LABELS } from './lib/pocket/pocketAssets'
+  import logger from './lib/utils/logger'
 
-  // State
-  type ViewType = 'landing' | 'book' | 'reader' | 'settings'
-  let currentView = $state<ViewType>('landing')
-  let currentChapter = $state<Chapter | null>(null) // For Reader
-  let readerMode = $state<'single' | 'continuous'>('single')
+  let libraryBooks = $state<LibraryBook[]>([])
+  let initialChapterId = $state<string | null>(null)
+  let initialOverlay = $state<'library' | 'settings' | null>(null)
 
-  // Persist reader mode preference
-  try {
-    const saved = localStorage.getItem('reader_mode')
-    if (saved === 'continuous') readerMode = 'continuous'
-  } catch {
-    // localStorage unavailable
+  // ---- deep links: restore book/chapter/overlay from the hash ----
+  async function applyHash() {
+    const view = shellViewFromHash(location.hash)
+    if (!view) return
+
+    if (view.kind === 'settings') {
+      initialOverlay = 'settings'
+      return
+    }
+    if (view.kind === 'library') {
+      initialOverlay = 'library'
+      return
+    }
+
+    const chapterId = view.chapterId
+    initialChapterId = untrack(() => chapterId)
+    if (view.bookId === 'unsaved') return
+    const book = await openBook(view.bookId)
+    if (book) {
+      bookStore.set(book)
+      currentLibraryBookId.set(view.bookId)
+    }
   }
 
-  // Computed Reader Settings (Respect Chapter Overrides + Language Fallback)
-  // This logic mirrors ChapterItem.svelte's effectiveModel/effectiveVoice computation
+  async function refreshLibrary() {
+    const meta = await getAllBooksMetadata()
+    const recent = [...meta].sort((a, b) => b.lastAccessed - a.lastAccessed)
+    libraryBooks = (await Promise.all(recent.map((m) => getBook(m.id)))).filter(
+      (b): b is LibraryBook => b != null
+    )
+  }
 
-  // Compute effective language for the current chapter
-  let readerLanguage = $derived.by(() => {
-    if (!currentChapter || !$book) return 'en'
-    return resolveChapterLanguageWithDetection(currentChapter, $book)
-  })
-
-  // The plan decides the engine, the voice and the settings for this chapter.
-  let readerPlan = $derived.by(() =>
-    planChapter({
-      chapter: { model: currentChapter?.model, voice: currentChapter?.voice },
-      language: readerLanguage,
-      languageDefaults: $appSettings.languageDefaults,
-      selectedModel: $selectedModel,
-      selectedVoice: $selectedVoice,
-      piperVoices: $piperVoices,
-    })
-  )
-
-  let readerModel = $derived(readerPlan.model)
-
-  let readerVoice = $derived(readerPlan.voice)
-
-  // Voice Loading Logic (Centralized)
-
-  // Preload Piper voices on mount for language-based selection
-  onMount(() => {
-    loadPiperVoices()
-  })
-
-  // Reactive Voice Updater
+  // ---- voice availability for pickers (real catalogues where they ship) ----
   $effect(() => {
     const model = $selectedModel
     if (model === 'web_speech') return
 
     if (model === 'piper') {
-      availableVoices.set([]) // Clear while loading
+      availableVoices.set([])
       loadPiperVoices().then((raw) => {
-        if ($selectedModel === 'piper') {
-          const voices = raw.map((v) => ({
-            id: v.key,
-            label: `${v.name} (${v.language}) - ${v.quality}`,
-          }))
-          availableVoices.set(voices)
-          untrack(() => {
-            /* Logic to restore last Piper voice */
-            const last = $lastPiperVoice
-            if (voices.find((v) => v.id === last)) {
-              selectedVoice.set(last)
-            } else if (voices.length > 0) {
-              selectedVoice.set(voices[0].id)
-            }
-          })
-        }
+        if ($selectedModel !== 'piper') return
+        const voices = raw.map((v) => ({ id: v.key, label: `${v.name} (${v.language})` }))
+        availableVoices.set(voices)
+        untrack(() => {
+          const last = $lastPiperVoice
+          if (voices.some((v) => v.id === last)) selectedVoice.set(last)
+          else if (voices.length > 0) selectedVoice.set(voices[0].id)
+        })
       })
       return
     }
 
-    // Every other engine lists its voices in the registry.
-    const options = voiceOptionsFor(model)
-    availableVoices.set(options)
+    if (model === 'pocket') {
+      availableVoices.set(
+        POCKET_VOICES.map((v) => ({
+          id: v,
+          label: POCKET_VOICE_LABELS[v as keyof typeof POCKET_VOICE_LABELS] || v,
+        }))
+      )
+      untrack(() => {
+        if (!POCKET_VOICES.includes($selectedVoice as never)) selectedVoice.set(POCKET_VOICES[0])
+      })
+      return
+    }
 
+    const kokoroVoices = listKokoroVoices()
+    availableVoices.set(kokoroVoices.map((v) => ({ id: v, label: v })))
     untrack(() => {
-      if (model === 'kokoro' && options.some((v) => v.id === $lastKokoroVoice)) {
-        selectedVoice.set($lastKokoroVoice)
-        return
-      }
-      if (options.length > 0 && !options.some((v) => v.id === $selectedVoice)) {
-        selectedVoice.set(options[0].id)
-      }
+      if (kokoroVoices.includes($lastKokoroVoice as never)) selectedVoice.set($lastKokoroVoice)
     })
   })
 
-  // Event Handlers
-  function navigateToReader(chapter: Chapter) {
-    currentChapter = chapter
-    currentView = 'reader'
-    // Deep link logic
-    try {
-      const id = $currentLibraryBookId ?? 'unsaved'
-      location.hash = buildReaderHash(id, chapter.id, $book)
-    } catch (e) {
-      console.error('Failed to navigate to reader', e)
-    }
-  }
-
-  function navigateToBook() {
-    currentView = 'book'
-    if ($audioPlayerStore) {
-      audioPlayerStore.minimize()
-    }
-    try {
-      const id = $currentLibraryBookId ?? 'unsaved'
-      location.hash = buildBookHash(id, $book)
-    } catch (e) {
-      console.error('Failed to navigate to book', e)
-    }
-  }
-
-  function handleBackFromReader() {
-    navigateToBook()
-  }
-
-  // Book Loading
-  async function onBookLoaded(detail: {
-    book: Book
-    sourceFile?: File
-    sourceUrl?: string
-    fromLibrary?: boolean
-    libraryId?: number
-  }) {
-    const b = detail.book
-    if (b) {
-      book.set(b) // Store handles state reset
-
-      let detectedBook: Book = b
-
-      if (detail.libraryId) {
-        currentLibraryBookId.set(detail.libraryId)
-        location.hash = buildBookHash(detail.libraryId, b)
-      } else {
-        // New import - save to library automatically
-        try {
-          const { addBook } = await import('./lib/libraryDB')
-          const id = await addBook(b)
-          currentLibraryBookId.set(id)
-
-          // Patch the in-memory book with DB metadata so isLibraryBook checks pass
-          // and chapter settings (voice, model, language) can be persisted immediately.
-          // Mutate directly to avoid triggering book.subscribe which resets all state.
-          ;(b as any).id = id
-          ;(b as any).dateAdded = Date.now()
-          ;(b as any).lastAccessed = Date.now()
-
-          // Run language detection before auto-generation so the correct
-          // language/voice is used from the start.
-          try {
-            const { detectAndPersistLanguagesForBook } =
-              await import('./lib/services/languageDetectionService')
-            await detectAndPersistLanguagesForBook(id, b)
-            // Reload the book to get detected languages into the in-memory object
-            try {
-              const { getBook } = await import('./lib/libraryDB')
-              const updatedBook = await getBook(id)
-              if (updatedBook) {
-                book.set(updatedBook)
-                detectedBook = updatedBook
-              }
-            } catch (reloadError) {
-              console.warn('Failed to reload book after language detection:', reloadError)
-            }
-          } catch (detectionError) {
-            console.warn('Language detection failed, continuing with defaults:', detectionError)
-          }
-
-          // Also refresh library list if we are listener
-          const { refreshLibrary } = await import('./stores/libraryStore')
-          refreshLibrary()
-          location.hash = buildBookHash(id, b)
-        } catch (e) {
-          console.error('Failed to save book to library', e)
-        }
-      }
-
-      currentView = 'book'
-
-      // Auto-generate on new imports only (not when reopening library books)
-      if (!detail.fromLibrary && detectedBook.chapters?.length > 0) {
-        // Select all chapters and start generation
-        selectedChapters.update((m) => {
-          const newMap = new Map(m)
-          detectedBook.chapters.forEach((c: Chapter) => newMap.set(c.id, true))
-          return newMap
-        })
-        const { toastStore } = await import('./stores/toastStore')
-        toastStore.info(`Generating audio for ${detectedBook.chapters.length} chapter(s)...`)
-        generationService.generateChapters(detectedBook.chapters).catch((err) => {
-          console.warn('Auto-generation failed but continuing:', err)
-        })
-      }
-    }
-  }
-
-  // Initialization
-  onMount(() => {
-    // Hash Routing for persistence
-    const handleHash = async () => {
-      const parsed = parseHash(location.hash)
-      if (!parsed) return
-
-      if (parsed.view === 'landing') {
-        // Always allow navigating back to landing from settings.
-        // The !$book guard exists to avoid resetting book/reader views on initial load,
-        // but settings should always be able to go back.
-        if (currentView === 'settings' || (currentView !== 'landing' && !$book)) {
-          currentView = 'landing'
-        }
-        return
-      }
-
-      if (parsed.view === 'settings') {
-        currentView = 'settings'
-        return
-      }
-
-      const bookId = parsed.bookId
-      const chapterId = parsed.view === 'reader' ? parsed.chapterId : undefined
-
-      // Load book if not already loaded or different book
-      if (bookId !== 'unsaved') {
-        const id = typeof bookId === 'string' ? parseInt(bookId, 10) : bookId
-        if (!isNaN(id)) {
-          // Check if we need to load
-          const needsLoad = !$book || $currentLibraryBookId !== id
-          if (needsLoad) {
-            try {
-              const { getBook } = await import('./lib/libraryDB')
-              const loadedBook = await getBook(id)
-              if (loadedBook) {
-                book.set(loadedBook)
-                currentLibraryBookId.set(id)
-              }
-            } catch (e) {
-              console.error('Failed to load book from hash:', e)
-              location.hash = '#/'
-              return
-            }
-          }
-        }
-      }
-
-      // Navigate to the correct view
-      if (parsed.view === 'book') {
-        currentView = 'book'
-        currentChapter = null
-      } else if (parsed.view === 'reader' && chapterId && $book) {
-        const chapter = $book.chapters.find((c) => c.id === chapterId)
-        if (chapter) {
-          currentChapter = chapter
-          currentView = 'reader'
-        }
-      }
-    }
-
-    // Restore the current view from the URL hash on page load (e.g. after a
-    // reload). If there is no hash or it points to landing, we stay on landing.
-    handleHash()
-
-    window.addEventListener('hashchange', handleHash)
-    return () => window.removeEventListener('hashchange', handleHash)
-  })
-
-  // Theme application
+  // ---- theme ----
   $effect(() => {
     document.documentElement.setAttribute('data-theme', $theme)
-    // Update mobile status bar color
     const metaThemeColor = document.querySelector('meta[name="theme-color"]')
-    if (metaThemeColor) {
+    if (metaThemeColor)
       metaThemeColor.setAttribute('content', $theme === 'dark' ? '#0f172a' : '#ffffff')
-    }
+  })
+
+  onMount(() => {
+    loadPiperVoices()
+    refreshLibrary().catch((e) => logger.warn('Failed to load library', e))
+    applyHash().catch((e) => logger.warn('Failed to restore hash', e))
+    window.addEventListener('hashchange', () => applyHash().catch(() => {}))
   })
 </script>
 
@@ -333,93 +130,12 @@
     <ReloadPrompt />
     <ToastContainer />
     <ModelLoadingIndicator />
-
-    {#if currentView === 'landing'}
-      <div in:fade class="view-wrapper scrollable">
-        <LandingPage
-          onbookloaded={onBookLoaded}
-          onopensettings={() => {
-            currentView = 'settings'
-            location.hash = '#/settings'
-          }}
-        />
-      </div>
-    {:else if currentView === 'settings'}
-      <div in:fade class="view-wrapper scrollable">
-        <SettingsPage
-          onBack={() => {
-            currentView = 'landing'
-            // Use replaceState instead of location.hash to avoid firing hashchange,
-            // which would re-run handleHash and potentially snap back to settings.
-            history.replaceState(null, '', '#/')
-          }}
-        />
-      </div>
-    {:else if currentView === 'book'}
-      <div in:fade class="view-wrapper">
-        <button class="back-link" onclick={() => (currentView = 'landing')}>← Library</button>
-        <BookView onread={(e) => navigateToReader(e.chapter)} />
-      </div>
-    {:else if currentView === 'reader' && currentChapter}
-      <div in:fade class="view-wrapper full-height">
-        <!-- Reader mode toggle -->
-        <div class="reader-mode-toggle">
-          <button
-            class="mode-btn"
-            class:active={readerMode === 'single'}
-            onclick={() => {
-              readerMode = 'single'
-              try {
-                localStorage.setItem('reader_mode', 'single')
-              } catch {
-                // localStorage unavailable
-              }
-            }}
-            aria-label="Single chapter view">Chapter</button
-          >
-          <button
-            class="mode-btn"
-            class:active={readerMode === 'continuous'}
-            onclick={() => {
-              readerMode = 'continuous'
-              try {
-                localStorage.setItem('reader_mode', 'continuous')
-              } catch {
-                // localStorage unavailable
-              }
-            }}
-            aria-label="Continuous scroll view">Scroll</button
-          >
-        </div>
-
-        {#if readerMode === 'continuous' && $book}
-          <ContinuousReader
-            chapters={$book.chapters}
-            bookId={$currentLibraryBookId}
-            bookTitle={$book.title}
-            book={$book}
-            voice={readerVoice}
-            quantization={$selectedQuantization}
-            device={$selectedDevice}
-            selectedModel={readerModel}
-            initialChapterId={currentChapter.id}
-            onBack={handleBackFromReader}
-          />
-        {:else}
-          <TextReader
-            chapter={currentChapter}
-            bookId={$currentLibraryBookId}
-            bookTitle={$book?.title ?? ''}
-            voice={readerVoice}
-            quantization={$selectedQuantization}
-            device={$selectedDevice}
-            selectedModel={readerModel}
-            chapters={$book?.chapters ?? []}
-            onBack={handleBackFromReader}
-          />
-        {/if}
-      </div>
-    {/if}
+    <ReaderShell
+      books={libraryBooks}
+      {initialChapterId}
+      {initialOverlay}
+      onLibraryChanged={() => void refreshLibrary()}
+    />
   </ErrorBoundary>
 </main>
 
@@ -429,52 +145,14 @@
     margin: 0 auto;
     padding: 0;
     height: 100vh;
-    height: 100dvh; /* Dynamic viewport height for mobile browsers */
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    /* Safe Area Insets for Mobile */
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
-  }
-
-  .view-wrapper {
-    flex: 1;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    min-height: 0;
-    overflow: hidden; /* Children manage their own scroll */
-  }
-
-  .view-wrapper.scrollable {
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .view-wrapper.full-height {
-    padding: 0;
-    position: relative;
-  }
-
-  .back-link {
-    align-self: flex-start;
-    background: none;
-    border: none;
-    color: var(--secondary-text);
-    cursor: pointer;
-    font-size: 0.9rem;
-    padding: 12px 0; /* Increased touch target */
-    min-height: 44px; /* Minimum touch target size */
-    display: flex;
-    align-items: center;
-  }
-
-  .back-link:hover {
-    color: var(--primary-color);
   }
 
   .skip-link {
@@ -491,46 +169,5 @@
 
   .skip-link:focus {
     top: 0;
-  }
-
-  @media (max-width: 768px) {
-    .view-wrapper {
-      padding: 12px;
-      gap: 8px;
-    }
-  }
-
-  .reader-mode-toggle {
-    position: absolute;
-    top: 10px;
-    right: 16px;
-    z-index: 20;
-    display: flex;
-    gap: 0;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
-  }
-
-  .mode-btn {
-    padding: 6px 14px;
-    font-size: 0.8rem;
-    border: none;
-    background: var(--surface-color, #2a2a2a);
-    color: var(--secondary-text, #a0a0a0);
-    cursor: pointer;
-    transition: all 0.15s;
-    font-weight: 500;
-    min-height: 36px;
-  }
-
-  .mode-btn.active {
-    background: var(--active-bg, rgba(59, 130, 246, 0.2));
-    color: var(--text-color, #e0e0e0);
-    font-weight: 600;
-  }
-
-  .mode-btn:hover:not(.active) {
-    background: var(--hover-bg, rgba(255, 255, 255, 0.05));
   }
 </style>
