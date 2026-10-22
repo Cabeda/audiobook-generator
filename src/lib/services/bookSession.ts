@@ -40,6 +40,16 @@ export async function importBook(source: { file: File } | { url: string }): Prom
 
   const parsed = await loadBook(file)
   const id = await addBook(parsed, file)
+
+  // Best effort, as in the old flow: without detection the book simply keeps
+  // its declared language and the defaults pick the voice.
+  try {
+    const { detectAndPersistLanguagesForBook } = await import('./languageDetectionService')
+    await detectAndPersistLanguagesForBook(id, parsed)
+  } catch {
+    // detection unavailable — carry on with the parsed languages
+  }
+
   return (await getBook(id)) ?? ({ id, ...parsed } as LibraryBook)
 }
 

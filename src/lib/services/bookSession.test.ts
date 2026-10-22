@@ -18,8 +18,13 @@ vi.mock('../bookLoader', () => ({
   loadBook: vi.fn(async () => null),
 }))
 
+vi.mock('./languageDetectionService', () => ({
+  detectAndPersistLanguagesForBook: vi.fn(async () => undefined),
+}))
+
 const db = await import('../libraryDB')
 const loader = await import('../bookLoader')
+const detection = await import('./languageDetectionService')
 const { importBook, openBook, removeBook, setChapterOverride } = await import('./bookSession')
 
 function parsedBook() {
@@ -44,6 +49,7 @@ describe('importBook', () => {
 
     expect(loader.loadBook).toHaveBeenCalledWith(file)
     expect(db.addBook).toHaveBeenCalled()
+    expect(detection.detectAndPersistLanguagesForBook).toHaveBeenCalled()
     expect(book.id).toBe(42)
   })
 
