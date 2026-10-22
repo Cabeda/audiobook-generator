@@ -1,5 +1,10 @@
 import { get } from 'svelte/store'
-import { engineCapabilities, voiceOptionsFor, type TTSModelType } from './tts/ttsModels'
+import {
+  engineCapabilities,
+  voiceOptionsFor,
+  type SelectedModel,
+  type TTSModelType,
+} from './tts/ttsModels'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import { toastStore } from '../stores/toastStore'
@@ -48,7 +53,7 @@ class AudioPlaybackService {
   private voice = ''
   private quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   private device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
-  private selectedModel: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech' = 'kokoro'
+  private selectedModel: SelectedModel = 'kokoro'
   private initAbort: AbortController | null = null
   playbackSpeed = $state(1.0)
 
@@ -81,7 +86,7 @@ class AudioPlaybackService {
       voice: string
       quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+      selectedModel?: SelectedModel
       playbackSpeed?: number
     },
     options?: {
@@ -289,7 +294,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+      selectedModel?: SelectedModel
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -315,7 +320,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+      selectedModel?: SelectedModel
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -668,7 +673,7 @@ class AudioPlaybackService {
     audioPlayerStore.setChapterDuration(0)
   }
 
-  getCurrentModel(): 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech' {
+  getCurrentModel(): SelectedModel {
     return this.selectedModel
   }
 

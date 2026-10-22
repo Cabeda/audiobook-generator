@@ -3,6 +3,7 @@
   import { fade } from 'svelte/transition'
   import { get } from 'svelte/store'
   import type { Chapter } from '../lib/types/book'
+  import type { SelectedModel } from '../lib/tts/ttsModels'
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { audioPlayerStore } from '../stores/audioPlayerStore'
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
@@ -50,7 +51,7 @@
     voice: string
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper' | 'web_speech'
+    selectedModel?: SelectedModel
     initialChapterId?: string
     onBack: () => void
   }>()

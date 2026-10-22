@@ -174,7 +174,7 @@
 
   // Track the current model and voice from the store to detect changes
   // Will be initialized after first initialization to avoid false change detection
-  let currentModelFromStore = $state<'kokoro' | 'piper' | 'pocket' | 'kitten' | null>(null)
+  let currentModelFromStore = $state<SelectedModel | null>(null)
   let currentVoiceFromStore = $state<string | null>(null)
   let textContentEl: HTMLDivElement | null = null
 

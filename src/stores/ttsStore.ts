@@ -11,9 +11,9 @@ const MODEL_KEY = 'audiobook_model'
 // Type definitions
 export type Quantization = 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
 export type Device = 'auto' | 'wasm' | 'webgpu' | 'cpu'
-import type { TTSModelType } from '../lib/tts/ttsModels'
+import type { SelectedModel } from '../lib/tts/ttsModels'
 
-export type TTSModel = TTSModelType
+export type TTSModel = SelectedModel
 
 // Get adaptive defaults based on device capabilities
 // Mobile devices get smaller/faster settings (q4 instead of q8)
