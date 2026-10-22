@@ -2,7 +2,7 @@
   import { fade } from 'svelte/transition'
   import { audioService } from '../lib/audioPlaybackService.svelte'
   import { POCKET_VOICE_LABELS } from '../lib/pocket/pocketAssets'
-  import { POCKET_VOICES } from '../lib/utils/voiceSelector'
+  import { KITTEN_VOICES, POCKET_VOICES } from '../lib/utils/voiceSelector'
 
   type Theme = 'light' | 'dark' | 'sepia'
 
@@ -22,7 +22,7 @@
     onVoiceChange,
   }: {
     showSettings: boolean
-    localModel: 'kokoro' | 'piper' | 'pocket' | 'web_speech'
+    localModel: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
     localVoice: string
     autoScrollEnabled: boolean
     fontSize: number
@@ -148,6 +148,10 @@
         {:else if localModel === 'piper'}
           {#each piperVoices as piperVoice}
             <option value={piperVoice.key}>{piperVoice.name} ({piperVoice.language})</option>
+          {/each}
+        {:else if localModel === 'kitten'}
+          {#each KITTEN_VOICES as kittenVoice}
+            <option value={kittenVoice}>{kittenVoice}</option>
           {/each}
         {:else if localModel === 'pocket'}
           {#each POCKET_VOICES as pocketVoice}

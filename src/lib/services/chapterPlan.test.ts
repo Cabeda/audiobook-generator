@@ -64,6 +64,20 @@ describe('planChapter', () => {
     expect(plan.isFallbackModel).toBe(false)
   })
 
+  it('falls back to Piper when KittenTTS does not cover the language', () => {
+    const plan = planChapter({ ...base, language: 'de', selectedModel: 'kitten' })
+
+    expect(plan.model).toBe('piper')
+    expect(plan.isFallbackModel).toBe(true)
+  })
+
+  it('keeps KittenTTS for English and gives it one of its own voices', () => {
+    const plan = planChapter({ ...base, selectedModel: 'kitten', selectedVoice: 'af_heart' })
+
+    expect(plan.model).toBe('kitten')
+    expect(plan.voice).toBe('Bella')
+  })
+
   it('picks a Piper voice the fallback engine can use', () => {
     const plan = planChapter({
       ...base,

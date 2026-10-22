@@ -26,7 +26,12 @@
   } from '../lib/reader/readerSegments'
   import { generationService } from '../lib/services/generationService'
   import { claimChapter } from '../lib/reader/chapterReader'
-  import { POCKET_VOICES, selectPocketVoiceForLanguage } from '../lib/utils/voiceSelector'
+  import {
+    KITTEN_VOICES,
+    POCKET_VOICES,
+    selectKittenVoiceForLanguage,
+    selectPocketVoiceForLanguage,
+  } from '../lib/utils/voiceSelector'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
   import ReaderControls from './ReaderControls.svelte'
@@ -59,7 +64,7 @@
     voice: string
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'web_speech'
+    selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
     chapters?: Chapter[]
     onBack: () => void
     onChapterChange?: (chapter: Chapter) => void
@@ -71,7 +76,7 @@
 
   // Initialize from localStorage if available
   let initialSpeed = 1.0
-  let initialModel: 'kokoro' | 'piper' | 'pocket' | 'web_speech' | null = null
+  let initialModel: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech' | null = null
   let initialVoice: string | null = null
   try {
     const saved = localStorage.getItem(SPEED_KEY)
@@ -100,7 +105,7 @@
 
   // Local model state for text reader (falls back to prop value if no localStorage)
   // untrack breaks the reactivity chain — these are intentional one-time prop reads
-  let localModel = $state<'kokoro' | 'piper' | 'pocket' | 'web_speech'>(
+  let localModel = $state<'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'>(
     initialModel ?? untrack(() => selectedModel)
   )
   let localVoice = $state(initialVoice ?? untrack(() => voice))
@@ -109,6 +114,13 @@
   // engine cannot be used with it.
   if (localModel === 'pocket' && !POCKET_VOICES.includes(localVoice)) {
     localVoice = selectPocketVoiceForLanguage(
+      chapter?.detectedLanguage || chapter?.language || 'en'
+    )
+  }
+
+  // Same for KittenTTS, whose eight voices are its whole catalogue.
+  if (localModel === 'kitten' && !(KITTEN_VOICES as readonly string[]).includes(localVoice)) {
+    localVoice = selectKittenVoiceForLanguage(
       chapter?.detectedLanguage || chapter?.language || 'en'
     )
   }
@@ -171,7 +183,7 @@
 
   // Track the current model and voice from the store to detect changes
   // Will be initialized after first initialization to avoid false change detection
-  let currentModelFromStore = $state<'kokoro' | 'piper' | 'pocket' | null>(null)
+  let currentModelFromStore = $state<'kokoro' | 'piper' | 'pocket' | 'kitten' | null>(null)
   let currentVoiceFromStore = $state<string | null>(null)
   let textContentEl: HTMLDivElement | null = null
 

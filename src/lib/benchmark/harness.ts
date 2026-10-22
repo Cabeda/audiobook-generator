@@ -22,6 +22,7 @@ import { incrementalConcatWav, parseWavDuration } from '../wavUtils'
 import { piperClient } from '../piper/piperClient'
 import { selectPiperVoiceForLanguage } from '../utils/voiceSelector'
 import { POCKET_VOICE_IDS } from '../pocket/pocketAssets'
+import { KITTEN_VOICES } from '../kitten/kittenVoices'
 import logger from '../utils/logger'
 
 export type BenchmarkPhase = 'loading' | 'generating' | 'encoding'
@@ -107,6 +108,7 @@ export function benchmarkConfig(model: TTSModelType): TTSEngineConfig {
       return { model: 'onnx-community/Kokoro-82M-v1.0-ONNX', dtype: 'q8', device: 'wasm' }
     case 'piper':
     case 'pocket':
+    case 'kitten':
       return {}
   }
 }
@@ -123,6 +125,8 @@ export async function benchmarkVoice(model: TTSModelType, language: string): Pro
     }
     case 'pocket':
       return POCKET_VOICE_IDS[0]
+    case 'kitten':
+      return KITTEN_VOICES[0]
   }
 }
 

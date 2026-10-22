@@ -20,7 +20,7 @@ import {
 } from './helpers/readerProbe'
 
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
-const ENGINES = ['kokoro', 'piper', 'pocket'] as const
+const ENGINES = ['kokoro', 'piper', 'pocket', 'kitten'] as const
 
 /** How long a chapter may take once the model is there. */
 const PLAYBACK_TIMEOUT_MS = 300_000

@@ -13,7 +13,7 @@
 
 import { getOnnxRuntime } from '../onnx/getOnnxRuntime'
 import { fetchAndCache } from '../onnx/modelCache'
-import { buildWavHeader, floatTo16BitPCM, WAV_HEADER_BYTES } from '../wavUtils'
+import { concatFloat32, pcmToWav } from '../wavUtils'
 import { parseSentencePieceModel, PocketTokenizer } from './pocketTokenizer'
 import {
   parseBundle,
@@ -427,41 +427,6 @@ function replaceNamedStateOutputs(
     const tensor = result[spec.output]
     if (tensor) state[spec.name] = tensor
   }
-}
-
-function concatFloat32(chunks: Float32Array[]): Float32Array {
-  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-  const out = new Float32Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    out.set(chunk, offset)
-    offset += chunk.length
-  }
-  return out
-}
-
-/** Wrap float samples in a 16-bit PCM WAV blob. */
-function pcmToWav(samples: Float32Array, sampleRate: number): Blob {
-  const dataLength = samples.length * 2
-  const buffer = new ArrayBuffer(WAV_HEADER_BYTES + dataLength)
-  const view = new DataView(buffer)
-  new Uint8Array(buffer).set(
-    new Uint8Array(
-      buildWavHeader(
-        {
-          audioFormat: 1,
-          numChannels: 1,
-          sampleRate,
-          byteRate: sampleRate * 2,
-          blockAlign: 2,
-          bitsPerSample: 16,
-        },
-        dataLength
-      )
-    )
-  )
-  floatTo16BitPCM(view, WAV_HEADER_BYTES, samples)
-  return new Blob([buffer], { type: 'audio/wav' })
 }
 
 // ─── text preparation ────────────────────────────────────────────────────────

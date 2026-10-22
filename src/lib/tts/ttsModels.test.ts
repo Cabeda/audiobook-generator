@@ -68,6 +68,20 @@ describe('TTS engine seam', () => {
 
     expect(engineVoices('pocket')).toContain('alba')
     expect(engineVoices('piper')).toBeUndefined()
+
+    expect(engineSupportsLanguage('kitten', 'en-US')).toBe(true)
+    expect(engineSupportsLanguage('kitten', 'fr')).toBe(false)
+    expect(engineCapabilities('kitten').qualityLadder).toBe('single')
+    expect(engineVoices('kitten')).toEqual([
+      'Bella',
+      'Jasper',
+      'Luna',
+      'Bruno',
+      'Rosie',
+      'Hugo',
+      'Kiki',
+      'Leo',
+    ])
   })
 
   it('gives the engine its own name and capabilities', async () => {
@@ -75,6 +89,13 @@ describe('TTS engine seam', () => {
 
     expect(engine.id).toBe('pocket')
     expect(engine.capabilities.qualityLadder).toBe('single')
+  })
+
+  it('gives KittenTTS its own name and voice catalogue', async () => {
+    const engine = await getTTSEngine('kitten')
+
+    expect(engine.id).toBe('kitten')
+    expect(engine.capabilities).toEqual({ languages: ['en'], qualityLadder: 'single' })
   })
 
   it('rejects an unknown engine', async () => {

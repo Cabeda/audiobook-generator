@@ -14,6 +14,7 @@
 import {
   normalizeLanguageCode,
   selectKokoroVoiceForLanguage,
+  selectKittenVoiceForLanguage,
   selectPiperVoiceForLanguage,
   selectPocketVoiceForLanguage,
 } from '../utils/voiceSelector'
@@ -119,6 +120,10 @@ function pickVoice(
 
   if (model === 'pocket') {
     return selectPocketVoiceForLanguage(input.language, requestedVoice)
+  }
+
+  if (model === 'kitten') {
+    return selectKittenVoiceForLanguage(input.language, requestedVoice)
   }
 
   return requestedVoice

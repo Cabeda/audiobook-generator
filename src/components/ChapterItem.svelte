@@ -26,7 +26,9 @@
   import {
     getKokoroVoicesForLanguage,
     getPiperVoicesForLanguage,
+    isKittenLanguageSupported,
     isKokoroLanguageSupported,
+    KITTEN_VOICES,
     POCKET_VOICES,
     isPocketLanguageSupported,
   } from '../lib/utils/voiceSelector'
@@ -150,6 +152,9 @@
         return matchingVoices.map((v) => ({ id: v.key, label: v.name }))
       }
       return []
+    } else if (effectiveModel === 'kitten') {
+      if (!isKittenLanguageSupported(effectiveLanguage)) return []
+      return KITTEN_VOICES.map((v) => ({ id: v, label: v }))
     } else if (effectiveModel === 'pocket') {
       if (!isPocketLanguageSupported(effectiveLanguage)) return []
       return POCKET_VOICES.map((v) => ({

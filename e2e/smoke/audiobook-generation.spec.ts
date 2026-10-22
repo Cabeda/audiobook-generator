@@ -55,12 +55,13 @@ test.describe('Audiobook Generation - Smoke', () => {
     const optionCount = await options.count()
     expect(optionCount).toBeGreaterThanOrEqual(2)
 
-    // Kokoro, Piper and Pocket TTS are offered
+    // Kokoro, Piper, Pocket and KittenTTS are offered
     const values = await options.evaluateAll((els) =>
       els.map((el) => (el as HTMLOptionElement).value)
     )
     expect(values).toContain('kokoro')
     expect(values).toContain('piper')
     expect(values).toContain('pocket')
+    expect(values).toContain('kitten')
   })
 })

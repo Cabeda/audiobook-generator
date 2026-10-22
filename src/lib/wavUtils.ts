@@ -446,6 +446,42 @@ export async function concatWavBlobs(blobs: Blob[]): Promise<Blob> {
   return new Blob(parts, { type: 'audio/wav' })
 }
 
+/** Lay float sample buffers end to end. */
+export function concatFloat32(chunks: Float32Array[]): Float32Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+  const out = new Float32Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.length
+  }
+  return out
+}
+
+/** Wrap float samples in a 16-bit mono PCM WAV blob. */
+export function pcmToWav(samples: Float32Array, sampleRate: number): Blob {
+  const dataLength = samples.length * 2
+  const buffer = new ArrayBuffer(WAV_HEADER_BYTES + dataLength)
+  const view = new DataView(buffer)
+  new Uint8Array(buffer).set(
+    new Uint8Array(
+      buildWavHeader(
+        {
+          audioFormat: 1,
+          numChannels: 1,
+          sampleRate,
+          byteRate: sampleRate * 2,
+          blockAlign: 2,
+          bitsPerSample: 16,
+        },
+        dataLength
+      )
+    )
+  )
+  floatTo16BitPCM(view, WAV_HEADER_BYTES, samples)
+  return new Blob([buffer], { type: 'audio/wav' })
+}
+
 /** Download a blob as a file. */
 export function downloadAudioFile(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
