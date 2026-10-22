@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBookHash, buildReaderHash, parseHash } from './hashRoutes'
+import { buildBookHash, buildReaderHash, parseHash, shellViewFromHash } from './hashRoutes'
 
 const sampleBook = { title: 'The Great Adventure', author: 'Jane Doe', chapters: [] }
 
@@ -42,5 +42,36 @@ describe('hashRoutes', () => {
   it('returns null for invalid hashes', () => {
     expect(parseHash('#/unknown/route')).toBeNull()
     expect(parseHash('#/book/not-a-number/slug')).toBeNull()
+  })
+})
+
+// What the revamp shell restores from a deep link.
+describe('shellViewFromHash', () => {
+  it('restores the book and the chapter to resume at from a reader link', () => {
+    expect(shellViewFromHash(buildReaderHash(7, 'ch-2', sampleBook))).toEqual({
+      kind: 'reader',
+      bookId: 7,
+      chapterId: 'ch-2',
+    })
+  })
+
+  it('restores the book at the top from a book link', () => {
+    expect(shellViewFromHash(buildBookHash(7, sampleBook))).toEqual({
+      kind: 'reader',
+      bookId: 7,
+      chapterId: null,
+    })
+  })
+
+  it('opens the library from the root link', () => {
+    expect(shellViewFromHash('#/')).toEqual({ kind: 'library' })
+  })
+
+  it('opens app settings from the settings link', () => {
+    expect(shellViewFromHash('#/settings')).toEqual({ kind: 'settings' })
+  })
+
+  it('restores nothing from an invalid link', () => {
+    expect(shellViewFromHash('#/book/not-a-number')).toBeNull()
   })
 })

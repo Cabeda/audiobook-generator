@@ -53,3 +53,24 @@ export function parseHash(hash: string | null | undefined): ParsedHash | null {
 
   return null
 }
+
+/** What the revamp shell restores: reader (optionally at a chapter), library, or settings. */
+export type ShellView =
+  | { kind: 'reader'; bookId: BookId; chapterId: string | null }
+  | { kind: 'library' }
+  | { kind: 'settings' }
+
+export function shellViewFromHash(hash: string | null | undefined): ShellView | null {
+  const parsed = parseHash(hash)
+  if (!parsed) return null
+  switch (parsed.view) {
+    case 'reader':
+      return { kind: 'reader', bookId: parsed.bookId, chapterId: parsed.chapterId }
+    case 'book':
+      return { kind: 'reader', bookId: parsed.bookId, chapterId: null }
+    case 'settings':
+      return { kind: 'settings' }
+    case 'landing':
+      return { kind: 'library' }
+  }
+}
