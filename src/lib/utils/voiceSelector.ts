@@ -1,5 +1,6 @@
 import type { VoiceId } from '../kokoro/kokoroVoices'
 import type { PiperVoice } from '../piper/piperClient'
+import { KITTEN_VOICES } from '../kitten/kittenVoices'
 
 /**
  * Pocket TTS ships a small set of preset English voices.
@@ -33,6 +34,32 @@ export function selectPocketVoiceForLanguage(language: string, preferredVoice?: 
     return preferredVoice
   }
   return POCKET_VOICES[0]
+}
+
+/**
+ * KittenTTS ships eight preset English voices. The names are the ids the
+ * engine resolves, so the list here is the whole catalogue.
+ */
+export { KITTEN_VOICES }
+
+/**
+ * Check if the KittenTTS model supports a given language.
+ * The published 0.8 checkpoint is English only.
+ */
+export function isKittenLanguageSupported(language: string): boolean {
+  const normalized = language.toLowerCase().trim()
+  const base = normalized.split(/[-_]/)[0]
+  return base === 'en'
+}
+
+/**
+ * Select an appropriate KittenTTS voice based on language.
+ */
+export function selectKittenVoiceForLanguage(language: string, preferredVoice?: string): string {
+  if (preferredVoice && (KITTEN_VOICES as readonly string[]).includes(preferredVoice)) {
+    return preferredVoice
+  }
+  return KITTEN_VOICES[0]
 }
 
 /**

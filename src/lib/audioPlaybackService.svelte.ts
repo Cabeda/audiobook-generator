@@ -8,7 +8,9 @@ import { getChapterSegments, getChapterAudio } from './libraryDB'
 import { segmentHtmlContent } from './services/segmentationService'
 import type { AudioSegment } from './types/audio'
 import {
+  KITTEN_VOICES,
   POCKET_VOICES,
+  selectKittenVoiceForLanguage,
   selectPiperVoiceForLanguage,
   normalizeLanguageCode,
   selectPocketVoiceForLanguage,
@@ -53,7 +55,7 @@ class AudioPlaybackService {
   private voice = ''
   private quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   private device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
-  private selectedModel: 'kokoro' | 'piper' | 'pocket' | 'web_speech' = 'kokoro'
+  private selectedModel: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech' = 'kokoro'
   private initAbort: AbortController | null = null
   playbackSpeed = $state(1.0)
 
@@ -86,7 +88,7 @@ class AudioPlaybackService {
       voice: string
       quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'web_speech'
+      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
       playbackSpeed?: number
     },
     options?: {
@@ -294,7 +296,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'web_speech'
+      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -320,7 +322,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'web_speech'
+      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -342,6 +344,16 @@ class AudioPlaybackService {
       // Pocket only knows its own preset voices
       if (this.selectedModel === 'pocket' && !POCKET_VOICES.includes(this.voice)) {
         this.voice = selectPocketVoiceForLanguage(
+          chapter.detectedLanguage || chapter.language || 'en'
+        )
+      }
+
+      // Same for KittenTTS, whose catalogue is its eight preset voices
+      if (
+        this.selectedModel === 'kitten' &&
+        !(KITTEN_VOICES as readonly string[]).includes(this.voice)
+      ) {
+        this.voice = selectKittenVoiceForLanguage(
           chapter.detectedLanguage || chapter.language || 'en'
         )
       }
@@ -670,7 +682,7 @@ class AudioPlaybackService {
     audioPlayerStore.setChapterDuration(0)
   }
 
-  getCurrentModel(): 'kokoro' | 'piper' | 'pocket' | 'web_speech' {
+  getCurrentModel(): 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech' {
     return this.selectedModel
   }
 

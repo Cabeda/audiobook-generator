@@ -6,8 +6,10 @@
   import { voiceLabels } from '../stores/ttsStore'
   import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
   import {
+    KITTEN_VOICES,
     getKokoroVoicesForLanguage,
     getPiperVoicesForLanguage,
+    isKittenLanguageSupported,
   } from '../lib/utils/voiceSelector'
   import { piperVoices, loadPiperVoices } from '../stores/piperVoicesStore'
   import {
@@ -71,6 +73,9 @@
         id: v.key,
         label: v.name,
       }))
+    } else if (model === 'kitten') {
+      if (!isKittenLanguageSupported(langCode)) return []
+      return KITTEN_VOICES.map((v) => ({ id: v, label: v }))
     }
     return []
   }

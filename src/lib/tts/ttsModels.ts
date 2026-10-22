@@ -16,8 +16,9 @@
 
 import { normalizeLanguageCode, POCKET_VOICES } from '../utils/voiceSelector'
 import { listVoices as listKokoroVoices } from '../kokoro/kokoroVoices'
+import { KITTEN_VOICES } from '../kitten/kittenVoices'
 
-export type TTSModelType = 'kokoro' | 'piper' | 'pocket'
+export type TTSModelType = 'kokoro' | 'piper' | 'pocket' | 'kitten'
 
 /** What every caller knows about a request. */
 export interface TTSRequest {
@@ -59,6 +60,7 @@ const CAPABILITIES: Record<TTSModelType, TTSCapabilities> = {
   kokoro: { languages: ['en'], qualityLadder: 'quantization' },
   piper: { languages: 'catalogue', qualityLadder: 'voices' },
   pocket: { languages: ['en'], qualityLadder: 'single' },
+  kitten: { languages: ['en'], qualityLadder: 'single' },
 }
 
 /** What the engine can do. Synchronous, for callers that only have the name. */
@@ -76,6 +78,7 @@ export function engineSupportsLanguage(model: TTSModelType, language: string): b
 /** The voices the engine ships with, or undefined when it gets them elsewhere. */
 export function engineVoices(model: TTSModelType): string[] | undefined {
   if (model === 'pocket') return POCKET_VOICES
+  if (model === 'kitten') return [...KITTEN_VOICES]
   if (model === 'kokoro') return listKokoroVoices()
   return undefined
 }
@@ -166,6 +169,11 @@ async function loadEngine(
       return getPocketEngine()
     }
 
+    case 'kitten': {
+      const { getKittenEngine } = await import('../kitten/kittenEngine')
+      return getKittenEngine()
+    }
+
     default:
       throw new Error(`Unknown TTS model type: ${modelType}`)
   }
@@ -219,6 +227,13 @@ export const TTS_MODELS: TTSModelInfo[] = [
     id: 'pocket',
     name: 'Pocket TTS',
     description: "Kyutai's 18M parameter model, small enough to run on a phone.",
+    requiresDownload: true,
+    supportsOffline: true,
+  },
+  {
+    id: 'kitten',
+    name: 'KittenTTS',
+    description: 'KittenML 15M parameter ONNX model, the smallest download here (25 MB).',
     requiresDownload: true,
     supportsOffline: true,
   },

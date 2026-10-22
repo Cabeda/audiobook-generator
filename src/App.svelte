@@ -18,7 +18,7 @@
   import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroVoices'
   import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
-  import { POCKET_VOICES } from './lib/utils/voiceSelector'
+  import { KITTEN_VOICES, POCKET_VOICES } from './lib/utils/voiceSelector'
   import { POCKET_VOICE_LABELS } from './lib/pocket/pocketAssets'
   import { planChapter } from './lib/services/chapterPlan'
   import logger from './lib/utils/logger'
@@ -122,6 +122,13 @@
       untrack(() => {
         if (!POCKET_VOICES.includes($selectedVoice as any)) {
           selectedVoice.set(POCKET_VOICES[0])
+        }
+      })
+    } else if (model === 'kitten') {
+      availableVoices.set(KITTEN_VOICES.map((v) => ({ id: v, label: v })))
+      untrack(() => {
+        if (!KITTEN_VOICES.includes($selectedVoice as any)) {
+          selectedVoice.set(KITTEN_VOICES[0])
         }
       })
     } else if (model === 'piper') {
