@@ -1,0 +1,86 @@
+// Specification for how generation state becomes what the reader shows.
+// Seam: readerViewState (real stores → the reading UI's view state).
+import { describe, expect, it } from 'vitest'
+import {
+  bookGenerationView,
+  chapterAudioView,
+  resumePoint,
+  type ChapterSegmentProgressLike,
+} from './readerViewState'
+
+function segments(total: number, generated: number[], generating = false, processing = -1) {
+  return {
+    totalSegments: total,
+    generatedIndices: new Set(generated),
+    isGenerating: generating,
+    processingIndex: processing,
+  } satisfies ChapterSegmentProgressLike
+}
+
+describe('chapterAudioView', () => {
+  it('shows a chapter with no generation work as not generated', () => {
+    expect(chapterAudioView(undefined, 'pending', undefined)).toEqual({
+      state: 'none',
+      progress: 0,
+    })
+  })
+
+  it('shows how far a chapter being generated has come', () => {
+    expect(chapterAudioView(segments(4, [0, 1], true, 2), 'processing', undefined)).toEqual({
+      state: 'generating',
+      progress: 0.5,
+    })
+  })
+
+  it('shows a finished chapter as ready', () => {
+    expect(chapterAudioView(segments(3, [0, 1, 2]), 'done', undefined)).toEqual({
+      state: 'ready',
+      progress: 1,
+    })
+  })
+
+  it('shows a failed chapter with its error', () => {
+    expect(chapterAudioView(segments(2, []), 'error', 'model crashed')).toEqual({
+      state: 'failed',
+      progress: 0,
+      error: 'model crashed',
+    })
+  })
+
+  it('counts a chapter as generating once it is processing, before segments land', () => {
+    expect(chapterAudioView(segments(4, [], true, -1), 'processing', undefined)?.state).toBe(
+      'generating'
+    )
+  })
+})
+
+describe('bookGenerationView', () => {
+  it('reports the share of the book with audio, by segments', () => {
+    const view = bookGenerationView([segments(2, [0]), segments(2, [0, 1]), undefined])
+    expect(view.generatedSegments).toBe(3)
+    expect(view.totalSegments).toBe(4)
+    expect(view.percent).toBeCloseTo(0.75)
+  })
+
+  it('reports nothing to do for a book with no segments', () => {
+    expect(bookGenerationView([undefined, undefined]).percent).toBe(0)
+  })
+})
+
+describe('resumePoint', () => {
+  it('restores where the reader left off', () => {
+    const chapters = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+    expect(resumePoint({ chapterId: 'b', segmentIndex: 7 }, chapters)).toEqual({
+      chapterIndex: 1,
+      segmentIndex: 7,
+    })
+  })
+
+  it('drops a position whose chapter is gone', () => {
+    expect(resumePoint({ chapterId: 'gone', segmentIndex: 3 }, [{ id: 'a' }])).toBeNull()
+  })
+
+  it('starts at the top when there is no saved position', () => {
+    expect(resumePoint(null, [{ id: 'a' }])).toBeNull()
+  })
+})
