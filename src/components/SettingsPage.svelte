@@ -2,15 +2,12 @@
   import { onMount } from 'svelte'
   import { appSettings, type LanguageDefault } from '../stores/appSettingsStore'
   import { LANGUAGE_OPTIONS, getLanguageLabel } from '../lib/utils/languageResolver'
-  import { TTS_MODELS, engineSupportsLanguage } from '../lib/tts/ttsModels'
-  import { voiceLabels } from '../stores/ttsStore'
-  import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
   import {
-    KITTEN_VOICES,
-    getKokoroVoicesForLanguage,
-    getPiperVoicesForLanguage,
-    isKittenLanguageSupported,
-  } from '../lib/utils/voiceSelector'
+    TTS_MODELS,
+    engineSupportsLanguage,
+    voiceOptionsFor,
+    type SelectedModel,
+  } from '../lib/tts/ttsModels'
   import { piperVoices, loadPiperVoices } from '../stores/piperVoicesStore'
   import {
     getStorageInfo,
@@ -62,22 +59,7 @@
   )
 
   function getVoicesForLanguage(langCode: string, model: string) {
-    if (model === 'kokoro') {
-      const kokoroVoices = listKokoroVoices()
-      const langVoices = getKokoroVoicesForLanguage(langCode)
-      return kokoroVoices
-        .filter((v) => langVoices.includes(v))
-        .map((v) => ({ id: v, label: voiceLabels[v] || v }))
-    } else if (model === 'piper' && $piperVoices.length > 0) {
-      return getPiperVoicesForLanguage(langCode, $piperVoices).map((v) => ({
-        id: v.key,
-        label: v.name,
-      }))
-    } else if (model === 'kitten') {
-      if (!isKittenLanguageSupported(langCode)) return []
-      return KITTEN_VOICES.map((v) => ({ id: v, label: v }))
-    }
-    return []
+    return voiceOptionsFor(model as SelectedModel, langCode, $piperVoices)
   }
 
   function addLanguage() {

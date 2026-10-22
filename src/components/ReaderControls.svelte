@@ -1,8 +1,7 @@
 <script lang="ts">
   import { fade } from 'svelte/transition'
   import { audioService } from '../lib/audioPlaybackService.svelte'
-  import { POCKET_VOICE_LABELS } from '../lib/pocket/pocketAssets'
-  import { KITTEN_VOICES, POCKET_VOICES } from '../lib/utils/voiceSelector'
+  import { MODEL_OPTIONS, type SelectedModel, type VoiceOption } from '../lib/tts/ttsModels'
 
   type Theme = 'light' | 'dark' | 'sepia'
 
@@ -13,7 +12,7 @@
     autoScrollEnabled = $bindable(true),
     fontSize = $bindable(18),
     currentTheme = $bindable('dark' as Theme),
-    piperVoices = [],
+    voiceOptions = [],
     sortedWebSpeechVoices,
     onSpeedChange,
     onFontSizeChange,
@@ -22,12 +21,12 @@
     onVoiceChange,
   }: {
     showSettings: boolean
-    localModel: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+    localModel: SelectedModel
     localVoice: string
     autoScrollEnabled: boolean
     fontSize: number
     currentTheme: Theme
-    piperVoices: Array<{ key: string; name: string; language: string; quality: string }>
+    voiceOptions: VoiceOption[]
     sortedWebSpeechVoices: () => SpeechSynthesisVoice[]
     onSpeedChange: (speed: number) => void
     onFontSizeChange: (delta: number) => void
@@ -121,10 +120,9 @@
         onchange={onModelChange}
         class="model-select"
       >
-        <option value="web_speech">Web Speech API</option>
-        <option value="kokoro">Kokoro TTS</option>
-        <option value="piper">Piper TTS</option>
-        <option value="pocket">Pocket TTS</option>
+        {#each MODEL_OPTIONS as model}
+          <option value={model.id}>{model.name}</option>
+        {/each}
       </select>
       {#if localModel !== 'web_speech'}
         <span class="hint">Changes sync with chapter settings</span>
@@ -139,33 +137,17 @@
         onchange={onVoiceChange}
         class="model-select"
       >
-        {#if localModel === 'kokoro'}
-          <option value="af_heart">af_heart (Female American)</option>
-          <option value="af_bella">af_bella (Female American)</option>
-          <option value="bf_emma">bf_emma (Female British)</option>
-          <option value="am_adam">am_adam (Male American)</option>
-          <option value="bm_george">bm_george (Male British)</option>
-        {:else if localModel === 'piper'}
-          {#each piperVoices as piperVoice}
-            <option value={piperVoice.key}>{piperVoice.name} ({piperVoice.language})</option>
-          {/each}
-        {:else if localModel === 'kitten'}
-          {#each KITTEN_VOICES as kittenVoice}
-            <option value={kittenVoice}>{kittenVoice}</option>
-          {/each}
-        {:else if localModel === 'pocket'}
-          {#each POCKET_VOICES as pocketVoice}
-            <option value={pocketVoice}>
-              {POCKET_VOICE_LABELS[pocketVoice as keyof typeof POCKET_VOICE_LABELS] ?? pocketVoice}
-            </option>
-          {/each}
-        {:else}
+        {#if localModel === 'web_speech'}
           {#each sortedWebSpeechVoices() as wsVoice}
             <option value={wsVoice.name}>{wsVoice.name} ({wsVoice.lang})</option>
           {/each}
+        {:else}
+          {#each voiceOptions as option}
+            <option value={option.id}>{option.label}</option>
+          {/each}
         {/if}
       </select>
-      <span class="hint">Applied on next segment click</span>
+      <span class="hint">Applies to the current and next segments</span>
     </div>
 
     <div class="setting-item info">

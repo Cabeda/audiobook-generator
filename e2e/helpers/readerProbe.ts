@@ -104,8 +104,9 @@ export function installReaderProbe(): void {
  * WAV. Install it together with the probe when the test does not want to
  * download a real model.
  */
-export function installFakeTtsWorker(options: { delayMs?: number } = {}): void {
+export function installFakeTtsWorker(options: { delayMs?: number; audioMs?: number } = {}): void {
   const delayMs = options.delayMs ?? 10
+  const audioMs = options.audioMs ?? 40
   const RealWorker = window.Worker
 
   // 24 kHz, mono, 16-bit PCM. Short, so a whole chapter plays in seconds.
@@ -134,7 +135,7 @@ export function installFakeTtsWorker(options: { delayMs?: number } = {}): void {
     return buffer
   }
 
-  const cannedWav = buildWav(40)
+  const cannedWav = buildWav(audioMs)
   let requests = 0
   const requestTexts: string[] = []
 

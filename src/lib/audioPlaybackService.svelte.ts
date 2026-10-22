@@ -1,5 +1,5 @@
 import { get } from 'svelte/store'
-import { engineCapabilities, type TTSModelType } from './tts/ttsModels'
+import { engineCapabilities, voiceOptionsFor, type TTSModelType } from './tts/ttsModels'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import { toastStore } from '../stores/toastStore'
@@ -7,14 +7,7 @@ import type { Chapter } from './types/book'
 import { getChapterSegments, getChapterAudio } from './libraryDB'
 import { segmentHtmlContent } from './services/segmentationService'
 import type { AudioSegment } from './types/audio'
-import {
-  KITTEN_VOICES,
-  POCKET_VOICES,
-  selectKittenVoiceForLanguage,
-  selectPiperVoiceForLanguage,
-  normalizeLanguageCode,
-  selectPocketVoiceForLanguage,
-} from './utils/voiceSelector'
+import { selectPiperVoiceForLanguage, normalizeLanguageCode } from './utils/voiceSelector'
 import { getGeneratedSegment } from '../stores/segmentProgressStore'
 import { updateModelStatus, clearModelStatus } from '../stores/modelStatus'
 import { saveSegment, synthesizeSegment } from './services/segmentProduction'
@@ -341,21 +334,14 @@ class AudioPlaybackService {
         await this.ensurePiperVoiceForLanguage(lang)
       }
 
-      // Pocket only knows its own preset voices
-      if (this.selectedModel === 'pocket' && !POCKET_VOICES.includes(this.voice)) {
-        this.voice = selectPocketVoiceForLanguage(
-          chapter.detectedLanguage || chapter.language || 'en'
-        )
-      }
-
-      // Same for KittenTTS, whose catalogue is its eight preset voices
-      if (
-        this.selectedModel === 'kitten' &&
-        !(KITTEN_VOICES as readonly string[]).includes(this.voice)
-      ) {
-        this.voice = selectKittenVoiceForLanguage(
-          chapter.detectedLanguage || chapter.language || 'en'
-        )
+      // A voice picked for another engine cannot be used here. The registry
+      // says which voices this one has, so a new engine needs no branch.
+      const options = voiceOptionsFor(
+        this.selectedModel,
+        chapter.detectedLanguage || chapter.language || 'en'
+      )
+      if (options.length > 0 && !options.some((option) => option.id === this.voice)) {
+        this.voice = options[0].id
       }
     }
 

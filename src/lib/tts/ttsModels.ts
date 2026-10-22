@@ -14,11 +14,20 @@
  * capabilities entry.
  */
 
-import { normalizeLanguageCode, POCKET_VOICES } from '../utils/voiceSelector'
-import { listVoices as listKokoroVoices } from '../kokoro/kokoroVoices'
+import {
+  getPiperVoicesForLanguage,
+  normalizeLanguageCode,
+  POCKET_VOICES,
+} from '../utils/voiceSelector'
+import { listVoices as listKokoroVoices, voiceLabels } from '../kokoro/kokoroVoices'
 import { KITTEN_VOICES } from '../kitten/kittenVoices'
+import { POCKET_VOICE_LABELS } from '../pocket/pocketAssets'
+import type { PiperVoice } from '../piper/piperClient'
 
 export type TTSModelType = 'kokoro' | 'piper' | 'pocket' | 'kitten'
+
+/** What a picker can select: an engine, or the browser's own speech. */
+export type SelectedModel = TTSModelType | 'web_speech'
 
 /** What every caller knows about a request. */
 export interface TTSRequest {
@@ -81,6 +90,47 @@ export function engineVoices(model: TTSModelType): string[] | undefined {
   if (model === 'kitten') return [...KITTEN_VOICES]
   if (model === 'kokoro') return listKokoroVoices()
   return undefined
+}
+
+/** One entry of a voice picker. */
+export interface VoiceOption {
+  id: string
+  label: string
+}
+
+/** Engines that name their voices; the rest are labelled by id. */
+const VOICE_LABELS: Partial<Record<TTSModelType, Record<string, string>>> = {
+  kokoro: voiceLabels,
+  pocket: POCKET_VOICE_LABELS,
+}
+
+/**
+ * The voices a picker should offer, for an engine and a language.
+ *
+ * This is the only place a picker asks, so a new engine shows up in every
+ * picker as soon as it is in the registry — capabilities and voices — with no
+ * component changes. Piper is the one exception: its catalogue is downloaded,
+ * so the caller passes whatever it has. Web Speech voices come from the
+ * browser and are not ours to list.
+ */
+export function voiceOptionsFor(
+  model: SelectedModel,
+  language: string = 'en',
+  piperVoices: PiperVoice[] = []
+): VoiceOption[] {
+  if (model === 'web_speech') return []
+
+  if (model === 'piper') {
+    return getPiperVoicesForLanguage(language, piperVoices).map((voice) => ({
+      id: voice.key,
+      label: voice.name,
+    }))
+  }
+
+  if (!engineSupportsLanguage(model, language)) return []
+
+  const labels = VOICE_LABELS[model]
+  return (engineVoices(model) ?? []).map((id) => ({ id, label: labels?.[id] ?? id }))
 }
 
 export interface TTSEngine {
@@ -237,6 +287,12 @@ export const TTS_MODELS: TTSModelInfo[] = [
     requiresDownload: true,
     supportsOffline: true,
   },
+]
+
+/** What every model picker offers, in display order. */
+export const MODEL_OPTIONS: { id: SelectedModel; name: string }[] = [
+  { id: 'web_speech', name: 'Web Speech API' },
+  ...TTS_MODELS.map((model) => ({ id: model.id, name: model.name })),
 ]
 
 /**

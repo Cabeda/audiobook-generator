@@ -11,10 +11,9 @@
     selectedModel,
     selectedVoice,
     availableVoices,
-    voiceLabels,
     type VoiceOption,
   } from '../stores/ttsStore'
-  import { TTS_MODELS } from '../lib/tts/ttsModels'
+  import { TTS_MODELS, voiceOptionsFor } from '../lib/tts/ttsModels'
   import { segmentProgress, segmentProgressPercentage } from '../stores/segmentProgressStore'
   import {
     LANGUAGE_OPTIONS,
@@ -23,18 +22,8 @@
     DETECTION_CONFIDENCE_THRESHOLD,
   } from '../lib/utils/languageResolver'
   import { appSettings } from '../stores/appSettingsStore'
-  import {
-    getKokoroVoicesForLanguage,
-    getPiperVoicesForLanguage,
-    isKittenLanguageSupported,
-    isKokoroLanguageSupported,
-    KITTEN_VOICES,
-    POCKET_VOICES,
-    isPocketLanguageSupported,
-  } from '../lib/utils/voiceSelector'
-  import { POCKET_VOICE_LABELS } from '../lib/pocket/pocketAssets'
+  import { isKokoroLanguageSupported } from '../lib/utils/voiceSelector'
   import { planChapter } from '../lib/services/chapterPlan'
-  import { listVoices as listKokoroVoices } from '../lib/kokoro/kokoroVoices'
   import { piperVoices } from '../stores/piperVoicesStore'
   import { EXPORT_FORMATS, type ExportFormat } from '../lib/exportFormats'
 
@@ -137,33 +126,9 @@
   let isModelFallback = $derived(chapterPlan.isFallbackModel)
 
   // Compute available voices for the effective model and language
-  let chapterAvailableVoices = $derived.by(() => {
-    if (effectiveModel === 'kokoro') {
-      const kokoroVoices = listKokoroVoices()
-      const languageVoices = getKokoroVoicesForLanguage(effectiveLanguage)
-      // Only show voices that support the effective language
-      return kokoroVoices
-        .filter((v) => languageVoices.includes(v))
-        .map((v) => ({ id: v, label: voiceLabels[v] || v }))
-    } else if (effectiveModel === 'piper') {
-      // Filter piper voices by language using metadata
-      if ($piperVoices.length > 0) {
-        const matchingVoices = getPiperVoicesForLanguage(effectiveLanguage, $piperVoices)
-        return matchingVoices.map((v) => ({ id: v.key, label: v.name }))
-      }
-      return []
-    } else if (effectiveModel === 'kitten') {
-      if (!isKittenLanguageSupported(effectiveLanguage)) return []
-      return KITTEN_VOICES.map((v) => ({ id: v, label: v }))
-    } else if (effectiveModel === 'pocket') {
-      if (!isPocketLanguageSupported(effectiveLanguage)) return []
-      return POCKET_VOICES.map((v) => ({
-        id: v,
-        label: POCKET_VOICE_LABELS[v as keyof typeof POCKET_VOICE_LABELS] || v,
-      }))
-    }
-    return []
-  })
+  let chapterAvailableVoices = $derived(
+    voiceOptionsFor(effectiveModel, effectiveLanguage, $piperVoices)
+  )
 
   // The plan already resolved override → language default → engine voice, so
   // the chapter list shows the voice the reader and the generator will use.
