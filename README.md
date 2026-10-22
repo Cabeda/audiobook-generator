@@ -12,6 +12,8 @@ A browser-based audiobook generator that converts EPUB, PDF, HTML, and TXT files
 
 - **Kokoro-82M** — 27 high-quality English voices, runs via ONNX (WASM or WebGPU)
 - **Piper TTS** — multilingual support, auto-selects voice based on detected language
+- **Pocket TTS** — 18M parameter model, small enough to run on a phone
+- **KittenTTS** — 15M parameter ONNX model, the smallest download here (25 MB), 8 English voices
 - **Web Speech API** — browser built-in, no model download required
 
 ### Reading & Playback
@@ -59,7 +61,7 @@ Open http://localhost:5173.
 
 1. **Import** — upload a file or paste a URL
 2. **Select chapters** — choose which to convert
-3. **Pick a model and voice** — Kokoro, Piper, or Web Speech
+3. **Pick a model and voice** — Kokoro, Piper, Pocket, KittenTTS, or Web Speech
 4. **Generate** — click a chapter to start; audio plays as it generates
 5. **Export** — download as MP3, M4B, WAV, or EPUB3 when done
 
@@ -94,7 +96,9 @@ src/
 │   ├── services/
 │   │   └── generationService.ts        # TTS orchestration, segment batching
 │   ├── kokoro/                         # Kokoro TTS client
+│   ├── kitten/                         # KittenTTS client
 │   ├── piper/                          # Piper TTS client
+│   ├── pocket/                         # Pocket TTS client
 │   ├── parsers/                        # EPUB, PDF, HTML, TXT parsers
 │   ├── epub/                           # EPUB3 + Media Overlay export
 │   └── utils/                          # Voice selection, language detection
@@ -162,13 +166,14 @@ Model first load: ~5–10s (downloads ~82MB, cached in IndexedDB after).
 
 MIT — see [LICENSE](LICENSE).
 
-**Third-party licenses**: Kokoro-82M (Apache 2.0), Piper (MIT), lamejs (LGPL), Svelte (MIT), ONNX Runtime (MIT).
+**Third-party licenses**: Kokoro-82M (Apache 2.0), Piper (MIT), KittenTTS 0.8 (Apache 2.0), lamejs (LGPL), Svelte (MIT), ONNX Runtime (MIT).
 
 ## Acknowledgments
 
 - [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by hexgrad
 - [kokoro-js](https://www.npmjs.com/package/kokoro-js)
 - [Piper TTS](https://github.com/rhasspy/piper)
+- [KittenTTS](https://github.com/KittenML/KittenTTS) by KittenML
 - [espeak-ng](https://github.com/espeak-ng/espeak-ng)
 - [lamejs](https://github.com/zhuker/lamejs)
 
