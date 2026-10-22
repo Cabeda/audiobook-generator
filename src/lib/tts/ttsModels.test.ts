@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
+  MODEL_OPTIONS,
   engineCapabilities,
   engineSupportsLanguage,
   engineVoices,
   getTTSEngine,
+  voiceOptionsFor,
   type TTSRequest,
 } from './ttsModels'
 
@@ -100,5 +102,66 @@ describe('TTS engine seam', () => {
 
   it('rejects an unknown engine', async () => {
     await expect(getTTSEngine('nope' as 'kokoro')).rejects.toThrow('Unknown TTS model type')
+  })
+})
+
+describe('the picker lists', () => {
+  it('offer every registered engine plus the browser one, in one place', () => {
+    expect(MODEL_OPTIONS.map((model) => model.id)).toEqual([
+      'web_speech',
+      'kokoro',
+      'piper',
+      'pocket',
+      'kitten',
+    ])
+    expect(MODEL_OPTIONS.every((model) => model.name.length > 0)).toBe(true)
+  })
+
+  it('name KittenTTS the way the rest of the app does', () => {
+    expect(MODEL_OPTIONS.find((model) => model.id === 'kitten')?.name).toBe('KittenTTS')
+  })
+})
+
+describe('voiceOptionsFor', () => {
+  it('lists the catalogue of an engine from the registry, with no engine branch', () => {
+    expect(voiceOptionsFor('kitten', 'en')).toEqual([
+      { id: 'Bella', label: 'Bella' },
+      { id: 'Jasper', label: 'Jasper' },
+      { id: 'Luna', label: 'Luna' },
+      { id: 'Bruno', label: 'Bruno' },
+      { id: 'Rosie', label: 'Rosie' },
+      { id: 'Hugo', label: 'Hugo' },
+      { id: 'Kiki', label: 'Kiki' },
+      { id: 'Leo', label: 'Leo' },
+    ])
+  })
+
+  it('uses the labels the engine ships when it has them', () => {
+    const pocket = voiceOptionsFor('pocket', 'en')
+
+    expect(pocket[0].id).toBe('alba')
+    expect(pocket[0].label).not.toBe('alba')
+    expect(voiceOptionsFor('kokoro', 'en').length).toBeGreaterThan(0)
+  })
+
+  it('offers nothing for a language the engine does not cover', () => {
+    expect(voiceOptionsFor('kitten', 'de')).toEqual([])
+    expect(voiceOptionsFor('pocket', 'de')).toEqual([])
+  })
+
+  it('leaves the Web Speech voices to the browser', () => {
+    expect(voiceOptionsFor('web_speech', 'en')).toEqual([])
+  })
+
+  it('takes the Piper catalogue from the voices that are loaded, filtered by language', () => {
+    const piperVoices = [
+      { key: 'de_DE-thorsten', name: 'Thorsten', language: 'de_DE', quality: 'medium' },
+      { key: 'en_US-amy', name: 'Amy', language: 'en_US', quality: 'high' },
+    ]
+
+    expect(voiceOptionsFor('piper', 'de', piperVoices as never)).toEqual([
+      { id: 'de_DE-thorsten', label: 'Thorsten' },
+    ])
+    expect(voiceOptionsFor('piper', 'de')).toEqual([])
   })
 })

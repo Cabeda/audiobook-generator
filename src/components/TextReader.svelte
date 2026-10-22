@@ -8,6 +8,7 @@
   import { selectedVoice as voiceStore, selectedModel as modelStore } from '../stores/ttsStore'
   import {
     segmentProgress,
+    clearSegmentIndices,
     getGeneratedSegment,
     initChapterSegments,
     markSegmentGenerated,
@@ -27,11 +28,11 @@
   import { generationService } from '../lib/services/generationService'
   import { claimChapter } from '../lib/reader/chapterReader'
   import {
-    KITTEN_VOICES,
-    POCKET_VOICES,
-    selectKittenVoiceForLanguage,
-    selectPocketVoiceForLanguage,
-  } from '../lib/utils/voiceSelector'
+    MODEL_OPTIONS,
+    voiceOptionsFor,
+    type SelectedModel,
+    type VoiceOption,
+  } from '../lib/tts/ttsModels'
   import type { AudioSegment } from '../lib/types/audio'
   import AudioPlayerBar from './AudioPlayerBar.svelte'
   import ReaderControls from './ReaderControls.svelte'
@@ -64,7 +65,7 @@
     voice: string
     quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
     device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-    selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+    selectedModel?: SelectedModel
     chapters?: Chapter[]
     onBack: () => void
     onChapterChange?: (chapter: Chapter) => void
@@ -76,7 +77,7 @@
 
   // Initialize from localStorage if available
   let initialSpeed = 1.0
-  let initialModel: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech' | null = null
+  let initialModel: SelectedModel | null = null
   let initialVoice: string | null = null
   try {
     const saved = localStorage.getItem(SPEED_KEY)
@@ -84,14 +85,8 @@
 
     // Load saved model preference
     const savedModel = localStorage.getItem(MODEL_KEY)
-    if (
-      savedModel &&
-      (savedModel === 'kokoro' ||
-        savedModel === 'piper' ||
-        savedModel === 'pocket' ||
-        savedModel === 'web_speech')
-    ) {
-      initialModel = savedModel
+    if (savedModel && MODEL_OPTIONS.some((model) => model.id === savedModel)) {
+      initialModel = savedModel as SelectedModel
     }
 
     // Load saved voice preference
@@ -105,25 +100,8 @@
 
   // Local model state for text reader (falls back to prop value if no localStorage)
   // untrack breaks the reactivity chain — these are intentional one-time prop reads
-  let localModel = $state<'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'>(
-    initialModel ?? untrack(() => selectedModel)
-  )
+  let localModel = $state<SelectedModel>(initialModel ?? untrack(() => selectedModel))
   let localVoice = $state(initialVoice ?? untrack(() => voice))
-
-  // Pocket only knows its own preset voices, so a voice picked for another
-  // engine cannot be used with it.
-  if (localModel === 'pocket' && !POCKET_VOICES.includes(localVoice)) {
-    localVoice = selectPocketVoiceForLanguage(
-      chapter?.detectedLanguage || chapter?.language || 'en'
-    )
-  }
-
-  // Same for KittenTTS, whose eight voices are its whole catalogue.
-  if (localModel === 'kitten' && !(KITTEN_VOICES as readonly string[]).includes(localVoice)) {
-    localVoice = selectKittenVoiceForLanguage(
-      chapter?.detectedLanguage || chapter?.language || 'en'
-    )
-  }
 
   // Chapter progress
   let chapterIndex = $derived(chapters.findIndex((c: Chapter) => c.id === chapter.id))
@@ -159,7 +137,20 @@
   )
   let pendingPlaySegment: number | null = null // Track segment waiting for generation to auto-play
   let loadGeneration = 0 // Incremented per chapter load to detect stale async results
-  let loadedKey: string | null = null // Chapter + engine currently loaded, so a re-run does not reload it
+  let loadedKey: string | null = null // Chapter + settings currently loaded, so a re-run does not reload it
+  let fastPassAbort: AbortController | null = null // The pass that makes audio for a chapter being read
+
+  let chapterLanguage = $derived(chapter?.detectedLanguage || chapter?.language || 'en')
+
+  // The pickers offer the voices the chosen engine has for this language.
+  let voiceOptions: VoiceOption[] = $derived(
+    voiceOptionsFor(localModel, chapterLanguage, piperVoices)
+  )
+
+  // A voice picked for another engine cannot be used here.
+  if (voiceOptions.length > 0 && !voiceOptions.some((option) => option.id === localVoice)) {
+    localVoice = voiceOptions[0].id
+  }
 
   // Sort voices to show detected language first
   let sortedWebSpeechVoices = $derived(() => {
@@ -209,13 +200,36 @@
       const cId = chapter.id
       const bId = bookId
 
-      // A chapter is loaded once per engine. This effect re-runs while the
-      // load is in flight — the engine picks a voice, the reader props change —
-      // and loading again would cancel the playback that is starting and would
-      // drop the result of the load that is still running.
-      const loadKey = `${cId}|${localModel}`
+      // A chapter is loaded once per engine and voice. This effect re-runs
+      // while the load is in flight — the engine picks a voice, the reader
+      // props change — and loading again would cancel the playback that is
+      // starting and would drop the result of the load that is still running.
+      const loadKey = `${cId}|${localModel}|${localVoice}`
       if (loadedKey === loadKey) return
+
+      // Switching engine or voice mid-chapter makes the audio we already have
+      // wrong for the current and following segments. They are dropped below
+      // and made again with the new settings, and playback picks up where it
+      // was — no segment click needed.
+      const settingsChanged = loadedKey !== null && loadedKey.startsWith(`${cId}|`)
       loadedKey = loadKey
+
+      if (settingsChanged) {
+        cancelUpgrade(cId)
+        fastPassAbort?.abort()
+        fastPassAbort = null
+        // The book generates this chapter with the settings it started with.
+        if (generationService.isRunning()) generationService.cancelChapter(cId)
+      }
+
+      // Where playback was, read before loading resets it.
+      const resume = untrack(() => {
+        const store = get(audioPlayerStore)
+        return {
+          index: store.chapterId === cId ? store.segmentIndex : 0,
+          playing: store.isPlaying,
+        }
+      })
 
       // While the book generates, the chapter being read is made first and its
       // segments are handed over: the reader plays them instead of making its
@@ -239,7 +253,8 @@
 
       // On hard refresh the store may think the chapter is loaded while the service is empty.
       // Use untrack so that populating segments later doesn't re-trigger this effect.
-      const shouldInitialize = needsLoad || untrack(() => audioService.segments.length === 0)
+      const shouldInitialize =
+        needsLoad || untrack(() => audioService.segments.length === 0) || settingsChanged
       logger.info(
         `[TextReader] needsLoad=${needsLoad}, audioService.segments.length=${untrack(() => audioService.segments.length)}, shouldInitialize=${shouldInitialize}`
       )
@@ -250,14 +265,21 @@
         const currentLoadId = ++loadGeneration
 
         // Load chapter from DB using pure playback method
-        audioService
-          .loadChapter(bId, bookTitle, chapter, {
-            voice: localVoice,
-            quantization,
-            device,
-            selectedModel: localModel,
-            playbackSpeed: initialSpeed,
-          })
+        const loadSettings = {
+          voice: localVoice,
+          quantization,
+          device,
+          selectedModel: localModel,
+          playbackSpeed: initialSpeed,
+        }
+
+        const load = settingsChanged
+          ? dropAudioFromSegment(bId, cId, resume.index).then(() =>
+              audioService.loadChapter(bId, bookTitle, chapter, loadSettings)
+            )
+          : audioService.loadChapter(bId, bookTitle, chapter, loadSettings)
+
+        load
           .then((result) => {
             // Stale load — chapter changed while loading
             if (currentLoadId !== loadGeneration) return
@@ -327,11 +349,15 @@
               const startSeg = store.chapterId === chapter.id ? store.segmentIndex : 0
 
               if (result.hasAudio) {
-                // Auto-play from beginning if no saved progress; resume prompt handles the other case
+                // A settings change is meant to be heard now, so keep playing
+                // where the reader was. A fresh chapter plays itself unless
+                // there is saved progress waiting in the resume prompt.
                 const savedProg = bookId ? loadProgress(String(bookId)) : null
                 const hasSavedProgress =
                   savedProg && savedProg.chapterId === chapter.id && savedProg.segmentIndex > 0
-                audioService.playFromSegment(startSeg, !hasSavedProgress).catch((err) => {
+                const from = settingsChanged ? resume.index : startSeg
+                const autoPlay = settingsChanged ? resume.playing : !hasSavedProgress
+                audioService.playFromSegment(from, autoPlay).catch((err) => {
                   console.error('Initial seek failed:', err)
                 })
               } else {
@@ -439,6 +465,22 @@
   }
 
   /**
+   * A voice or engine change makes the audio stored for the current and the
+   * following segments wrong. Drop it, so the new settings are used. Earlier
+   * segments keep what was played for them.
+   */
+  async function dropAudioFromSegment(bId: number, cId: string, fromIndex: number) {
+    const total = untrack(() => audioService.segments.length)
+    const stale = new Set<number>()
+    for (let index = fromIndex; index < total; index++) stale.add(index)
+    if (stale.size === 0) return
+
+    const { deleteSegmentsByIndices } = await import('../lib/libraryDB')
+    await deleteSegmentsByIndices(bId, cId, stale)
+    clearSegmentIndices(cId, [...stale])
+  }
+
+  /**
    * Run the fast pass for a chapter that has no pre-generated audio.
    * Generates all segments at the cheapest available tier so playback starts
    * immediately, then optionally schedules the background upgrade pass.
@@ -501,6 +543,11 @@
     // Initialize segment store so upgrade pass can track quality tiers
     initChapterSegments(cId, segInput)
 
+    // One pass at a time: a settings change replaces the one in flight.
+    fastPassAbort?.abort()
+    const pass = new AbortController()
+    fastPassAbort = pass
+
     let firstSegmentPlayed = false
 
     await startFastPass(
@@ -508,6 +555,7 @@
       lang,
       piperVoiceList,
       (segment) => {
+        if (pass.signal.aborted) return
         audioService.injectProgressiveSegment(segment)
         if (!firstSegmentPlayed) {
           firstSegmentPlayed = true
@@ -516,7 +564,7 @@
       },
       aqSettings.skipFastestTier ? 1 : 0,
       localModel === 'web_speech' ? 'kokoro' : localModel,
-      undefined,
+      pass.signal,
       bId
     )
 
@@ -552,11 +600,9 @@
       console.error('Failed to save model to localStorage:', e)
     }
 
-    // Pocket only knows its own preset voices
-    if (localModel === 'pocket' && !POCKET_VOICES.includes(localVoice)) {
-      localVoice = selectPocketVoiceForLanguage(
-        chapter?.detectedLanguage || chapter?.language || 'en'
-      )
+    // The new engine may not know the voice picked for the old one.
+    if (voiceOptions.length > 0 && !voiceOptions.some((option) => option.id === localVoice)) {
+      localVoice = voiceOptions[0].id
     }
 
     // For kokoro/piper, sync with chapter settings and store
@@ -1314,7 +1360,7 @@
       bind:autoScrollEnabled
       bind:fontSize
       bind:currentTheme
-      {piperVoices}
+      {voiceOptions}
       {sortedWebSpeechVoices}
       onSpeedChange={updateSpeed}
       onFontSizeChange={changeFontSize}

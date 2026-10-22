@@ -79,17 +79,30 @@ test.describe('Text Reader Reliability', () => {
     // Close settings
     const closeBtn = page.locator('.close-settings')
     await closeBtn.click()
-    await page.waitForTimeout(500)
 
-    // Click second segment - should use Web Speech now
-    const secondSegment = page.locator('.segment').nth(1)
-    await secondSegment.click()
+    // The current segment is re-made with the new engine: no segment click needed
+    await expect
+      .poll(() => logs.some((log: string) => log.includes('SPEECH_STARTED')), { timeout: 10000 })
+      .toBe(true)
+  })
 
-    // Wait for speech to start
-    await page.waitForTimeout(500)
+  test('should offer every registered engine in the reader model menu', async ({ page }) => {
+    // Open reader
+    await page.locator('button:has-text("Deselect all")').click()
+    await page.locator('input[type="checkbox"]').first().check()
+    await page.locator('button:has-text("Read")').first().click()
+    await page.waitForSelector('.reader-page')
 
-    // Verify Web Speech was used
-    expect(logs.some((log: string) => log.includes('SPEECH_STARTED'))).toBe(true)
+    const settingsBtn = page.locator('button[aria-label="Settings"]')
+    await settingsBtn.click()
+    await page.waitForSelector('.settings-menu')
+
+    const models = await page
+      .locator('#model-select option')
+      .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value))
+
+    // The menu comes from the engine registry, so a new engine cannot be left out
+    expect(models).toEqual(['web_speech', 'kokoro', 'piper', 'pocket', 'kitten'])
   })
 
   test('should allow voice changes in text reader settings', async ({ page }) => {

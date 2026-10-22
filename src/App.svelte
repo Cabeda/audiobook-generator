@@ -15,12 +15,10 @@
   import ErrorBoundary from './components/ErrorBoundary.svelte'
 
   // APIs & Logic
-  import { listVoices as listKokoroVoices } from './lib/kokoro/kokoroVoices'
   import { piperVoices, loadPiperVoices } from './stores/piperVoicesStore'
   import { buildBookHash, buildReaderHash, parseHash } from './lib/utils/hashRoutes'
-  import { KITTEN_VOICES, POCKET_VOICES } from './lib/utils/voiceSelector'
-  import { POCKET_VOICE_LABELS } from './lib/pocket/pocketAssets'
   import { planChapter } from './lib/services/chapterPlan'
+  import { voiceOptionsFor } from './lib/tts/ttsModels'
   import logger from './lib/utils/logger'
   import { resolveChapterLanguageWithDetection } from './lib/utils/languageResolver'
   import { generationService } from './lib/services/generationService'
@@ -40,7 +38,6 @@
     availableVoices,
     selectedQuantization,
     selectedDevice,
-    voiceLabels,
     lastKokoroVoice,
     lastPiperVoice,
   } from './stores/ttsStore'
@@ -89,7 +86,6 @@
   let readerVoice = $derived(readerPlan.voice)
 
   // Voice Loading Logic (Centralized)
-  let kokoroVoices = listKokoroVoices()
 
   // Preload Piper voices on mount for language-based selection
   onMount(() => {
@@ -99,39 +95,9 @@
   // Reactive Voice Updater
   $effect(() => {
     const model = $selectedModel
-    if (model === 'kokoro') {
-      availableVoices.set(
-        kokoroVoices.map((v) => ({
-          id: v,
-          label: voiceLabels[v] || v,
-        }))
-      )
-      // Restore last voice
-      untrack(() => {
-        if (kokoroVoices.includes($lastKokoroVoice as any)) {
-          selectedVoice.set($lastKokoroVoice)
-        }
-      })
-    } else if (model === 'pocket') {
-      availableVoices.set(
-        POCKET_VOICES.map((v) => ({
-          id: v,
-          label: POCKET_VOICE_LABELS[v as keyof typeof POCKET_VOICE_LABELS] || v,
-        }))
-      )
-      untrack(() => {
-        if (!POCKET_VOICES.includes($selectedVoice as any)) {
-          selectedVoice.set(POCKET_VOICES[0])
-        }
-      })
-    } else if (model === 'kitten') {
-      availableVoices.set(KITTEN_VOICES.map((v) => ({ id: v, label: v })))
-      untrack(() => {
-        if (!KITTEN_VOICES.includes($selectedVoice as any)) {
-          selectedVoice.set(KITTEN_VOICES[0])
-        }
-      })
-    } else if (model === 'piper') {
+    if (model === 'web_speech') return
+
+    if (model === 'piper') {
       availableVoices.set([]) // Clear while loading
       loadPiperVoices().then((raw) => {
         if ($selectedModel === 'piper') {
@@ -151,7 +117,22 @@
           })
         }
       })
+      return
     }
+
+    // Every other engine lists its voices in the registry.
+    const options = voiceOptionsFor(model)
+    availableVoices.set(options)
+
+    untrack(() => {
+      if (model === 'kokoro' && options.some((v) => v.id === $lastKokoroVoice)) {
+        selectedVoice.set($lastKokoroVoice)
+        return
+      }
+      if (options.length > 0 && !options.some((v) => v.id === $selectedVoice)) {
+        selectedVoice.set(options[0].id)
+      }
+    })
   })
 
   // Event Handlers

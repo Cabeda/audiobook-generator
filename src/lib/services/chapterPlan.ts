@@ -14,11 +14,9 @@
 import {
   normalizeLanguageCode,
   selectKokoroVoiceForLanguage,
-  selectKittenVoiceForLanguage,
   selectPiperVoiceForLanguage,
-  selectPocketVoiceForLanguage,
 } from '../utils/voiceSelector'
-import { engineSupportsLanguage, type TTSModelType } from '../tts/ttsModels'
+import { engineSupportsLanguage, engineVoices, type TTSModelType } from '../tts/ttsModels'
 import type { PiperVoice } from '../piper/piperClient'
 import type { Device, Quantization } from '../../stores/ttsStore'
 
@@ -118,13 +116,10 @@ function pickVoice(
     return voice
   }
 
-  if (model === 'pocket') {
-    return selectPocketVoiceForLanguage(input.language, requestedVoice)
-  }
-
-  if (model === 'kitten') {
-    return selectKittenVoiceForLanguage(input.language, requestedVoice)
-  }
-
-  return requestedVoice
+  // Every other engine has a fixed catalogue: keep the voice the person asked
+  // for when the engine knows it, otherwise take its first. A new engine is
+  // covered by this without a branch of its own.
+  const catalogue = engineVoices(model)
+  if (!catalogue || catalogue.length === 0) return requestedVoice
+  return requestedVoice && catalogue.includes(requestedVoice) ? requestedVoice : catalogue[0]
 }
