@@ -6,6 +6,7 @@ import {
   bookProgressOf,
   chapterAudioView,
   chapterEstimateSeconds,
+  nextChapterFor,
   resumePoint,
   sessionChapterId,
   type ChapterSegmentProgressLike,
@@ -114,5 +115,22 @@ describe('sessionChapterId', () => {
     // across books ('chapter-1'); a restored id must never look like a session.
     expect(sessionChapterId('chapter-1', false)).toBeNull()
     expect(sessionChapterId('chapter-1', true)).toBe('chapter-1')
+  })
+})
+
+describe('nextChapterFor', () => {
+  const chapters = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+
+  it('carries listening into the next chapter when continuing is on', () => {
+    expect(nextChapterFor(chapters, 'a', true)).toEqual({ id: 'b' })
+  })
+
+  it('stops at the end of the book', () => {
+    expect(nextChapterFor(chapters, 'c', true)).toBeNull()
+  })
+
+  it('stops when the listener turned continuing off', () => {
+    expect(nextChapterFor(chapters, 'a', false)).toBeNull()
+    expect(nextChapterFor(chapters, 'missing', true)).toBeNull()
   })
 })

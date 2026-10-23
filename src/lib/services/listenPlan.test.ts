@@ -55,4 +55,13 @@ describe('listenPlanFor', () => {
 
     expect(plan.voice).toBe('pt_PT-tugão-medium')
   })
+
+  it('caps the weight precision on constrained devices', () => {
+    const chapter: Chapter = { id: 'c1', title: 'I', content: '<p>x</p>' }
+    const book: Book = { title: 'Any', author: 'A', chapters: [chapter] }
+    const prefs = { model: 'piper', voice: 'en_US-lessac-medium' }
+
+    expect(listenPlanFor(book, chapter, prefs).quantization).toBe('q8')
+    expect(listenPlanFor(book, chapter, { ...prefs, isMobile: true }).quantization).toBe('q4')
+  })
 })

@@ -16,6 +16,7 @@
   import {
     bookProgressOf,
     chapterEstimateSeconds,
+    nextChapterFor,
     type ChapterAudioView,
   } from '../lib/reader/readerViewState'
   import { reader } from './readerModel.svelte'
@@ -287,6 +288,24 @@
       index,
       playback.duration > 0 ? playback.position / playback.duration : 0
     )
+  })
+
+  // Listening carries into the next chapter when a chapter runs out.
+  // shortcut: the store exposes no end-of-chapter event, so paused-at-end is
+  // the signal; upgrade when playback emits one.
+  let continuedFrom = ''
+  $effect(() => {
+    const finished = playback.chapterId
+    const ended =
+      !playback.playing &&
+      finished != null &&
+      playback.duration > 0 &&
+      playback.position >= playback.duration - 0.6
+    if (!ended || finished === continuedFrom) return
+    if (!reader.prefs.autoContinue || !book) return
+    continuedFrom = finished
+    const next = nextChapterFor(book.chapters, finished, true)
+    if (next) void reader.play(next)
   })
 
   function playCurrent() {

@@ -97,6 +97,21 @@ export function bookProgressOf(
 }
 
 /**
+ * The chapter listening carries into when one ends: the next in the book,
+ * or null when the listener turned continuing off or the book is finished.
+ */
+export function nextChapterFor<T extends { id: string }>(
+  chapters: T[],
+  finishedChapterId: string,
+  autoContinue: boolean
+): T | null {
+  if (!autoContinue) return null
+  const index = chapters.findIndex((chapter) => chapter.id === finishedChapterId)
+  if (index < 0) return null
+  return chapters[index + 1] ?? null
+}
+
+/**
  * The chapter a listening session is actually on.
  *
  * The player store restores a chapter id across sessions, but a restored id is

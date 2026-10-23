@@ -34,6 +34,7 @@ import {
   chapterEstimateSeconds,
   type ChapterAudioView,
 } from '../lib/reader/readerViewState'
+import { isMobileDevice } from '../lib/utils/mobileDetect'
 import {
   exportBook as exportBookAction,
   generateMissing,
@@ -206,6 +207,7 @@ class ReaderModel {
         voice: this.prefs.voice,
         quantization: get(selectedQuantization),
         device: get(selectedDevice),
+        isMobile: isMobileDevice(),
         languageDefaults: get(appSettings).languageDefaults,
       },
       get(piperVoices)

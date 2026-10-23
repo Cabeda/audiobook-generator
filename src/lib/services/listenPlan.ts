@@ -17,6 +17,8 @@ export interface ListenPrefs {
   voice: string
   quantization?: Quantization
   device?: Device
+  /** Constrained devices cap the weight precision. */
+  isMobile?: boolean
   /** The app's per-language defaults. */
   languageDefaults?: Record<string, { model?: string; voice?: string } | undefined>
 }
@@ -39,5 +41,6 @@ export function listenPlanFor(
     piperVoices,
     selectedQuantization: prefs.quantization,
     selectedDevice: prefs.device,
+    isMobile: prefs.isMobile,
   })
 }
