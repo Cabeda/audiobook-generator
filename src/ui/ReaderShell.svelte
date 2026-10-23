@@ -21,6 +21,11 @@
     type ChapterAudioView,
   } from '../lib/reader/readerViewState'
   import { loadPosition, savePosition } from '../stores/readerPositionStore'
+  import {
+    bindLockScreenControls,
+    keepScreenAwake,
+    setNowPlaying,
+  } from '../lib/services/lockScreen'
   import { reader } from './readerModel.svelte'
   import { toastStore } from '../stores/toastStore'
   import { onMount } from 'svelte'
@@ -136,7 +141,35 @@
     applyRoute()
     const onHash = () => applyRoute()
     window.addEventListener('hashchange', onHash)
+
+    // Lock screen / notification controls, bound once.
+    bindLockScreenControls({
+      play: () => reader.toggle(),
+      pause: () => reader.toggle(),
+      seekBack: () => reader.skip(-15),
+      seekForward: () => reader.skip(15),
+      next: () => {
+        const next = nextChapterFor(book?.chapters ?? [], playback.chapterId ?? '', true)
+        if (next) void reader.play(next)
+      },
+      previous: () => {
+        const chapters = book?.chapters ?? []
+        const index = chapters.findIndex((c) => c.id === playback.chapterId)
+        const previous = index > 0 ? chapters[index - 1] : null
+        if (previous) void reader.play(previous)
+      },
+    })
+
     return () => window.removeEventListener('hashchange', onHash)
+  })
+
+  // Now playing + keep the screen on while audio runs.
+  $effect(() => {
+    const playing = playback.playing
+    const title = book?.title ?? ''
+    const chapter = book?.chapters.find((c) => c.id === playback.chapterId)?.title ?? ''
+    if (title) setNowPlaying({ title, chapter }, playing)
+    void keepScreenAwake(playing)
   })
   let dragging = $state(false)
   let detached = $state(false) // reader scrolled away from the narration
