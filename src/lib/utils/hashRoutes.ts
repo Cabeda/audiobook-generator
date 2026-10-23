@@ -20,9 +20,17 @@ export function buildReaderHash(
   return `#/reader/${id}/${encodeURIComponent(chapterId)}${bookSlugSegment(book)}`
 }
 
+export function buildAudiobookHash(id: BookId, book: Book | null | undefined): string {
+  return `#/audiobook/${id}${bookSlugSegment(book)}`
+}
+
+export const ACTIVITY_HASH = '#/activity'
+
 export type ParsedHash =
   | { view: 'landing' }
   | { view: 'settings' }
+  | { view: 'activity' }
+  | { view: 'audiobook'; bookId: BookId }
   | { view: 'book'; bookId: BookId }
   | { view: 'reader'; bookId: BookId; chapterId: string }
 
@@ -31,6 +39,16 @@ export function parseHash(hash: string | null | undefined): ParsedHash | null {
     return { view: 'landing' }
 
   if (hash === '#/settings') return { view: 'settings' }
+  if (hash === '#/activity') return { view: 'activity' }
+
+  const audiobookMatch = hash.match(/^#\/audiobook\/([^/]+)(?:\/[^/]+)?$/)
+  if (audiobookMatch) {
+    const rawId = audiobookMatch[1]
+    if (rawId === 'unsaved') return { view: 'audiobook', bookId: 'unsaved' }
+    const parsedId = parseInt(rawId, 10)
+    if (Number.isNaN(parsedId)) return null
+    return { view: 'audiobook', bookId: parsedId }
+  }
 
   const bookMatch = hash.match(/^#\/book\/([^/]+)(?:\/[^/]+)?$/)
   if (bookMatch) {
@@ -54,11 +72,13 @@ export function parseHash(hash: string | null | undefined): ParsedHash | null {
   return null
 }
 
-/** What the revamp shell restores: reader (optionally at a chapter), library, or settings. */
+/** What the revamp shell restores: reader (optionally at a chapter), or a page. */
 export type ShellView =
   | { kind: 'reader'; bookId: BookId; chapterId: string | null }
   | { kind: 'library' }
   | { kind: 'settings' }
+  | { kind: 'activity' }
+  | { kind: 'audiobook'; bookId: BookId }
 
 export function shellViewFromHash(hash: string | null | undefined): ShellView | null {
   const parsed = parseHash(hash)
@@ -70,6 +90,10 @@ export function shellViewFromHash(hash: string | null | undefined): ShellView | 
       return { kind: 'reader', bookId: parsed.bookId, chapterId: null }
     case 'settings':
       return { kind: 'settings' }
+    case 'activity':
+      return { kind: 'activity' }
+    case 'audiobook':
+      return { kind: 'audiobook', bookId: parsed.bookId }
     case 'landing':
       return { kind: 'library' }
   }

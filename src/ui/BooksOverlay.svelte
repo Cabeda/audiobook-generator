@@ -14,6 +14,7 @@
     onDelete,
     onImport,
     onDetails,
+    onAudiobook,
     onActivity,
     onSettings,
     onClose,
@@ -25,6 +26,7 @@
     onDelete: (i: number) => void
     onImport: () => void
     onDetails: (i: number) => void
+    onAudiobook: (i: number) => void
     onActivity: () => void
     onSettings: () => void
     onClose: () => void
@@ -129,6 +131,13 @@
                     menuFor = null
                     onDetails(i)
                   }}>Details</button
+                >
+                <button
+                  role="menuitem"
+                  onclick={() => {
+                    menuFor = null
+                    onAudiobook(i)
+                  }}>♪ Audiobook</button
                 >
                 <button
                   role="menuitem"

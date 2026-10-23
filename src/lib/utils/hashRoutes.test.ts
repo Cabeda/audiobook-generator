@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildBookHash, buildReaderHash, parseHash, shellViewFromHash } from './hashRoutes'
+import {
+  buildAudiobookHash,
+  buildBookHash,
+  buildReaderHash,
+  parseHash,
+  shellViewFromHash,
+} from './hashRoutes'
 
 const sampleBook = { title: 'The Great Adventure', author: 'Jane Doe', chapters: [] }
 
@@ -69,6 +75,17 @@ describe('shellViewFromHash', () => {
 
   it('opens app settings from the settings link', () => {
     expect(shellViewFromHash('#/settings')).toEqual({ kind: 'settings' })
+  })
+
+  it('opens the activity page from its link', () => {
+    expect(shellViewFromHash('#/activity')).toEqual({ kind: 'activity' })
+    expect(parseHash('#/activity')).toEqual({ view: 'activity' })
+  })
+
+  it('opens a book’s audiobook page from its link', () => {
+    const hash = buildAudiobookHash(7, sampleBook)
+    expect(parseHash(hash)).toEqual({ view: 'audiobook', bookId: 7 })
+    expect(shellViewFromHash(hash)).toEqual({ kind: 'audiobook', bookId: 7 })
   })
 
   it('restores nothing from an invalid link', () => {

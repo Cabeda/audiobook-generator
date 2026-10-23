@@ -20,6 +20,15 @@
   } from '../lib/reader/readerViewState'
   import { reader } from './readerModel.svelte'
   import { toastStore } from '../stores/toastStore'
+  import { onMount } from 'svelte'
+  import {
+    ACTIVITY_HASH,
+    buildAudiobookHash,
+    buildBookHash,
+    buildReaderHash,
+    shellViewFromHash,
+  } from '../lib/utils/hashRoutes'
+  import AudiobookPage from './AudiobookPage.svelte'
   import { importBook, openBook, removeBook } from '../lib/services/bookSession'
   import {
     book as bookStore,
@@ -76,6 +85,56 @@
   let sandboxOpen = $state(false)
   let detailBook = $state<Book | null>(null)
   let exportBook = $state<Book | null>(null)
+  let audiobookBook = $state<LibraryBook | null>(null)
+
+  // ---- the address bar mirrors the page, so refresh keeps you where you are ----
+  function hashForState(): string {
+    const b = reader.book
+    const id = reader.bookId ?? 'unsaved'
+    if (audiobookBook?.id != null) return buildAudiobookHash(audiobookBook.id, audiobookBook)
+    if (appSettingsOpen) return '#/settings'
+    if (queueOpen) return ACTIVITY_HASH
+    if (booksOpen || importOpen || !b) return '#/'
+    const chapter = b.chapters[ui.chapterIndex]
+    return chapter ? buildReaderHash(id, chapter.id, b) : buildBookHash(id, b)
+  }
+
+  $effect(() => {
+    // $currentLibraryBookId is the tracked anchor; the rest is read in the call
+    void $currentLibraryBookId
+    const hash = hashForState()
+    if (location.hash !== hash) history.replaceState(null, '', hash)
+  })
+
+  /** External navigation (refresh, back, pasted link) puts the page back. */
+  function applyRoute() {
+    const view = shellViewFromHash(location.hash)
+    if (!view) return
+    booksOpen = view.kind === 'library'
+    appSettingsOpen = view.kind === 'settings'
+    queueOpen = view.kind === 'activity'
+    if (view.kind === 'audiobook') {
+      const target = books.find((b) => b.id === view.bookId) ?? null
+      audiobookBook = target
+      if (target?.id != null && target.id !== reader.bookId) void switchTo(target.id)
+    } else {
+      audiobookBook = null
+    }
+    if (
+      view.kind === 'reader' &&
+      typeof view.bookId === 'number' &&
+      view.bookId !== reader.bookId
+    ) {
+      void switchTo(view.bookId)
+    }
+  }
+
+  onMount(() => {
+    applyRoute()
+    const onHash = () => applyRoute()
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  })
   let dragging = $state(false)
   let detached = $state(false) // reader scrolled away from the narration
 
@@ -367,6 +426,15 @@
   function deleteLibraryBook(i: number) {
     const id = books[i]?.id
     if (id != null) void removeLibraryBook(id)
+  }
+
+  /** The audiobook page manages one book's audio: make it current, then show it. */
+  async function openAudiobookPage(i: number) {
+    const lb = books[i]
+    if (!lb) return
+    if (lb.id != null && lb.id !== reader.bookId) await switchTo(lb.id)
+    audiobookBook = lb
+    booksOpen = false
   }
 
   /** Generation runs on the book in the current session — open it first. */
@@ -767,6 +835,7 @@
         detailBook = books[i] ?? null
         booksOpen = false
       }}
+      onAudiobook={openAudiobookPage}
       onActivity={() => {
         booksOpen = false
         queueOpen = true
@@ -794,6 +863,14 @@
 
   {#if exportBook}
     <ExportSheet book={exportBook} onClose={() => (exportBook = null)} />
+  {/if}
+
+  {#if audiobookBook}
+    <AudiobookPage
+      book={audiobookBook}
+      onClose={() => (audiobookBook = null)}
+      onExport={() => (exportBook = audiobookBook)}
+    />
   {/if}
 
   {#if queueOpen}
