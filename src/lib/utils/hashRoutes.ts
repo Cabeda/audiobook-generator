@@ -104,3 +104,29 @@ export function shellViewFromHash(hash: string | null | undefined): ShellView | 
       return { kind: 'reader', bookId: 'unsaved', chapterId: null }
   }
 }
+
+/**
+ * The hash that mirrors a shell state, for the address bar. Keeping both
+ * directions of the mapping here is what stops the writer and the reader
+ * disagreeing — '#/' once opened the library it had just written itself.
+ */
+export function hashForShellState(state: {
+  audiobookBookId?: number | null
+  audiobookBook?: Book | null
+  settings?: boolean
+  activity?: boolean
+  library?: boolean
+  bookId: BookId
+  chapterId?: string | null
+  book?: Book | null
+}): string {
+  if (state.audiobookBookId != null)
+    return buildAudiobookHash(state.audiobookBookId, state.audiobookBook)
+  if (state.settings) return '#/settings'
+  if (state.activity) return ACTIVITY_HASH
+  if (state.library) return LIBRARY_HASH
+  if (!state.book) return '#/'
+  return state.chapterId
+    ? buildReaderHash(state.bookId, state.chapterId, state.book)
+    : buildBookHash(state.bookId, state.book)
+}

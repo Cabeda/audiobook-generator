@@ -29,14 +29,7 @@
   import { reader } from './readerModel.svelte'
   import { toastStore } from '../stores/toastStore'
   import { onMount } from 'svelte'
-  import {
-    ACTIVITY_HASH,
-    LIBRARY_HASH,
-    buildAudiobookHash,
-    buildBookHash,
-    buildReaderHash,
-    shellViewFromHash,
-  } from '../lib/utils/hashRoutes'
+  import { hashForShellState, shellViewFromHash } from '../lib/utils/hashRoutes'
   import AudiobookPage from './AudiobookPage.svelte'
   import { importBook, openBook, removeBook } from '../lib/services/bookSession'
   import {
@@ -99,14 +92,16 @@
   // ---- the address bar mirrors the page, so refresh keeps you where you are ----
   function hashForState(): string {
     const b = reader.book
-    const id = reader.bookId ?? 'unsaved'
-    if (audiobookBook?.id != null) return buildAudiobookHash(audiobookBook.id, audiobookBook)
-    if (appSettingsOpen) return '#/settings'
-    if (queueOpen) return ACTIVITY_HASH
-    if (booksOpen) return LIBRARY_HASH
-    if (importOpen || !b) return '#/'
-    const chapter = b.chapters[ui.chapterIndex]
-    return chapter ? buildReaderHash(id, chapter.id, b) : buildBookHash(id, b)
+    return hashForShellState({
+      audiobookBookId: audiobookBook?.id ?? null,
+      audiobookBook,
+      settings: appSettingsOpen,
+      activity: queueOpen,
+      library: booksOpen,
+      bookId: reader.bookId ?? 'unsaved',
+      chapterId: b?.chapters[ui.chapterIndex]?.id ?? null,
+      book: importOpen ? null : b,
+    })
   }
 
   $effect(() => {

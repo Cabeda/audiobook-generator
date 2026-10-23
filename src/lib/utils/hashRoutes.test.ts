@@ -3,6 +3,7 @@ import {
   buildAudiobookHash,
   buildBookHash,
   buildReaderHash,
+  hashForShellState,
   parseHash,
   shellViewFromHash,
 } from './hashRoutes'
@@ -93,5 +94,39 @@ describe('shellViewFromHash', () => {
 
   it('restores nothing from an invalid link', () => {
     expect(shellViewFromHash('#/book/not-a-number')).toBeNull()
+  })
+})
+
+describe('hashForShellState', () => {
+  it('writes what the reader reads — every page round-trips', () => {
+    // The '#/' poisoning bug: what the writer emits as its default must read
+    // back as home, never as an overlay.
+    const states = [
+      { bookId: 'unsaved' as const, book: null },
+      { library: true, bookId: 'unsaved' as const, book: null },
+      { settings: true, bookId: 'unsaved' as const, book: null },
+      { activity: true, bookId: 'unsaved' as const, book: null },
+      { bookId: 7 as const, book: sampleBook, chapterId: 'ch-2' },
+      {
+        audiobookBookId: 7,
+        audiobookBook: sampleBook,
+        bookId: 7 as const,
+        book: sampleBook,
+      },
+    ]
+    for (const state of states) {
+      expect(shellViewFromHash(hashForShellState(state))).not.toBeNull()
+    }
+    expect(shellViewFromHash(hashForShellState(states[0]))?.kind).toBe('reader')
+    expect(shellViewFromHash(hashForShellState(states[1]))?.kind).toBe('library')
+    expect(shellViewFromHash(hashForShellState(states[4]))).toEqual({
+      kind: 'reader',
+      bookId: 7,
+      chapterId: 'ch-2',
+    })
+    expect(shellViewFromHash(hashForShellState(states[5]))).toEqual({
+      kind: 'audiobook',
+      bookId: 7,
+    })
   })
 })

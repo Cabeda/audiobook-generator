@@ -166,6 +166,7 @@ Rules:
 - **Bug fix = regression test.** If you fix a bug that could have been caught by E2E, add a test that would catch it if it regresses.
 - **Changed behavior = updated test.** If you change how a feature works, update the corresponding E2E test to match.
 - **Run E2E after changes:** `pnpm test:e2e` (or `pnpm test:e2e:fast` for quick smoke tests with the short EPUB).
+- **Budget assert timeouts for real work:** the first listen generates a chapter with real TTS before playback can start, so a 15s assert turns a working flow into a flake on slow runners. Assert against the work, not the local clock.
 - **Don't leave broken E2E tests.** If a test fails due to your change, fix the test — don't skip or delete it unless the tested feature was intentionally removed.
 
 E2E test patterns:
