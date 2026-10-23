@@ -7,6 +7,7 @@ import {
   chapterAudioView,
   chapterEstimateSeconds,
   resumePoint,
+  sessionChapterId,
   type ChapterSegmentProgressLike,
 } from './readerViewState'
 
@@ -104,5 +105,14 @@ describe('resumePoint', () => {
 
   it('starts at the top when there is no saved position', () => {
     expect(resumePoint(null, [{ id: 'a' }])).toBeNull()
+  })
+})
+
+describe('sessionChapterId', () => {
+  it('ignores a restored chapter id until the session loads it', () => {
+    // The player store restores ids across sessions, and chapter ids repeat
+    // across books ('chapter-1'); a restored id must never look like a session.
+    expect(sessionChapterId('chapter-1', false)).toBeNull()
+    expect(sessionChapterId('chapter-1', true)).toBe('chapter-1')
   })
 })

@@ -96,6 +96,19 @@ export function bookProgressOf(
   return { position, duration, fraction: position / duration }
 }
 
+/**
+ * The chapter a listening session is actually on.
+ *
+ * The player store restores a chapter id across sessions, but a restored id is
+ * not a session: only report it once this session has loaded audio for it.
+ */
+export function sessionChapterId(
+  storedChapterId: string | null,
+  hasLoadedAudio: boolean
+): string | null {
+  return hasLoadedAudio ? storedChapterId : null
+}
+
 /** Where reading should resume, or null to start at the top. */
 export function resumePoint(
   saved: { chapterId: string; segmentIndex: number } | null,

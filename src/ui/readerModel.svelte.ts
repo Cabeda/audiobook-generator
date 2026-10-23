@@ -39,7 +39,10 @@ import {
   generateMissing,
   retryChapters,
 } from '../lib/services/audiobookService'
-import { planChapter } from '../lib/services/chapterPlan'
+import { listenPlanFor } from '../lib/services/listenPlan'
+import { appSettings } from '../stores/appSettingsStore'
+import { toastStore } from '../stores/toastStore'
+import logger from '../lib/utils/logger'
 import type { ExportFormat } from '../lib/exportFormats'
 import type { SelectedModel } from '../lib/tts/ttsModels'
 
@@ -195,22 +198,30 @@ class ReaderModel {
     const book = this.book
     if (!book) return
 
-    const plan = planChapter({
-      chapter: { model: chapter.model, voice: chapter.voice },
-      language: chapter.language ?? book.language ?? 'en',
-      languageDefaults: {},
-      selectedModel: get(selectedModel),
-      selectedVoice: get(selectedVoice),
-      piperVoices: get(piperVoices),
-    })
+    const plan = listenPlanFor(
+      book,
+      chapter,
+      {
+        model: this.prefs.model,
+        voice: this.prefs.voice,
+        quantization: get(selectedQuantization),
+        device: get(selectedDevice),
+        languageDefaults: get(appSettings).languageDefaults,
+      },
+      get(piperVoices)
+    )
 
-    await audioService.loadChapter(this.bookId ?? 0, book.title, chapter, {
+    const result = await audioService.loadChapter(this.bookId ?? 0, book.title, chapter, {
       voice: plan.voice,
       quantization: plan.quantization,
       device: plan.device,
       selectedModel: plan.model,
       playbackSpeed: audioService.playbackSpeed,
     })
+    if (!result.success) {
+      logger.warn('loadChapter did not succeed', result)
+      return
+    }
     if (atSegment != null && atSegment > 0) {
       await audioService.playFromSegment(atSegment)
     } else {
@@ -218,12 +229,21 @@ class ReaderModel {
     }
   }
 
-  /** Play a chapter from the start, generating what is missing first. */
+  /** Play a chapter: resume the loaded one, or load it and start from the top. */
   async play(chapter: Chapter): Promise<void> {
-    if (this.statusOf(chapter.id).state === 'none') {
-      await this.generate([chapter.id])
+    try {
+      if (this.chapterId === chapter.id) {
+        if (!this.playing) await audioService.play()
+        return
+      }
+      if (this.statusOf(chapter.id).state === 'none') {
+        await this.generate([chapter.id])
+      }
+      await this.openChapter(chapter)
+    } catch (error) {
+      logger.error('Could not start playback', error)
+      toastStore.error('Could not start playback')
     }
-    await this.openChapter(chapter)
   }
 
   /** Speak from a given sentence (click-to-continue). */

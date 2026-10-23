@@ -19,6 +19,7 @@
     type ChapterAudioView,
   } from '../lib/reader/readerViewState'
   import { reader } from './readerModel.svelte'
+  import { toastStore } from '../stores/toastStore'
   import { importBook, openBook, removeBook } from '../lib/services/bookSession'
   import {
     book as bookStore,
@@ -231,7 +232,10 @@
 
   function playCurrent() {
     const ch = book?.chapters[ui.chapterIndex]
-    if (!ch) return
+    if (!ch) {
+      toastStore.warning('This book has no readable chapters yet')
+      return
+    }
     if (reader.chapterId === ch.id) reader.toggle()
     else void reader.play(ch)
     poke()

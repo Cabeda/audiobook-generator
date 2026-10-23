@@ -5,6 +5,7 @@ import {
   type SelectedModel,
   type TTSModelType,
 } from './tts/ttsModels'
+import { sessionChapterId } from './reader/readerViewState'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import { toastStore } from '../stores/toastStore'
@@ -739,7 +740,14 @@ class AudioPlaybackService {
 
   /** The chapter the player is on, if any. */
   playingChapterId(): string | null {
-    return get(audioPlayerStore).chapterId || null
+    // The player store restores a chapter id across sessions; a restored id is
+    // not a session, so only report one with audio actually loaded. Chapter ids
+    // repeat across books, so a stale id would otherwise look like the chapter
+    // being played and make play buttons toggle instead of load.
+    return sessionChapterId(
+      get(audioPlayerStore).chapterId || null,
+      this.segments.length > 0 || this.audio != null
+    )
   }
 
   /**

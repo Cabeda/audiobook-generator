@@ -40,6 +40,17 @@ This is the content of the book.`
       expect(book.format).toBe('txt')
     })
 
+    it('should make one chapter from a file with no body past its title', async () => {
+      // A single-line file is still a readable book, not an empty one.
+      const file = new File(['A single line with nowhere to break'], 'note.txt', {
+        type: 'text/plain',
+      })
+      const book = await txtParser.parse(file)
+
+      expect(book.chapters.length).toBe(1)
+      expect(book.chapters[0].content).toContain('A single line')
+    })
+
     it('should handle "Author:" prefix', async () => {
       const content = `My Story
 Author: Jane Smith
