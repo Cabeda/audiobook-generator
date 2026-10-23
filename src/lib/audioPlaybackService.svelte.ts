@@ -698,14 +698,35 @@ class AudioPlaybackService {
       return
     }
 
-    // For audio files, skip time
-    if (this.audio) {
-      const newTime = Math.max(
-        0,
-        Math.min(this.audio.duration || 0, this.audio.currentTime + seconds)
-      )
-      this.audio.currentTime = newTime
+    // Inside one audio file (merged chapter or current segment): seek,
+    // but only while the target stays within it.
+    const audio = this.audio
+    const duration = audio?.duration
+    if (audio && duration && Number.isFinite(duration)) {
+      const target = audio.currentTime + seconds
+      if (target >= 0 && target <= duration) {
+        audio.currentTime = target
+        return
+      }
     }
+
+    // Across segments: walk sentence by sentence and land on a segment start.
+    const segments = this.segments
+    if (segments.length === 0) return
+    const segmentDuration = (segment: (typeof segments)[number]) => segment.duration ?? 6
+    let index = Math.max(0, this.currentSegmentIndex)
+    let remaining = Math.abs(seconds)
+    const forward = seconds > 0
+    if (audio && Number.isFinite(audio.currentTime)) {
+      remaining -= forward
+        ? segmentDuration(segments[index]) - audio.currentTime
+        : audio.currentTime
+    }
+    while (remaining > 0 && (forward ? index < segments.length - 1 : index > 0)) {
+      index += forward ? 1 : -1
+      remaining -= segmentDuration(segments[index])
+    }
+    if (index !== this.currentSegmentIndex) void this.playFromSegment(index)
   }
 
   /**

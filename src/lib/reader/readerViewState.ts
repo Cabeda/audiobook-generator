@@ -68,6 +68,34 @@ export function bookGenerationView(
   }
 }
 
+/** Seconds of speech a chapter's text is worth (the app's ~2.6 words/second). */
+export function chapterEstimateSeconds(content: string): number {
+  const words = content
+    .replace(/<[^>]+>/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean).length
+  return words / 2.6
+}
+
+/**
+ * Where listening is in the book as a whole: the chapters before the current
+ * one plus the share of the current chapter already played.
+ */
+export function bookProgressOf(
+  estimates: number[],
+  chapterIndex: number,
+  chapterFraction: number
+): { position: number; duration: number; fraction: number } {
+  const duration = estimates.reduce((total, seconds) => total + seconds, 0)
+  if (duration <= 0 || chapterIndex < 0 || chapterIndex >= estimates.length) {
+    return { position: 0, duration, fraction: 0 }
+  }
+  const before = estimates.slice(0, chapterIndex).reduce((total, seconds) => total + seconds, 0)
+  const share = Math.min(1, Math.max(0, chapterFraction))
+  const position = Math.min(duration, before + estimates[chapterIndex] * share)
+  return { position, duration, fraction: position / duration }
+}
+
 /** Where reading should resume, or null to start at the top. */
 export function resumePoint(
   saved: { chapterId: string; segmentIndex: number } | null,

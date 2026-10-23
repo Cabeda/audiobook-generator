@@ -3,7 +3,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   bookGenerationView,
+  bookProgressOf,
   chapterAudioView,
+  chapterEstimateSeconds,
   resumePoint,
   type ChapterSegmentProgressLike,
 } from './readerViewState'
@@ -64,6 +66,26 @@ describe('bookGenerationView', () => {
 
   it('reports nothing to do for a book with no segments', () => {
     expect(bookGenerationView([undefined, undefined]).percent).toBe(0)
+  })
+})
+
+describe('bookProgressOf', () => {
+  it('reports where listening is in the book as a whole', () => {
+    expect(bookProgressOf([100, 200, 100], 1, 0.5)).toEqual({
+      position: 200,
+      duration: 400,
+      fraction: 0.5,
+    })
+  })
+
+  it('clamps to the end of the book', () => {
+    expect(bookProgressOf([100, 100], 1, 1).fraction).toBe(1)
+    expect(bookProgressOf([100, 100], 9, 0.5)).toEqual({ position: 0, duration: 200, fraction: 0 })
+  })
+
+  it('estimates a chapter from its word count', () => {
+    // 26 words at the app's ~2.6 words/second
+    expect(chapterEstimateSeconds('<p>' + 'word '.repeat(26) + '</p>')).toBeCloseTo(10)
   })
 })
 

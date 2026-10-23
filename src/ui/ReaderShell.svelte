@@ -13,7 +13,11 @@
     scrollSegmentIntoView,
     segmentIndexFromEvent,
   } from '../lib/reader/readerSegments'
-  import type { ChapterAudioView } from '../lib/reader/readerViewState'
+  import {
+    bookProgressOf,
+    chapterEstimateSeconds,
+    type ChapterAudioView,
+  } from '../lib/reader/readerViewState'
   import { reader } from './readerModel.svelte'
   import { importBook, openBook, removeBook } from '../lib/services/bookSession'
   import {
@@ -212,6 +216,18 @@
   let playingThis = $derived(
     playback.chapterId === book?.chapters[ui.chapterIndex]?.id && playback.playing
   )
+
+  // Position in the book as a whole, not just the chapter being played: the
+  // chapters before it plus the share of it already played.
+  let listen = $derived.by(() => {
+    const chapters = book?.chapters ?? []
+    const index = chapters.findIndex((c) => c.id === playback.chapterId)
+    return bookProgressOf(
+      chapters.map((c) => chapterEstimateSeconds(c.content)),
+      index,
+      playback.duration > 0 ? playback.position / playback.duration : 0
+    )
+  })
 
   function playCurrent() {
     const ch = book?.chapters[ui.chapterIndex]
@@ -545,15 +561,13 @@
           <div
             class="t-bar"
             role="presentation"
-            onclick={(e) => reader.seek(e.offsetX / (e.currentTarget as HTMLElement).clientWidth)}
+            onclick={(e) =>
+              reader.seekBook(e.offsetX / (e.currentTarget as HTMLElement).clientWidth)}
           >
-            <div
-              class="t-fill"
-              style="width: {(playback.position / (playback.duration || 1)) * 100}%"
-            ></div>
+            <div class="t-fill" style="width: {listen.fraction * 100}%"></div>
           </div>
         </div>
-        <span class="t-time">{fmt(playback.position)} / {fmt(playback.duration)}</span>
+        <span class="t-time">{fmt(listen.position)} / {fmt(listen.duration)}</span>
         <button class="icon" onclick={() => reader.stop()} aria-label="Close player">✕</button>
       </div>
     {:else if $isGenerating || counts.generating > 0}

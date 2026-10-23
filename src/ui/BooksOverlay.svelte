@@ -32,6 +32,7 @@
 
   let query = $state('')
   let sort = $state<'added' | 'title' | 'author'>('added')
+  let menuFor = $state<number | null>(null)
 
   let listed = $derived.by(() => {
     const q = query.trim().toLowerCase()
@@ -57,6 +58,8 @@
     return Math.round((reader.readyCount(b.chapters.map((c) => c.id)) / n) * 100)
   }
 </script>
+
+<svelte:window onclick={() => (menuFor = null)} />
 
 <div class="backdrop" onclick={onClose} role="presentation"></div>
 <section class="overlay" role="dialog" aria-label="Books">
@@ -93,14 +96,50 @@
           <p class="meta">{b.author}</p>
           <p class="meta">{b.chapters.length} chapters · ♪ {readyPct(b)}%</p>
           <div class="actions">
-            <button class="btn small" onclick={() => onOpen(i)}>Read</button>
-            <button class="btn small" onclick={() => onListen(i)}>▶ Listen</button>
-            <button class="btn small ghost" onclick={() => onDetails(i)}>Details</button>
             <button
-              class="icon"
-              onclick={() => onDelete(i)}
-              aria-label="Remove {b.title} from library">🗑</button
+              class="icon more"
+              aria-label="More actions for {b.title}"
+              aria-expanded={menuFor === i}
+              onclick={(e) => {
+                e.stopPropagation()
+                menuFor = menuFor === i ? null : i
+              }}
             >
+              ⋮
+            </button>
+            {#if menuFor === i}
+              <div class="menu" role="menu">
+                <button
+                  role="menuitem"
+                  onclick={() => {
+                    menuFor = null
+                    onOpen(i)
+                  }}>Read</button
+                >
+                <button
+                  role="menuitem"
+                  onclick={() => {
+                    menuFor = null
+                    onListen(i)
+                  }}>▶ Listen</button
+                >
+                <button
+                  role="menuitem"
+                  onclick={() => {
+                    menuFor = null
+                    onDetails(i)
+                  }}>Details</button
+                >
+                <button
+                  role="menuitem"
+                  class="danger"
+                  onclick={() => {
+                    menuFor = null
+                    onDelete(i)
+                  }}>Remove</button
+                >
+              </div>
+            {/if}
           </div>
         </article>
       {/each}
@@ -186,28 +225,18 @@
     white-space: nowrap;
   }
 
-  .btn.small {
-    padding: 7px 12px;
-    font-size: 0.78rem;
-    min-height: 34px;
-  }
-
-  .btn.ghost {
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: none;
     border: 1px solid var(--border-color, #e7e5e4);
-    color: inherit;
-    font-weight: 500;
-  }
-
-  .icon {
-    background: none;
-    border: none;
     color: var(--secondary-text, #78716c);
     cursor: pointer;
-    padding: 8px;
-    min-height: 36px;
-    border-radius: 8px;
-    font-size: 0.9rem;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 10px;
+    font-size: 1.05rem;
   }
 
   .icon:hover {
@@ -277,10 +306,56 @@
   }
 
   .actions {
+    position: relative;
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 6px;
-    margin-top: 6px;
+    margin-top: auto; /* buttons line up at the card bottom whatever the title does */
+    padding-top: 6px;
+  }
+
+  .icon.more {
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 1.15rem;
+    border: none;
+  }
+
+  .menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 5;
+    min-width: 150px;
+    display: flex;
+    flex-direction: column;
+    padding: 6px;
+    background: var(--surface-color, #fff);
+    border: 1px solid var(--border-color, #e7e5e4);
+    border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+  }
+
+  .menu button {
+    background: none;
+    border: none;
+    color: inherit;
+    text-align: left;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    min-height: 40px;
+    white-space: nowrap;
+  }
+
+  .menu button:hover {
+    background: var(--selected-bg, #f5f5f4);
+  }
+
+  .menu button.danger {
+    color: var(--error-color, #c2847a);
   }
 
   .empty {
@@ -302,10 +377,6 @@
 
     input {
       width: 140px;
-    }
-
-    .actions {
-      flex-wrap: wrap;
     }
   }
 </style>

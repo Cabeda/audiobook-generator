@@ -31,6 +31,7 @@ import { segmentStateFor } from '../lib/reader/readerSegments'
 import {
   bookGenerationView,
   chapterAudioView,
+  chapterEstimateSeconds,
   type ChapterAudioView,
 } from '../lib/reader/readerViewState'
 import {
@@ -246,9 +247,28 @@ class ReaderModel {
     audioService.skip(seconds)
   }
 
-  seek(fraction: number): void {
-    const duration = this.duration
-    if (duration > 0) audioService.skip(fraction * duration - this.position)
+  /**
+   * Jump to a position in the book as a whole: the target chapter comes from
+   * the chapter estimates, and the sentence from its share of the chapter.
+   */
+  async seekBook(fraction: number): Promise<void> {
+    const book = this.book
+    if (!book) return
+    const estimates = book.chapters.map((c) => chapterEstimateSeconds(c.content))
+    const duration = estimates.reduce((total, seconds) => total + seconds, 0)
+    if (duration <= 0) return
+
+    let target = Math.min(1, Math.max(0, fraction)) * duration
+    let index = 0
+    while (index < estimates.length - 1 && target >= estimates[index]) {
+      target -= estimates[index]
+      index += 1
+    }
+
+    const chapter = book.chapters[index]
+    const within = estimates[index] > 0 ? target / estimates[index] : 0
+    const segments = get(segmentProgress).get(chapter.id)?.totalSegments ?? 0
+    await this.openChapter(chapter, segments > 0 ? Math.floor(within * segments) : undefined)
   }
 
   // ---- generation & export ----
