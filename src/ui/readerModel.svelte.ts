@@ -40,6 +40,7 @@ import {
   generateMissing,
   retryChapters,
 } from '../lib/services/audiobookService'
+import { generationService } from '../lib/services/generationService'
 import { listenPlanFor, resolveModel } from '../lib/services/listenPlan'
 import { appSettings } from '../stores/appSettingsStore'
 import { loadPosition } from '../stores/readerPositionStore'
@@ -120,6 +121,8 @@ class ReaderModel {
       },
       set voice(value: string) {
         selectedVoice.set(value)
+        audioService.setVoice(value)
+        remakeCurrent() // the playing segment is made again, with no click
       },
       get quantization() {
         return get(selectedQuantization)
@@ -315,6 +318,26 @@ class ReaderModel {
     await generateMissing({ ...book, chapters }, this.bookId ?? undefined)
   }
 
+  /** Re-make the playing segment (a voice or model change mid-listen). */
+  async remakeCurrentSegment(): Promise<void> {
+    const book = this.book
+    const chapterId = this.chapterId
+    const index = this.segmentIndex
+    if (!book || !chapterId || index < 0) return
+    const chapter = book.chapters.find((c) => c.id === chapterId)
+    if (!chapter) return
+    try {
+      await generationService.generateSingleChapterFromSegment(
+        chapter,
+        index,
+        undefined,
+        this.bookId ?? undefined
+      )
+    } catch (error) {
+      logger.warn('Could not re-make the current segment', error)
+    }
+  }
+
   async retry(ids: string[]): Promise<void> {
     const book = this.book
     if (!book) return
@@ -345,3 +368,8 @@ class ReaderModel {
 }
 
 export const reader = new ReaderModel()
+
+/** Late-bound so the prefs setters can reach the instance. */
+function remakeCurrent(): void {
+  void reader.remakeCurrentSegment()
+}

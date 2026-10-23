@@ -156,7 +156,17 @@ export async function exportAs(
   page: Page,
   format: 'mp3' | 'm4b' | 'mp4' | 'wav' | 'epub'
 ): Promise<{ filename: string; download: Download }> {
+  // The sheet is opened from the Aa settings panel. After a long generation
+  // wait the chrome has hidden itself — scroll up first to bring it back.
+  await page.mouse.wheel(0, -120)
+  const settings = page.locator('aside.settings')
+  if (!(await settings.isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Settings"]').click()
+    await expect(settings).toBeVisible()
+  }
+  await settings.locator('button', { hasText: 'Export audiobook' }).click()
   const sheet = exportSheet(page)
+  await expect(sheet).toBeVisible()
   await sheet.locator('label.field:has-text("Format") select').selectOption(format)
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 300000 }),

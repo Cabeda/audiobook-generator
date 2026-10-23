@@ -265,11 +265,12 @@ export function engineCapabilities(model: TTSModelType): TTSCapabilities {
   return ENGINES[model].capabilities
 }
 
-/** Does the engine cover the language? */
+/** Does the engine cover the language? Unknown ids cover nothing. */
 export function engineSupportsLanguage(model: TTSModelType, language: string): boolean {
-  const { languages } = engineCapabilities(model)
-  if (languages === 'catalogue') return true
-  return languages.includes(normalizeLanguageCode(language))
+  const capabilities = ENGINES[model]?.capabilities
+  if (!capabilities) return false
+  if (capabilities.languages === 'catalogue') return true
+  return capabilities.languages.includes(normalizeLanguageCode(language))
 }
 
 /** The voices the engine ships with, or undefined when it gets them elsewhere. */
@@ -298,6 +299,9 @@ export function voiceOptionsFor(
   piperVoices: PiperVoice[] = []
 ): VoiceOption[] {
   if (isBrowserSpeech(model)) return []
+  // A picker may hand over a stale or empty id (selects bind '' for 'app
+  // default'); an unknown engine offers no voices instead of throwing.
+  if (!isTTSModelType(model)) return []
 
   if (model === 'piper') {
     return getPiperVoicesForLanguage(language, piperVoices).map((voice) => ({

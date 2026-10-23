@@ -173,6 +173,16 @@
     }
   })
 
+  // Re-make the playing segment when voice or model change mid-listen — the
+  // store watch catches every write path (selects, presets, settings).
+  let lastVoiceKey = ''
+  $effect(() => {
+    const key = `${$selectedModel}:${$selectedVoice}`
+    const first = lastVoiceKey === ''
+    lastVoiceKey = key
+    if (!first) void reader.remakeCurrentSegment()
+  })
+
   // Now playing + keep the screen on while audio runs.
   $effect(() => {
     const playing = playback.playing

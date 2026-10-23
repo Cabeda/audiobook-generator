@@ -129,6 +129,14 @@ describe('the registry', () => {
     expect(fitVoiceFor('pocket', 'en', '', false)).toBe('alba') // first catalogue voice
     expect(fitVoiceFor('kitten', 'en', 'Luna', false)).toBe('Luna')
   })
+
+  it('offers no voices for an unknown engine instead of throwing', () => {
+    // Selects bind '' for 'app default' and stored ids go stale; a picker must
+    // survive either without taking the app down.
+    expect(voiceOptionsFor('' as never, 'en', [])).toEqual([])
+    expect(engineSupportsLanguage('' as never, 'en')).toBe(false)
+    expect(voiceOptionsFor('web-speech' as never, 'en', [])).toEqual([])
+  })
 })
 
 describe('the picker lists', () => {

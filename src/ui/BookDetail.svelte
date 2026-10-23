@@ -37,8 +37,9 @@
 
   /** Voices a row may pick from, for its model and language. */
   function voiceOptions(model: string | undefined, language: string | undefined) {
+    // '' is the selects' 'app default' sentinel — fall through to the global
     return voiceOptionsFor(
-      (model ?? reader.prefs.model) as SelectedModel,
+      (model || reader.prefs.model) as SelectedModel,
       language || 'en',
       $piperVoices
     )
