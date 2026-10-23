@@ -60,7 +60,7 @@
       const meta = await getAllBooksMetadata()
       const recent = [...meta].sort((a, b) => b.lastAccessed - a.lastAccessed).slice(0, 8)
       const loaded = (await Promise.all(recent.map((m) => getBook(m.id)))).filter(
-        (b): b is Book => !!b
+        (b): b is NonNullable<typeof b> => !!b
       )
       if (loaded.length > 0) books = loaded
       else if (!new URLSearchParams(location.search).has('empty')) {

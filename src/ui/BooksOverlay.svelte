@@ -5,6 +5,7 @@
   import { chapterErrors, chapterStatus } from '../stores/bookStore'
   import { segmentProgress } from '../stores/segmentProgressStore'
   import { reader } from './readerModel.svelte'
+  import { loadPosition } from '../stores/readerPositionStore'
 
   let {
     books,
@@ -59,6 +60,11 @@
     const n = b.chapters.length || 1
     return Math.round((reader.readyCount(b.chapters.map((c) => c.id)) / n) * 100)
   }
+
+  function readPct(b: LibraryBook) {
+    const saved = loadPosition(b.id ?? null)
+    return saved ? Math.round(saved.scrollFraction * 100) : 0
+  }
 </script>
 
 <svelte:window onclick={() => (menuFor = null)} />
@@ -96,7 +102,11 @@
           </button>
           <h3>{b.title}</h3>
           <p class="meta">{b.author}</p>
-          <p class="meta">{b.chapters.length} chapters · ♪ {readyPct(b)}%</p>
+          <p class="meta">
+            {b.chapters.length} chapters · ♪ {readyPct(b)}%{readPct(b) > 0
+              ? ` · read ${readPct(b)}%`
+              : ''}
+          </p>
           <div class="actions">
             <button
               class="icon more"

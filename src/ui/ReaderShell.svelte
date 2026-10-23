@@ -91,8 +91,8 @@
   let queueOpen = $state(false)
   let tourOpen = $state(false)
   let sandboxOpen = $state(false)
-  let detailBook = $state<Book | null>(null)
-  let exportBook = $state<Book | null>(null)
+  let detailBook = $state<LibraryBook | null>(null)
+  let exportBook = $state<LibraryBook | null>(null)
   let audiobookBook = $state<LibraryBook | null>(null)
 
   // ---- the address bar mirrors the page, so refresh keeps you where you are ----
@@ -938,7 +938,9 @@
             {/each}
           </select>
         </label>
-        <button class="action" onclick={() => (exportBook = book)}>Export audiobook…</button>
+        <button class="action" onclick={() => (exportBook = book as LibraryBook)}
+          >Export audiobook…</button
+        >
         <button
           class="linkish"
           onclick={() => {

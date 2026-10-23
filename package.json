@@ -20,7 +20,7 @@
     "lint": "eslint . && prettier --check .",
     "lint:fix": "eslint . --fix && prettier --write .",
     "format": "prettier --write .",
-    "type-check": "tsgo --noEmit",
+    "type-check": "tsgo --noEmit && svelte-check --threshold error",
     "prepare": "husky",
     "build:epub": "pandoc --metadata-file=books/short-epub/metadata.yaml --toc -o books/test-short.epub books/short-epub/01-chapter-1.md books/short-epub/02-chapter-2.md books/short-epub/03-chapter-3.md",
     "test:e2e:fast": "pnpm run build:epub && playwright test -g \"SHORT EPUB\" --project=chromium --reporter=list --workers=1 --enable-unsafe-webgpu"
@@ -56,6 +56,7 @@
     "prettier": "^3.9.10",
     "prettier-plugin-svelte": "^4.1.1",
     "svelte": "^5.57.2",
+    "svelte-check": "^4.7.7",
     "svelte-eslint-parser": "^1.9.0",
     "typescript": "^6.0.3",
     "vite": "^8.3.4",

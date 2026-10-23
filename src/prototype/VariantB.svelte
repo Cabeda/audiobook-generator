@@ -193,10 +193,7 @@
           type="file"
           hidden
           accept=".epub,.pdf,.txt,.md,.html"
-          onchange={(e) =>
-            onImport(
-              (e.currentTarget as HTMLSelectElement) && (e.currentTarget as HTMLInputElement).files
-            )}
+          onchange={(e) => onImport((e.currentTarget as HTMLInputElement).files)}
         />
       </label>
     </div>

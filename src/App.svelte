@@ -47,14 +47,17 @@
       initialOverlay = 'library'
       return
     }
+    if (view.kind === 'activity') return // ReaderShell opens its own pages
 
-    const chapterId = view.chapterId
+    // reader and audiobook pages both restore the book
+    const bookId = view.bookId
+    const chapterId = view.kind === 'reader' ? view.chapterId : null
     initialChapterId = untrack(() => chapterId)
-    if (view.bookId === 'unsaved') return
-    const book = await openBook(view.bookId)
+    if (bookId === 'unsaved') return
+    const book = await openBook(bookId)
     if (book) {
       bookStore.set(book)
-      currentLibraryBookId.set(view.bookId)
+      currentLibraryBookId.set(bookId)
     }
   }
 

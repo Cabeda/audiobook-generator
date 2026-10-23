@@ -140,8 +140,11 @@ Workflow:
    - Use `take_snapshot` to capture page structure and identify elements
    - Use `click`, `fill`, `upload_file` etc. to interact with the UI
    - Use `take_screenshot` to visually verify styling and layout
-   - Use `list_console_messages` to check for runtime errors
-   - Use `evaluate_script` to inspect application state (stores, IndexedDB, etc.)
+
+- When the harness cannot paint (headless or occluded window — screenshots error), verify through the DOM instead: `evaluate` assertions, and `document.title` accumulation for timing-sensitive flows
+- Use `list_console_messages` to check for runtime errors
+- Use `evaluate_script` to inspect application state (stores, IndexedDB, etc.)
+
 4. If the feature involves file upload, use test files from `example/` directory
 5. **If you find a bug during agent-browser testing, fix it before moving on**
 
@@ -246,6 +249,8 @@ Testing and validation
 Files & locations (quick references)
 
 - Main scripts and dependencies: `package.json`
+- Engine registry: `src/lib/tts/ttsModels.ts` — one `ENGINES` entry per TTS engine; model/capability/voice questions answer here first
+- Review standards: `CODING_STANDARDS.md` — read at review time, not implementation
 - Playwright config: `playwright.config.ts`
 - Vitest config: `vitest.config.ts`
 - Source code: `src/` (components, lib, etc.)
