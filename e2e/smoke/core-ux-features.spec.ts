@@ -19,7 +19,9 @@ test.describe('Core UX Features', () => {
     // Start listening, then pause and resume from the transport
     await page.locator('button[aria-label="Listen to this chapter"]').click()
     const playPause = page.locator('.transport button[aria-label="Play or pause"]')
-    await expect(playPause).toContainText('❚❚', { timeout: 15000 })
+    // The first listen generates the chapter before it can play; give real
+    // TTS the time it needs on slower runners.
+    await expect(playPause).toContainText('❚❚', { timeout: 60000 })
 
     await playPause.click()
     await expect(playPause).toContainText('▶')
