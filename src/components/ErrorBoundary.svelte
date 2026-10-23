@@ -36,6 +36,8 @@
       <p>An unexpected error occurred. You can try reloading the page.</p>
       <div class="error-actions">
         <button class="btn-primary" onclick={retry}>Try again</button>
+        <!-- a stray error must not brick the session: dismiss and keep reading -->
+        <button class="btn-primary" onclick={() => (error = null)}>Keep reading</button>
         <a
           class="btn-secondary"
           href="https://github.com/Cabeda/audiobook-generator/issues/new?title=Bug:+{encodeURIComponent(
