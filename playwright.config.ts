@@ -14,6 +14,11 @@ export default defineConfig({
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    launchOptions: {
+      // First listen generates before it plays, by which time the click's
+      // activation has expired and audio.play() rejects as NotAllowedError.
+      args: ['--autoplay-policy=no-user-gesture-required'],
+    },
   },
 
   projects: [

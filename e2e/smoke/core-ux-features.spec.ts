@@ -8,6 +8,11 @@ const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
 test.describe('Core UX Features', () => {
   test.beforeEach(async ({ page }) => {
+    // Boot on Piper (small, fast, real audio): these tests are about the
+    // reader's behaviour, not about one engine holding playback.
+    await page.addInitScript(() => {
+      localStorage.setItem('audiobook_model', '"piper"')
+    })
     await page.goto('/')
     await page.waitForLoadState('domcontentloaded')
 
