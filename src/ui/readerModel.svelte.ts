@@ -46,6 +46,7 @@ import { resolveChapterLanguageWithDetection } from '../lib/utils/languageResolv
 import { listenPlanFor, resolveModel } from '../lib/services/listenPlan'
 import { appSettings } from '../stores/appSettingsStore'
 import { loadPosition } from '../stores/readerPositionStore'
+import { continueAfterChapter, playbackSpeed } from '../stores/readerPrefsStore'
 import { toastStore } from '../stores/toastStore'
 import logger from '../lib/utils/logger'
 import type { ExportFormat } from '../lib/exportFormats'
@@ -70,9 +71,13 @@ export interface ExportState {
 // Module-level so the prefs object below needs no `this` alias: every field is
 // either a real store or one of these.
 let exportFormatState = $state<ExportFormat>('m4b')
-let autoContinueState = $state(true)
 
 class ReaderModel {
+  constructor() {
+    // Speed outlives the session, like the reader's theme and text size.
+    audioService.setSpeed(get(playbackSpeed))
+  }
+
   exportState = $state<ExportState>({ busy: false, done: false })
   /** A model that has run in this session is on the device. */
   private modelWarmed = false
@@ -182,6 +187,7 @@ class ReaderModel {
       },
       set rate(value: number) {
         audioService.setSpeed(value)
+        playbackSpeed.set(value)
       },
       get exportFormat() {
         return exportFormatState
@@ -190,10 +196,10 @@ class ReaderModel {
         exportFormatState = value
       },
       get autoContinue() {
-        return autoContinueState
+        return get(continueAfterChapter)
       },
       set autoContinue(value: boolean) {
-        autoContinueState = value
+        continueAfterChapter.set(value)
       },
     }
   }

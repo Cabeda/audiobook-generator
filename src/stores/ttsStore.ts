@@ -1,5 +1,6 @@
 import { writable, type Writable } from 'svelte/store'
 import logger from '../lib/utils/logger'
+import { persistedWritable, persistedWritableWithAdaptiveDefault } from './persistedWritable'
 import { getOptimalTTSSettings } from '../lib/utils/mobileDetect'
 
 // Storage keys
@@ -27,77 +28,6 @@ function getAdaptiveDefaults(): { quantization: Quantization; device: Device } {
     quantization: optimal.quantization,
     device: optimal.device,
   }
-}
-
-// Helper to create a localStorage-synced writable store
-// If no stored value exists, uses the provided default
-function persistedWritable<T>(key: string, defaultValue: T): Writable<T> {
-  let initialValue = defaultValue
-
-  // Load from localStorage in browser
-  if (typeof window !== 'undefined') {
-    try {
-      const stored = localStorage.getItem(key)
-      if (stored) {
-        initialValue = JSON.parse(stored) as T
-      }
-    } catch (e) {
-      logger.warn(`Failed to load ${key} from localStorage:`, e)
-    }
-  }
-
-  const store = writable<T>(initialValue)
-
-  // Subscribe to changes and persist to localStorage
-  if (typeof window !== 'undefined') {
-    store.subscribe((value) => {
-      try {
-        localStorage.setItem(key, JSON.stringify(value))
-      } catch (e) {
-        logger.warn(`Failed to save ${key} to localStorage:`, e)
-      }
-    })
-  }
-
-  return store
-}
-
-// Helper to create a localStorage-synced store with adaptive defaults
-// Only uses adaptive default if no value is stored yet
-function persistedWritableWithAdaptiveDefault<T>(key: string, getDefault: () => T): Writable<T> {
-  // Check if user already has a stored preference
-  let hasStoredValue = false
-  let storedValue: T | undefined
-
-  if (typeof window !== 'undefined') {
-    try {
-      const stored = localStorage.getItem(key)
-      if (stored !== null) {
-        hasStoredValue = true
-        storedValue = JSON.parse(stored) as T
-      }
-    } catch (e) {
-      logger.warn(`Failed to load ${key} from localStorage:`, e)
-    }
-  }
-
-  // Use stored value if available, otherwise compute adaptive default
-  const initialValue = hasStoredValue ? storedValue! : getDefault()
-
-  const store = writable<T>(initialValue)
-
-  // Subscribe to changes and persist to localStorage
-  if (typeof window !== 'undefined') {
-    store.subscribe((value) => {
-      try {
-        localStorage.setItem(key, JSON.stringify(value))
-      } catch (e) {
-        logger.warn(`Failed to save ${key} to localStorage:`, e)
-      }
-    })
-  }
-
-  return store
 }
 
 // TTS configuration stores with localStorage persistence
