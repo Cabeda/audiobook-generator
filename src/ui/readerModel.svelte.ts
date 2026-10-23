@@ -40,7 +40,8 @@ import {
   generateMissing,
   retryChapters,
 } from '../lib/services/audiobookService'
-import { synthesizeSegment } from '../lib/services/segmentProduction'
+import { ListenSession } from '../lib/reader/listenSession'
+import { createAudioPlatform } from '../lib/reader/audioPlatform'
 import { resolveChapterLanguageWithDetection } from '../lib/utils/languageResolver'
 import { listenPlanFor, resolveModel } from '../lib/services/listenPlan'
 import { appSettings } from '../stores/appSettingsStore'
@@ -75,6 +76,45 @@ class ReaderModel {
   exportState = $state<ExportState>({ busy: false, done: false })
   /** A model that has run in this session is on the device. */
   private modelWarmed = false
+
+  /** The listening session: every playback verb goes through it. */
+  private listen = new ListenSession(
+    createAudioPlatform({
+      book: () => this.book,
+      bookId: () => this.bookId,
+      settings: (chapter) => this.settingsFor(chapter),
+    })
+  )
+
+  /** Loading settings for a chapter: the plan, and the speed in use. */
+  private settingsFor(chapter: Chapter) {
+    const book = this.book
+    const plan = listenPlanFor(
+      book ?? { title: '', author: '', chapters: [] },
+      chapter,
+      {
+        // shortcut: readiness means 'ran this session'; per-model download
+        // state belongs to modelStatus when it exposes one
+        model: resolveModel(this.prefs.model as never, {
+          offline: typeof navigator !== 'undefined' && !navigator.onLine,
+          modelReady: this.modelWarmed,
+        }),
+        voice: this.prefs.voice,
+        quantization: get(selectedQuantization),
+        device: get(selectedDevice),
+        isMobile: isMobileDevice(),
+        languageDefaults: get(appSettings).languageDefaults,
+      },
+      get(piperVoices)
+    )
+    return {
+      voice: plan.voice,
+      model: plan.model,
+      quantization: plan.quantization,
+      device: plan.device,
+      speed: audioService.playbackSpeed,
+    }
+  }
 
   /** The book being read, straight from the real store. */
   get book(): Book | null {
@@ -203,61 +243,22 @@ class ReaderModel {
 
   /** Load a chapter for listening, following the plan for its voice and model. */
   async openChapter(chapter: Chapter, atSegment?: number): Promise<void> {
-    const book = this.book
-    if (!book) return
-
-    const plan = listenPlanFor(
-      book,
-      chapter,
-      {
-        // shortcut: readiness means 'ran this session'; per-model download
-        // state belongs to modelStatus when it exposes one
-        model: resolveModel(this.prefs.model as never, {
-          offline: typeof navigator !== 'undefined' && !navigator.onLine,
-          modelReady: this.modelWarmed,
-        }),
-        voice: this.prefs.voice,
-        quantization: get(selectedQuantization),
-        device: get(selectedDevice),
-        isMobile: isMobileDevice(),
-        languageDefaults: get(appSettings).languageDefaults,
-      },
-      get(piperVoices)
-    )
-
-    const result = await audioService.loadChapter(this.bookId ?? 0, book.title, chapter, {
-      voice: plan.voice,
-      quantization: plan.quantization,
-      device: plan.device,
-      selectedModel: plan.model,
-      playbackSpeed: audioService.playbackSpeed,
-    })
-    if (!result.success) {
-      logger.warn('loadChapter did not succeed', result)
-      return
-    }
-    this.modelWarmed = true
-    if (atSegment != null && atSegment > 0) {
-      await audioService.playFromSegment(atSegment)
-    } else {
-      await audioService.play()
-    }
+    await this.play(chapter, { atSegment })
   }
 
-  /** Play a chapter: resume the loaded one, or load it and continue from where
-   * the listener left off. */
-  async play(chapter: Chapter): Promise<void> {
+  /**
+   * Play a chapter: the session decides between resuming the loaded one and
+   * loading a new one; where the listener left off comes from the saved
+   * position.
+   */
+  async play(chapter: Chapter, options: { atSegment?: number } = {}): Promise<void> {
     try {
-      if (this.chapterId === chapter.id) {
-        if (!this.playing) await audioService.play()
-        return
-      }
-      if (this.statusOf(chapter.id).state === 'none') {
-        await this.generate([chapter.id])
-      }
       const saved = loadPosition(this.bookId)
-      const at = saved?.chapterId === chapter.id ? saved.segmentIndex : 0
-      await this.openChapter(chapter, at > 0 ? at : undefined)
+      const at =
+        options.atSegment ??
+        (saved?.chapterId === chapter.id && saved.segmentIndex > 0 ? saved.segmentIndex : undefined)
+      await this.listen.play(chapter, { atSegment: at })
+      this.modelWarmed = true
     } catch (error) {
       logger.error('Could not start playback', error)
       toastStore.error('Could not start playback')
@@ -266,23 +267,25 @@ class ReaderModel {
 
   /** Speak from a given sentence (click-to-continue). */
   async playFromSegment(chapter: Chapter, index: number): Promise<void> {
-    if (this.chapterId === chapter.id) {
-      await audioService.playFromSegment(index)
-      return
+    try {
+      await this.listen.playFrom(chapter, index)
+      this.modelWarmed = true
+    } catch (error) {
+      logger.error('Could not start playback', error)
+      toastStore.error('Could not start playback')
     }
-    await this.openChapter(chapter, index)
   }
 
   toggle(): void {
-    audioService.togglePlayPause()
+    this.listen.toggle()
   }
 
   stop(): void {
-    audioService.stop()
+    this.listen.stop()
   }
 
   skip(seconds: number): void {
-    audioService.skip(seconds)
+    this.listen.skip(seconds)
   }
 
   /**
@@ -326,24 +329,15 @@ class ReaderModel {
     if (!book || !chapterId) return
     const index = Math.max(0, this.segmentIndex)
     const chapter = book.chapters.find((c) => c.id === chapterId)
-    const text = get(segmentProgress).get(chapterId)?.segmentTexts.get(index)
-    if (!chapter || !text) return
+    if (!chapter) return
     try {
-      // A forced synthesis of this one segment: generation pipelines skip
-      // segments that already have audio, which is exactly what a voice change
-      // must not do. The service swaps the blob in (upgrading the playing one
-      // when its sound runs out).
-      const segment = await synthesizeSegment({
-        text,
-        index,
-        chapterId,
-        language: resolveChapterLanguageWithDetection(chapter, book),
+      await this.listen.remakeSegment(chapter, index, {
         model: this.prefs.model,
         voice: this.prefs.voice,
+        language: resolveChapterLanguageWithDetection(chapter, book),
         quantization: get(selectedQuantization),
         device: get(selectedDevice),
-      } as Parameters<typeof synthesizeSegment>[0])
-      audioService.replaceSegmentAudio(index, segment.audioBlob)
+      })
     } catch (error) {
       logger.warn('Could not re-make the current segment', error)
     }
