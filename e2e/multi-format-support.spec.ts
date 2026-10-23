@@ -2,6 +2,14 @@ import { test, expect } from '@playwright/test'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 
+import {
+  booksOverlay,
+  importAndOpen,
+  importBookFile,
+  importPanel,
+  openBooksOverlay,
+} from './helpers/flows'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const TEST_FILES_DIR = path.join(__dirname, 'test-files')
 const SAMPLE_TXT = path.join(TEST_FILES_DIR, 'sample.txt')
@@ -9,165 +17,142 @@ const SAMPLE_HTML = path.join(TEST_FILES_DIR, 'sample.html')
 
 test.describe('Multi-Format eBook Support', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:5173')
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
   })
 
   test('should display supported formats in upload area', async ({ page }) => {
-    const uploadText = await page.locator('.upload-text').textContent()
+    // The import panel offers every supported format in its file picker
+    await page.locator('.empty-cta').click()
+    const panel = importPanel(page)
+    await expect(panel).toBeVisible()
 
-    expect(uploadText).toContain('EPUB')
-    expect(uploadText).toContain('PDF')
-    expect(uploadText).toContain('TXT')
-    expect(uploadText).toContain('HTML')
+    await expect(panel.locator('.drop')).toBeVisible()
+    const accept = await panel.locator('input[type="file"]').getAttribute('accept')
+    expect(accept).toContain('.epub')
+    expect(accept).toContain('.pdf')
+    expect(accept).toContain('.txt')
+    expect(accept).toContain('.html')
   })
 
-  test.skip('should show format badge after EPUB upload', async ({ page: _page }) => {
-    // Skipped: requires specific EPUB file
-    // This functionality is tested manually and in other existing E2E tests
+  test('should show format in book details after upload', async ({ page }) => {
+    await importAndOpen(page, SAMPLE_TXT, /The Great Adventure/)
+
+    // The book details carry the detected format, and it survives navigation
+    await openBooksOverlay(page)
+    await booksOverlay(page)
+      .locator('.card', { hasText: 'The Great Adventure' })
+      .locator('button', { hasText: 'Details' })
+      .click()
+    const detail = page.locator('section[aria-label="Book details"]')
+    await expect(detail).toContainText(/format txt/i)
+
+    // Close and re-open: the badge is still there
+    await detail.locator('button[aria-label="Close"]').click()
+    await openBooksOverlay(page)
+    await booksOverlay(page)
+      .locator('.card', { hasText: 'The Great Adventure' })
+      .locator('button', { hasText: 'Details' })
+      .click()
+    await expect(page.locator('section[aria-label="Book details"]')).toContainText(/format txt/i)
   })
 
   test('should successfully upload and parse TXT file', async ({ page }) => {
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SAMPLE_TXT)
+    await importAndOpen(page, SAMPLE_TXT, /The Great Adventure/)
 
-    // Wait for parsing to complete
-    await page.waitForSelector('.format-badge', { timeout: 5000 })
+    // Verify title and author extracted (author lives in book details)
+    await expect(page.locator('.book-title')).toContainText('The Great Adventure')
+    await openBooksOverlay(page)
+    await expect(booksOverlay(page).locator('.card .meta').first()).toContainText('Test Author')
 
-    // Verify format badge
-    const badge = await page.locator('.format-badge').textContent()
-    expect(badge).toBe('TXT')
-
-    // Verify title and author extracted
-    await expect(page.locator('text=The Great Adventure')).toBeVisible()
-    await expect(page.locator('text=Test Author')).toBeVisible()
-
-    // Verify chapters detected
-    const chapterCheckboxes = page.locator('input[type="checkbox"]')
-    const count = await chapterCheckboxes.count()
-    expect(count).toBeGreaterThanOrEqual(3) // Should detect 3 chapters
+    // Verify chapters detected — they are the sections of the scroll and the
+    // rows of the table of contents
+    await page.locator('section[aria-label="Books"] button[aria-label="Close"]').click()
+    await page.locator('button[aria-label="Table of contents"]').click()
+    const tocItems = page.locator('.toc-item')
+    expect(await tocItems.count()).toBeGreaterThanOrEqual(3) // Should detect 3 chapters
 
     // Verify chapter titles
-    await expect(page.locator('text=Chapter 1')).toBeVisible()
-    await expect(page.locator('text=Chapter 2')).toBeVisible()
-    await expect(page.locator('text=Chapter 3')).toBeVisible()
+    await expect(page.locator('.toc-item', { hasText: 'Chapter 1' })).toBeVisible()
+    await expect(page.locator('.toc-item', { hasText: 'Chapter 2' })).toBeVisible()
+    await expect(page.locator('.toc-item', { hasText: 'Chapter 3' })).toBeVisible()
   })
 
   test('should successfully upload and parse HTML file', async ({ page }) => {
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SAMPLE_HTML)
-
-    // Wait for parsing
-    await page.waitForSelector('.format-badge', { timeout: 5000 })
-
-    // Verify format badge
-    const badge = await page.locator('.format-badge').textContent()
-    expect(badge).toBe('HTML')
+    await importAndOpen(page, SAMPLE_HTML, /Sample HTML Book/)
 
     // Verify title from HTML <title> tag
-    await expect(page.locator('text=Sample HTML Book')).toBeVisible()
+    await expect(page.locator('.book-title')).toContainText('Sample HTML Book')
 
     // Verify author from meta tag
-    await expect(page.locator('text=HTML Test Author')).toBeVisible()
+    await openBooksOverlay(page)
+    await expect(booksOverlay(page).locator('.card .meta').first()).toContainText(
+      'HTML Test Author'
+    )
 
     // Verify chapters from h1 tags
-    await expect(page.locator('text=Chapter One')).toBeVisible()
-    await expect(page.locator('text=Chapter Two')).toBeVisible()
-    await expect(page.locator('text=Chapter Three')).toBeVisible()
+    await page.locator('section[aria-label="Books"] button[aria-label="Close"]').click()
+    await page.locator('button[aria-label="Table of contents"]').click()
+    await expect(page.locator('.toc-item', { hasText: 'Chapter One' })).toBeVisible()
+    await expect(page.locator('.toc-item', { hasText: 'Chapter Two' })).toBeVisible()
+    await expect(page.locator('.toc-item', { hasText: 'Chapter Three' })).toBeVisible()
   })
 
   test('should show error for unsupported file format', async ({ page }) => {
-    // Create a temporary file with unsupported extension
+    await page.locator('.empty-cta').click()
+    const panel = importPanel(page)
+    await expect(panel).toBeVisible()
+
     const unsupportedFile = path.join(TEST_FILES_DIR, 'test.xyz')
+    await panel.locator('.drop input[type="file"]').setInputFiles(unsupportedFile)
 
-    // Listen for alert dialog
-    page.on('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('Failed to parse')
-      expect(dialog.message()).toContain('Unsupported format')
-      await dialog.accept()
-    })
-
-    const fileInput = page.locator('input[type="file"]')
-    // This will trigger an error which should show an alert
-    await fileInput.setInputFiles(unsupportedFile).catch(() => {
-      // File might not exist, that's okay for this test
-    })
+    // The panel reports the failure inline instead of an alert
+    await expect(panel.locator('.err')).toBeVisible({ timeout: 5000 })
+    await expect(panel.locator('.err')).toContainText(/Could not read/)
   })
 
-  test('should allow selecting chapters for generation', async ({ page }) => {
-    // Upload TXT file
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SAMPLE_TXT)
+  test('should offer per-chapter settings for every chapter', async ({ page }) => {
+    await importAndOpen(page, SAMPLE_TXT, /The Great Adventure/)
 
-    await page.waitForSelector('.format-badge', { timeout: 5000 })
-
-    // Select all chapters
-    const selectAllButton = page.getByRole('button', { name: 'Select all', exact: true })
-    await selectAllButton.click()
-
-    // Verify all checkboxes are checked
-    const checkboxes = page.locator('input[type="checkbox"]')
-    const count = await checkboxes.count()
-
-    for (let i = 0; i < count; i++) {
-      const checkbox = checkboxes.nth(i)
-      await expect(checkbox).toBeChecked()
-    }
-
-    // Deselect all
-    const deselectAllButton = page.getByRole('button', { name: 'Deselect all', exact: true })
-    await deselectAllButton.click()
-
-    // Verify all unchecked
-    for (let i = 0; i < count; i++) {
-      const checkbox = checkboxes.nth(i)
-      await expect(checkbox).not.toBeChecked()
-    }
+    // Chapter selection for generation is gone; each chapter instead carries
+    // its own language/model/voice settings in the book details.
+    await openBooksOverlay(page)
+    await booksOverlay(page)
+      .locator('.card', { hasText: 'The Great Adventure' })
+      .locator('button', { hasText: 'Details' })
+      .click()
+    const detail = page.locator('section[aria-label="Book details"]')
+    await expect(detail.locator('.row')).toHaveCount(3)
+    await expect(detail.locator('select[aria-label="Language for Chapter 1"]')).toBeVisible()
+    await expect(detail.locator('select[aria-label="Model for Chapter 1"]')).toBeVisible()
+    await expect(detail.locator('select[aria-label="Voice for Chapter 1"]')).toBeVisible()
   })
 
   test('should display chapter count correctly for TXT file', async ({ page }) => {
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SAMPLE_TXT)
+    await importAndOpen(page, SAMPLE_TXT, /The Great Adventure/)
 
-    await page.waitForSelector('.format-badge', { timeout: 5000 })
-
-    // Should show chapter count
-    await expect(page.locator('text=/\\d+ chapters?/')).toBeVisible()
+    await openBooksOverlay(page)
+    // The library card shows the chapter count
+    await expect(booksOverlay(page).locator('.card .meta').nth(1)).toContainText('3 chapters')
   })
 
   test('should handle multiple file uploads sequentially', async ({ page }) => {
     // Upload TXT first
-    let fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SAMPLE_TXT)
-    await page.waitForSelector('.format-badge', { timeout: 5000 })
+    await importAndOpen(page, SAMPLE_TXT, /The Great Adventure/)
 
-    let badge = await page.locator('.format-badge').textContent()
-    expect(badge).toBe('TXT')
+    // Upload HTML second — it becomes the book on the reading surface
+    await importBookFile(page, SAMPLE_HTML)
+    await expect(page.locator('.book-title')).toContainText(/Sample HTML Book/, { timeout: 15000 })
+    await expect(page.locator('.segment').first()).toBeVisible()
 
-    // Upload HTML second
-    fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SAMPLE_HTML)
-    await page.waitForSelector('.format-badge', { timeout: 5000 })
-
-    badge = await page.locator('.format-badge').textContent()
-    expect(badge).toBe('HTML')
-
-    // Verify HTML content is now shown
-    await expect(page.locator('text=Sample HTML Book')).toBeVisible()
-  })
-
-  test('should preserve format badge during interaction', async ({ page }) => {
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SAMPLE_TXT)
-
-    await page.waitForSelector('.format-badge', { timeout: 5000 })
-
-    // Interact with the page (select/deselect chapters)
-    const selectAllButton = page.getByRole('button', { name: 'Select all', exact: true })
-    await selectAllButton.click()
-
-    // Format badge should still be visible
-    const badge = page.locator('.format-badge')
-    await expect(badge).toBeVisible()
-    await expect(badge).toHaveText('TXT')
+    // Both books are in the library now
+    await openBooksOverlay(page)
+    await expect(booksOverlay(page).locator('.card')).toHaveCount(2)
+    await expect(
+      booksOverlay(page).locator('.card h3', { hasText: 'The Great Adventure' })
+    ).toBeVisible()
+    await expect(
+      booksOverlay(page).locator('.card h3', { hasText: 'Sample HTML Book' })
+    ).toBeVisible()
   })
 })

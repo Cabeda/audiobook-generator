@@ -3,6 +3,8 @@ import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join, basename } from 'path'
 import process from 'node:process'
 
+import { exportAs, importBookFile, openSettingsPanel, settingsPanel } from './helpers/flows'
+
 /**
  * Parameterized full-book reliability test.
  *
@@ -135,47 +137,34 @@ for (const bookConfig of BOOKS) {
       // ─── 2. Upload EPUB ───
       console.log(`[TEST] Uploading ${bookConfig.name}...`)
       const epubBuffer = await readFile(bookConfig.epubPath)
-      const fileInput = page.locator('input[type="file"]')
-      await fileInput.setInputFiles({
+      await importBookFile(page, {
         name: basename(bookConfig.epubPath),
         mimeType: 'application/epub+zip',
         buffer: epubBuffer,
       })
 
-      await page.waitForSelector(`text=${bookConfig.titleMatch.source}`, { timeout: 30000 })
+      await expect(page.locator('.book-title')).toContainText(bookConfig.titleMatch, {
+        timeout: 30000,
+      })
       console.log('[TEST] Book loaded successfully')
 
       // ─── 3. Verify chapters ───
-      const checkboxes = page.locator('input[type="checkbox"]')
-      const chapterCount = await checkboxes.count()
+      await page.locator('button[aria-label="Table of contents"]').click()
+      const chapterRows = page.locator('.toc-item')
+      const chapterCount = await chapterRows.count()
       console.log(`[TEST] Detected ${chapterCount} chapters`)
       expect(chapterCount).toBeGreaterThanOrEqual(bookConfig.minChapters)
       report.totalChapters = chapterCount
+      await page.locator('button[aria-label="Close"]:visible').first().click()
 
-      // ─── 4. Select ALL chapters ───
-      const selectAllButton = page.getByRole('button', { name: 'Select All', exact: true })
-      await selectAllButton.click()
-      console.log('[TEST] All chapters selected')
+      // ─── 4. Start generation for ALL chapters ───
+      await openSettingsPanel(page)
+      await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
+      await page.locator('aside.settings button[aria-label="Close"]').click()
+      console.log('[TEST] Clicked Generate audiobook')
+      await page.waitForTimeout(3000)
 
-      // ─── 5. Start generation ───
-      const isAlreadyGenerating = await page
-        .locator('button[aria-label="Cancel this chapter"]')
-        .first()
-        .isVisible({ timeout: 2000 })
-        .catch(() => false)
-
-      if (!isAlreadyGenerating) {
-        const genButton = page.locator('button:has-text("Generate Selected")')
-        await expect(genButton).toBeVisible()
-        await expect(genButton).toBeEnabled({ timeout: 10000 })
-        await genButton.click()
-        console.log('[TEST] Clicked Generate Selected')
-        await page.waitForTimeout(3000)
-      } else {
-        console.log('[TEST] Generation already running (auto-triggered on upload)')
-      }
-
-      // ─── 6. Start memory monitoring via CDP ───
+      // ─── 5. Start memory monitoring via CDP ───
       const cdpSession = await page.context().newCDPSession(page)
       await cdpSession.send('Performance.enable')
 
@@ -200,27 +189,26 @@ for (const bookConfig of BOOKS) {
         }
       }, 30_000) // Sample every 30 seconds (longer interval for longer books)
 
-      // ─── 7. Wait for generation to start ───
+      // ─── 6. Wait for generation to start ───
       console.log('[TEST] Waiting for generation to be in progress...')
       const genStartTime = Date.now()
 
       await page.waitForFunction(
-        () => {
-          const bodyText = document.body.innerText
-          return bodyText.includes('segment') || bodyText.includes('Generating')
-        },
+        () => document.querySelectorAll('.segment-generated, .segment-generating').length > 0,
         { timeout: 120000, polling: 2000 }
       )
       console.log('[TEST] Generation confirmed in progress')
 
-      // ─── 8. Wait for completion ───
+      // ─── 7. Wait for completion ───
       try {
         await page.waitForFunction(
           () => {
-            const stateCleared = localStorage.getItem('audiobook_generation_state') === null
-            const cancelBtns = document.querySelectorAll('button[aria-label="Cancel this chapter"]')
-            const noCancel = cancelBtns.length === 0
-            return stateCleared && noCancel
+            // The generation strip is gone and every sentence has its audio
+            const prep = document.querySelector('.prep')
+            const pending = document.querySelectorAll(
+              '.segment-pending, .segment-generating'
+            ).length
+            return !prep && pending === 0 && document.querySelectorAll('.segment').length > 0
           },
           { timeout: maxTime - 600000, polling: 15000 } // Leave 10 min for export
         )
@@ -239,7 +227,7 @@ for (const bookConfig of BOOKS) {
         `[TEST] Generation phase completed in ${(totalGenMs / 1000 / 60).toFixed(1)} minutes`
       )
 
-      // ─── 9. Build report ───
+      // ─── 8. Build report ───
       report.endTime = Date.now()
       report.totalDurationMs = report.endTime - report.startTime
       report.workerRestarts = workerRestarts
@@ -274,153 +262,110 @@ for (const bookConfig of BOOKS) {
       console.log(`  Errors:            ${report.errors.length}`)
       console.log('═══════════════════════════════════════════════════════════\n')
 
-      // ─── 10. Save report ───
+      // ─── 9. Save report ───
       const reportDir = join(process.cwd(), 'test-results')
       await mkdir(reportDir, { recursive: true })
       const reportPath = join(reportDir, `${bookSlug}-report.json`)
       await writeFile(reportPath, JSON.stringify(report, null, 2))
       console.log(`[TEST] Report saved to: ${reportPath}`)
 
-      // ─── 11. Export as EPUB ───
+      // ─── 10. Export as EPUB ───
       console.log('[TEST] Exporting as EPUB with media overlays...')
 
-      const formatToggle = page.locator('.export-toggle')
-      if (await formatToggle.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await formatToggle.click()
-        await page.waitForSelector('.export-format-menu', { timeout: 5000 })
-        const epubOption = page.locator('.format-option').filter({ hasText: 'EPUB' })
-        await epubOption.click()
-      }
+      const { filename: epubFilename, download } = await exportAs(page, 'epub')
+      console.log(`[TEST] Download started: ${epubFilename}`)
 
-      const exportButton = page.locator('.export-primary-btn.export-main')
-      if (await exportButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await expect(exportButton).toBeEnabled({ timeout: 30000 })
+      const outputPath = join(reportDir, `${bookSlug}-audiobook.epub`)
+      await download.saveAs(outputPath)
+      const fileStats = await readFile(outputPath)
+      console.log(
+        `[TEST] EPUB saved: ${outputPath} (${(fileStats.length / 1024 / 1024).toFixed(2)} MB)`
+      )
 
-        const [download] = await Promise.all([
-          page.waitForEvent('download', { timeout: 600000 }),
-          exportButton.click(),
-        ])
+      report.exportedFile = outputPath
+      report.exportedFileSizeMB = Math.round((fileStats.length / 1024 / 1024) * 100) / 100
 
-        const epubFilename = download.suggestedFilename()
-        console.log(`[TEST] Download started: ${epubFilename}`)
+      // ─── 11. Validate EPUB structure ───
+      console.log('[TEST] Validating EPUB structure...')
+      const JSZip = (await import('jszip')).default
+      const zip = await JSZip.loadAsync(fileStats)
 
-        const outputPath = join(reportDir, `${bookSlug}-audiobook.epub`)
-        await download.saveAs(outputPath)
-        const fileStats = await readFile(outputPath)
-        console.log(
-          `[TEST] EPUB saved: ${outputPath} (${(fileStats.length / 1024 / 1024).toFixed(2)} MB)`
-        )
+      // Check mimetype
+      const mimetype = await zip.file('mimetype')?.async('string')
+      expect(mimetype).toBe('application/epub+zip')
 
-        report.exportedFile = outputPath
-        report.exportedFileSizeMB = Math.round((fileStats.length / 1024 / 1024) * 100) / 100
+      // Check container.xml
+      const container = await zip.file('META-INF/container.xml')?.async('string')
+      expect(container).toContain('rootfile')
 
-        // ─── 12. Validate EPUB structure ───
-        console.log('[TEST] Validating EPUB structure...')
-        const JSZip = (await import('jszip')).default
-        const zip = await JSZip.loadAsync(fileStats)
+      // Check OPF
+      const opf = await zip.file('OEBPS/content.opf')?.async('string')
+      expect(opf).toBeTruthy()
+      expect(opf).toContain('version="3.0"')
+      expect(opf).toContain('<dc:title>')
+      expect(opf).toContain('media:duration')
 
-        // Check mimetype
-        const mimetype = await zip.file('mimetype')?.async('string')
-        expect(mimetype).toBe('application/epub+zip')
+      // Count audio files
+      const audioFiles = Object.keys(zip.files).filter(
+        (f) => f.startsWith('OEBPS/audio/') && f.endsWith('.mp3')
+      )
+      console.log(`[TEST] Audio files in EPUB: ${audioFiles.length}`)
+      report.chaptersWithAudio = audioFiles.length
 
-        // Check container.xml
-        const container = await zip.file('META-INF/container.xml')?.async('string')
-        expect(container).toContain('rootfile')
+      // Count XHTML chapter files
+      const chapterFiles = Object.keys(zip.files).filter(
+        (f) => f.startsWith('OEBPS/') && f.endsWith('.xhtml') && f !== 'OEBPS/nav.xhtml'
+      )
+      console.log(`[TEST] Chapter XHTML files: ${chapterFiles.length}`)
 
-        // Check OPF
-        const opf = await zip.file('OEBPS/content.opf')?.async('string')
-        expect(opf).toBeTruthy()
-        expect(opf).toContain('version="3.0"')
-        expect(opf).toContain('<dc:title>')
-        expect(opf).toContain('media:duration')
+      // Count SMIL files
+      const smilFiles = Object.keys(zip.files).filter(
+        (f) => f.startsWith('OEBPS/smil/') && f.endsWith('.smil')
+      )
+      console.log(`[TEST] SMIL files: ${smilFiles.length}`)
 
-        // Count audio files
-        const audioFiles = Object.keys(zip.files).filter(
-          (f) => f.startsWith('OEBPS/audio/') && f.endsWith('.mp3')
-        )
-        console.log(`[TEST] Audio files in EPUB: ${audioFiles.length}`)
-        report.chaptersWithAudio = audioFiles.length
-
-        // Count XHTML chapter files
-        const chapterFiles = Object.keys(zip.files).filter(
-          (f) => f.startsWith('OEBPS/') && f.endsWith('.xhtml') && f !== 'OEBPS/nav.xhtml'
-        )
-        console.log(`[TEST] Chapter XHTML files: ${chapterFiles.length}`)
-
-        // Count SMIL files
-        const smilFiles = Object.keys(zip.files).filter(
-          (f) => f.startsWith('OEBPS/smil/') && f.endsWith('.smil')
-        )
-        console.log(`[TEST] SMIL files: ${smilFiles.length}`)
-
-        // Validate each audio file has valid MP3 header
-        let validAudioCount = 0
-        for (const audioPath of audioFiles) {
-          const audioData = await zip.file(audioPath)?.async('uint8array')
-          if (audioData && audioData.length > 1000) {
-            const header = String.fromCharCode(audioData[0], audioData[1], audioData[2])
-            const isValidMp3 =
-              header === 'ID3' || (audioData[0] === 0xff && (audioData[1] & 0xe0) === 0xe0)
-            if (isValidMp3) validAudioCount++
-          }
-        }
-        console.log(`[TEST] Valid MP3 files: ${validAudioCount}/${audioFiles.length}`)
-
-        // Validate SMIL files reference valid audio
-        let validSmilCount = 0
-        for (const smilPath of smilFiles) {
-          const smilContent = await zip.file(smilPath)?.async('string')
-          if (smilContent && smilContent.includes('audio src=')) {
-            validSmilCount++
-          }
-        }
-        console.log(`[TEST] Valid SMIL files: ${validSmilCount}/${smilFiles.length}`)
-
-        // Check nav.xhtml
-        const nav = await zip.file('OEBPS/nav.xhtml')?.async('string')
-        expect(nav).toBeTruthy()
-        expect(nav).toContain('epub:type="toc"')
-
-        console.log('[TEST] EPUB structure validation complete')
-
-        // Audio should exist for most chapters (some may be empty/cover pages)
-        // At minimum, 80% of chapters with content should have audio
-        const audioRatio = audioFiles.length / chapterFiles.length
-        console.log(
-          `[TEST] Audio coverage: ${(audioRatio * 100).toFixed(0)}% (${audioFiles.length}/${chapterFiles.length})`
-        )
-        expect(audioRatio).toBeGreaterThan(0.7)
-      } else {
-        console.log('[TEST] Export button not visible — trying fallback export')
-        const anyExportBtn = page.locator('button:has-text("Export")')
-        if (
-          await anyExportBtn
-            .first()
-            .isVisible({ timeout: 3000 })
-            .catch(() => false)
-        ) {
-          const [download] = await Promise.all([
-            page.waitForEvent('download', { timeout: 600000 }),
-            anyExportBtn.first().click(),
-          ])
-          const outputPath = join(
-            reportDir,
-            download.suggestedFilename() || `${bookSlug}-audiobook.mp3`
-          )
-          await download.saveAs(outputPath)
-          const fileStats = await readFile(outputPath)
-          console.log(
-            `[TEST] Audio saved: ${outputPath} (${(fileStats.length / 1024 / 1024).toFixed(2)} MB)`
-          )
-          report.exportedFile = outputPath
-          report.exportedFileSizeMB = Math.round((fileStats.length / 1024 / 1024) * 100) / 100
+      // Validate each audio file has valid MP3 header
+      let validAudioCount = 0
+      for (const audioPath of audioFiles) {
+        const audioData = await zip.file(audioPath)?.async('uint8array')
+        if (audioData && audioData.length > 1000) {
+          const header = String.fromCharCode(audioData[0], audioData[1], audioData[2])
+          const isValidMp3 =
+            header === 'ID3' || (audioData[0] === 0xff && (audioData[1] & 0xe0) === 0xe0)
+          if (isValidMp3) validAudioCount++
         }
       }
+      console.log(`[TEST] Valid MP3 files: ${validAudioCount}/${audioFiles.length}`)
+
+      // Validate SMIL files reference valid audio
+      let validSmilCount = 0
+      for (const smilPath of smilFiles) {
+        const smilContent = await zip.file(smilPath)?.async('string')
+        if (smilContent && smilContent.includes('audio src=')) {
+          validSmilCount++
+        }
+      }
+      console.log(`[TEST] Valid SMIL files: ${validSmilCount}/${smilFiles.length}`)
+
+      // Check nav.xhtml
+      const nav = await zip.file('OEBPS/nav.xhtml')?.async('string')
+      expect(nav).toBeTruthy()
+      expect(nav).toContain('epub:type="toc"')
+
+      console.log('[TEST] EPUB structure validation complete')
+
+      // Audio should exist for most chapters (some may be empty/cover pages)
+      // At minimum, 80% of chapters with content should have audio
+      const audioRatio = audioFiles.length / chapterFiles.length
+      console.log(
+        `[TEST] Audio coverage: ${(audioRatio * 100).toFixed(0)}% (${audioFiles.length}/${chapterFiles.length})`
+      )
+      expect(audioRatio).toBeGreaterThan(0.7)
 
       // Save final report
       await writeFile(reportPath, JSON.stringify(report, null, 2))
 
-      // ─── 13. Assertions ───
+      // ─── 12. Assertions ───
       const generationRanSuccessfully = generationStateCleared || totalGenMs > 60000
       console.log(`[TEST] Generation ran successfully: ${generationRanSuccessfully}`)
       expect(generationRanSuccessfully).toBe(true)

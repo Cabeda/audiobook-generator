@@ -3,6 +3,8 @@ import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
+import { importBookFile, openSettingsPanel, settingsPanel } from '../helpers/flows'
+
 const EPUB = join(process.cwd(), 'books', 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub')
 const OUT = join(process.cwd(), 'test-results', 'profile')
 
@@ -251,26 +253,33 @@ test.describe('Full book profiling', () => {
       }
     })()
 
-    // ─── Upload the book; the app selects all chapters and starts generating ───
-    await page.locator('input[type="file"]').setInputFiles({
+    // ─── Upload the book and start generating every chapter ───
+    await importBookFile(page, {
       name: 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub',
       mimeType: 'application/epub+zip',
       buffer: await readFile(EPUB),
     })
-    await page.waitForSelector('text=/Sign of the Four/i', { timeout: 30_000 })
-    const detected = await page.locator('input[type="checkbox"]').count()
+    await expect(page.locator('.book-title')).toContainText(/Sign of the Four/i, {
+      timeout: 30_000,
+    })
+    const detected = await page.locator('[data-section]').count()
     console.log(`[PROFILE] chapters detected: ${detected}`)
     expect(detected).toBeGreaterThan(0)
 
     // Generation must actually be running before waiting for it to finish.
-    await page.waitForSelector('button[aria-label="Cancel this chapter"]', { timeout: 120_000 })
+    await openSettingsPanel(page)
+    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
+    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await page.waitForSelector('.prep', { timeout: 120_000 })
     let finished = false
     while (!finished) {
-      finished = await page.evaluate(
-        () =>
-          localStorage.getItem('audiobook_generation_state') === null &&
-          document.querySelectorAll('button[aria-label="Cancel this chapter"]').length === 0
-      )
+      finished = await page.evaluate(() => {
+        // Done when the generation strip is gone and every sentence carries
+        // its generated state.
+        const prep = document.querySelector('.prep')
+        const pending = document.querySelectorAll('.segment-pending, .segment-generating').length
+        return !prep && pending === 0 && document.querySelectorAll('.segment').length > 0
+      })
       if (Date.now() - lastChapterAt > CHAPTER_NO_PROGRESS_LIMIT_MS) {
         throw new Error(
           `no chapter finished in ${CHAPTER_NO_PROGRESS_LIMIT_MS / 60_000} min — the run is stuck, not slow. Last page log: ${lastPageLog}`

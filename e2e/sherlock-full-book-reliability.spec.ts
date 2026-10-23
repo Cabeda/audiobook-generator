@@ -3,6 +3,8 @@ import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
+import { exportAs, importBookFile, openSettingsPanel, settingsPanel } from './helpers/flows'
+
 const SHERLOCK_EPUB = join(
   process.cwd(),
   'books',
@@ -103,52 +105,31 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
     // ─── 2. Upload EPUB ───
     console.log('[TEST] Uploading Sherlock Holmes EPUB...')
     const epubBuffer = await readFile(SHERLOCK_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
+    await importBookFile(page, {
       name: 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub',
       mimeType: 'application/epub+zip',
       buffer: epubBuffer,
     })
 
-    await page.waitForSelector('text=/Sign of the Four/i', { timeout: 30000 })
-    await expect(page.getByText(/Arthur Conan Doyle/i)).toBeVisible()
+    await expect(page.locator('.book-title')).toContainText(/Sign of the Four/i, { timeout: 30000 })
+    await expect(page.locator('.segment').first()).toBeVisible({ timeout: 30000 })
     console.log('[TEST] Book loaded successfully')
 
     // ─── 3. Verify chapters ───
-    const checkboxes = page.locator('input[type="checkbox"]')
-    const chapterCount = await checkboxes.count()
+    const chapterCount = await page.locator('[data-section]').count()
     console.log(`[TEST] Detected ${chapterCount} chapters`)
     expect(chapterCount).toBeGreaterThanOrEqual(12)
 
-    // ─── 4. Select ALL chapters ───
-    const selectAllButton = page.getByRole('button', { name: 'Select All', exact: true })
-    await selectAllButton.click()
-    console.log('[TEST] All chapters selected')
+    // ─── 4. Start generation for ALL chapters ───
+    await openSettingsPanel(page)
+    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
+    await page.locator('aside.settings button[aria-label="Close"]').click()
+    console.log('[TEST] Clicked Generate audiobook')
 
-    // ─── 5. Start generation (or wait for auto-generation to complete) ───
-    // The app may auto-generate chapters on upload. If generation is already running,
-    // we just wait for it to complete rather than trying to restart it.
-    const isAlreadyGenerating = await page
-      .locator('button[aria-label="Cancel this chapter"]')
-      .first()
-      .isVisible({ timeout: 2000 })
-      .catch(() => false)
+    // Wait a moment for generation to start
+    await page.waitForTimeout(3000)
 
-    if (!isAlreadyGenerating) {
-      // No auto-generation running — start it manually
-      const genButton = page.locator('button:has-text("Generate Selected")')
-      await expect(genButton).toBeVisible()
-      await expect(genButton).toBeEnabled({ timeout: 10000 })
-      await genButton.click()
-      console.log('[TEST] Clicked Generate Selected')
-
-      // Wait a moment for generation to start
-      await page.waitForTimeout(3000)
-    } else {
-      console.log('[TEST] Generation already running (auto-triggered on upload)')
-    }
-
-    // ─── 6. Start memory monitoring via CDP ───
+    // ─── 5. Start memory monitoring via CDP ───
     const cdpSession = await page.context().newCDPSession(page)
     await cdpSession.send('Performance.enable')
 
@@ -173,42 +154,26 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
       }
     }, 15_000) // Sample every 15 seconds
 
-    // ─── 7. Generate audio ───
+    // ─── 6. Generate audio ───
     console.log('[TEST] Starting audio generation for ALL chapters...')
     const genStartTime = Date.now()
 
-    // If generation wasn't already running, we already clicked Generate in step 5.
-    // If it was already running, it's processing all selected chapters.
-    // Either way, wait for generation to be in progress.
-    console.log('[TEST] Waiting for generation to be in progress...')
-
-    // Wait until at least one chapter shows progress (segments being generated)
+    // Wait until at least one segment has been generated
     await page.waitForFunction(
-      () => {
-        const bodyText = document.body.innerText
-        return bodyText.includes('segment') || bodyText.includes('Generating')
-      },
+      () => document.querySelectorAll('.segment-generated, .segment-generating').length > 0,
       { timeout: 120000, polling: 2000 }
     )
     console.log('[TEST] Generation confirmed in progress')
 
-    // ─── 8. Wait for completion ───
-    // Generation is complete when the generation state is cleared from localStorage
-    // (our generationService clears it in the finally block when all chapters are done).
-    // This is more reliable than checking UI buttons which can briefly disappear
-    // during worker restarts between chapters.
+    // ─── 7. Wait for completion ───
+    // Generation is complete when the generation strip is gone and every
+    // sentence of the book carries its state as generated.
     try {
       await page.waitForFunction(
         () => {
-          // Primary check: generation state cleared means generation completed normally
-          const stateCleared = localStorage.getItem('audiobook_generation_state') === null
-
-          // Secondary check: no cancel buttons visible (generation not running)
-          const cancelBtns = document.querySelectorAll('button[aria-label="Cancel this chapter"]')
-          const noCancel = cancelBtns.length === 0
-
-          // Both must be true: state cleared AND no active generation
-          return stateCleared && noCancel
+          const prep = document.querySelector('.prep')
+          const pending = document.querySelectorAll('.segment-pending, .segment-generating').length
+          return !prep && pending === 0 && document.querySelectorAll('.segment').length > 0
         },
         { timeout: 3300000, polling: 10000 } // 55 minutes max, poll every 10s
       )
@@ -228,27 +193,19 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
 
     // ─── 8. Collect per-chapter results ───
     const chapterResults = await page.evaluate(() => {
-      const results: Array<{
-        id: string
-        title: string
-        status: string
-      }> = []
+      const results: Array<{ id: string; title: string; status: string }> = []
 
-      // Look for chapter items in the UI
-      const chapterItems = document.querySelectorAll('.chapter-item, [data-chapter-id]')
-      chapterItems.forEach((item) => {
-        const id = item.getAttribute('data-chapter-id') || ''
-        const titleEl = item.querySelector('.chapter-title, h3, h4')
-        const title = titleEl?.textContent?.trim() || 'Unknown'
+      // Each chapter is a section of the reading scroll
+      const sections = document.querySelectorAll('[data-section]')
+      sections.forEach((section) => {
+        const id = section.getAttribute('data-section') || ''
+        const title = section.querySelector('.chapter-mark')?.textContent?.trim() || 'Unknown'
 
-        // Determine status from UI indicators
         let status = 'unknown'
-        if (item.querySelector('.status-done, .chapter-done, [aria-label*="done"]')) {
-          status = 'done'
-        } else if (item.querySelector('.status-error, .chapter-error')) {
-          status = 'error'
-        } else if (item.querySelector('.status-processing, .generating')) {
+        if (section.querySelector('.segment-pending, .segment-generating')) {
           status = 'processing'
+        } else if (section.querySelector('.segment-generated')) {
+          status = 'done'
         }
 
         results.push({ id, title, status })
@@ -257,27 +214,20 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
       return results
     })
 
-    // Also check via the progress store
-    const _storeResults = await page.evaluate(() => {
-      try {
-        const statusStr = localStorage.getItem('audiobook_generation_state')
-        return statusStr ? JSON.parse(statusStr) : null
-      } catch {
-        return null
-      }
-    })
-
-    // Count done chapters by checking for segment data
+    // Count done chapters from the segment states themselves
     const doneCount = await page.evaluate(() => {
-      // Count chapters that show "done" status in the UI
-      const doneIndicators = document.querySelectorAll(
-        '.chapter-status-done, [data-status="done"], .status-badge-done'
-      )
-      return doneIndicators.length
+      const sections = document.querySelectorAll('[data-section]')
+      let done = 0
+      sections.forEach((section) => {
+        const hasSegments = section.querySelector('.segment')
+        const unfinished = section.querySelector('.segment-pending, .segment-generating')
+        if (hasSegments && !unfinished) done++
+      })
+      return done
     })
 
     console.log(`[TEST] Chapter results from UI: ${chapterResults.length} items found`)
-    console.log(`[TEST] Done indicators in UI: ${doneCount}`)
+    console.log(`[TEST] Done chapters in UI: ${doneCount}`)
 
     // ─── 9. Build report ───
     report.endTime = Date.now()
@@ -303,10 +253,7 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
     report.success = generationStateCleared
 
     // Try to get chapter count from the page
-    const finalChapterStatus = await page.evaluate(() => {
-      const checkboxes = document.querySelectorAll('input[type="checkbox"]')
-      return checkboxes.length
-    })
+    const finalChapterStatus = chapterCount
 
     console.log('\n═══════════════════════════════════════════════════════════')
     console.log('  SHERLOCK HOLMES — FULL BOOK RELIABILITY REPORT')
@@ -366,70 +313,19 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
 
     // ─── 11. Export as EPUB with audio ───
     console.log('[TEST] Exporting as EPUB with media overlays...')
+    const { filename: epubFilename, download } = await exportAs(page, 'epub')
+    console.log(`[TEST] Download started: ${epubFilename}`)
 
-    // Select EPUB format from the dropdown
-    const formatToggle = page.locator('.export-toggle')
-    if (await formatToggle.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await formatToggle.click()
-      await page.waitForSelector('.export-format-menu', { timeout: 5000 })
-      const epubOption = page.locator('.format-option').filter({ hasText: 'EPUB' })
-      await epubOption.click()
-    }
+    // Save to test-results
+    const outputPath = join(reportDir, 'sherlock-holmes-audiobook.epub')
+    await download.saveAs(outputPath)
+    const fileStats = await readFile(outputPath)
+    console.log(
+      `[TEST] EPUB saved: ${outputPath} (${(fileStats.length / 1024 / 1024).toFixed(2)} MB)`
+    )
 
-    // Click the export button and wait for download
-    const exportButton = page.locator('.export-primary-btn.export-main')
-    if (await exportButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(exportButton).toBeEnabled({ timeout: 10000 })
-
-      const [download] = await Promise.all([
-        page.waitForEvent('download', { timeout: 600000 }), // 10 min for export
-        exportButton.click(),
-      ])
-
-      const epubFilename = download.suggestedFilename()
-      console.log(`[TEST] Download started: ${epubFilename}`)
-
-      // Save to test-results
-      const outputPath = join(reportDir, 'sherlock-holmes-audiobook.epub')
-      await download.saveAs(outputPath)
-      const fileStats = await readFile(outputPath)
-      console.log(
-        `[TEST] EPUB saved: ${outputPath} (${(fileStats.length / 1024 / 1024).toFixed(2)} MB)`
-      )
-
-      report.exportedFile = outputPath
-      report.exportedFileSizeMB = Math.round((fileStats.length / 1024 / 1024) * 100) / 100
-    } else {
-      console.log(
-        '[TEST] Export button not visible — skipping export (chapters may not be marked as done in UI)'
-      )
-
-      // Fallback: try MP3 export via the main export button
-      const anyExportBtn = page.locator('button:has-text("Export")')
-      if (
-        await anyExportBtn
-          .first()
-          .isVisible({ timeout: 3000 })
-          .catch(() => false)
-      ) {
-        console.log('[TEST] Found alternative export button, attempting MP3 export...')
-        const [download] = await Promise.all([
-          page.waitForEvent('download', { timeout: 600000 }),
-          anyExportBtn.first().click(),
-        ])
-        const mp3Filename = download.suggestedFilename()
-        const outputPath = join(reportDir, mp3Filename || 'sherlock-holmes-audiobook.mp3')
-        await download.saveAs(outputPath)
-        const fileStats = await readFile(outputPath)
-        console.log(
-          `[TEST] Audio saved: ${outputPath} (${(fileStats.length / 1024 / 1024).toFixed(2)} MB)`
-        )
-        report.exportedFile = outputPath
-        report.exportedFileSizeMB = Math.round((fileStats.length / 1024 / 1024) * 100) / 100
-      } else {
-        console.log('[TEST] No export button available — export skipped')
-      }
-    }
+    report.exportedFile = outputPath
+    report.exportedFileSizeMB = Math.round((fileStats.length / 1024 / 1024) * 100) / 100
 
     // ─── 12. Assertions ───
     // The primary assertion: generation completed without crash
@@ -441,6 +337,9 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
     console.log(`[TEST] Generation state cleared: ${generationStateCleared}`)
     console.log(`[TEST] Total generation time: ${(totalGenMs / 1000).toFixed(0)}s`)
     expect(generationRanSuccessfully).toBe(true)
+
+    // All chapters should have finished
+    expect(doneCount).toBe(chapterCount)
 
     // Memory should not have grown unboundedly
     if (report.peakMemoryMB) {

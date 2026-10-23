@@ -3,6 +3,8 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
+import { exportAs, importAndOpen, openSettingsPanel, settingsPanel } from './helpers/flows'
+
 // Use the short EPUB for deterministic, faster E2E runs
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
@@ -36,6 +38,8 @@ test.describe('Mobile Audio Generation E2E', () => {
       localStorage.clear()
       sessionStorage.clear()
     })
+    await page.reload()
+    await page.waitForLoadState('networkidle')
     // Log browser console messages during E2E for debugging
     page.on('console', (msg) => {
       console.log(`[MOBILE ${msg.type()}] ${msg.text()}`)
@@ -57,325 +61,162 @@ test.describe('Mobile Audio Generation E2E', () => {
 
   test('should load the application on mobile', async ({ page }) => {
     await expect(page).toHaveTitle(/Audiobook Generator/i)
-    await expect(page.locator('h1')).toContainText(/Audiobook Generator/i)
+    // The app opens straight into the reader's empty state
+    await expect(page.locator('.empty-state h1')).toContainText(/Your library is empty/i)
   })
 
   test('should upload EPUB via touch on mobile', async ({ page }) => {
     const epubBuffer = await readFile(SHORT_EPUB)
+    await importAndOpen(
+      page,
+      {
+        name: 'test-short.epub',
+        mimeType: 'application/epub+zip',
+        buffer: epubBuffer,
+      },
+      /Short Test Book/
+    )
 
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
-
-    // Wait for parsing to complete - use longer timeout for mobile
-    await page.waitForSelector('text=Short Test Book', {
-      timeout: 30000,
-    })
-
-    // Verify book loaded - check for chapter badge which is always visible
-    // Author text may be truncated or hidden on small viewports
-    await expect(page.getByText(/\d+ Chapters/)).toBeVisible({ timeout: 10000 })
+    // The library card reports the chapter count
+    await page.locator('button[aria-label="Books"]').tap()
+    await expect(page.locator('section[aria-label="Books"] .card .meta').nth(1)).toContainText(
+      /chapters/,
+      { timeout: 10000 }
+    )
   })
 
   test('should select q4 quantization on mobile for Kokoro', async ({ page }) => {
-    // Upload EPUB first
-    const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    await page.waitForSelector('text=Short Test Book', { timeout: 20000 })
+    // Select Kokoro TTS in the Aa settings panel
+    await openSettingsPanel(page)
+    const panel = settingsPanel(page)
+    await panel.locator('label.field:has-text("Model") select').selectOption('kokoro')
 
-    // TTS Engine selector is now in the main toolbar
-    // Check if Kokoro is selected (default)
-    const ttsSelect = page.locator('select').filter({ hasText: 'Kokoro TTS' }).first()
-    if (await ttsSelect.isVisible().catch(() => false)) {
-      // Ensure Kokoro is selected
-      await ttsSelect.selectOption({ label: 'Kokoro TTS' })
-    }
-
-    // Open advanced options to check quantization settings
-    const advancedToggle = page.locator('button:has-text("Advanced Options")')
-    await expect(advancedToggle).toBeVisible()
-    await advancedToggle.click()
-
-    const advanced = page.locator('.advanced-panel')
-    await expect(advanced).toBeVisible()
-
-    // On mobile, q4 should be the default quantization (lighter model)
-    // Look for quantization setting if visible
-    const quantSelect = advanced.locator('select#adv-quant')
-    if (await quantSelect.isVisible().catch(() => false)) {
-      const selectedValue = await quantSelect.inputValue()
-      // Mobile should default to q4 (25MB) instead of q8 (100MB)
-      expect(selectedValue).toBe('q4')
-    }
+    // Mobile defaults to the lighter q4 quantization
+    const quantSelect = panel.locator('label.field:has-text("Quantization") select')
+    await expect(quantSelect).toBeVisible()
+    await expect(quantSelect).toHaveValue('q4')
   })
 
-  test('should generate audio on Mobile Chrome', async ({ page }, testInfo) => {
-    test.skip(!testInfo.project.name.includes('Chrome'), 'Chrome-specific test')
-    test.setTimeout(240000) // 4 minutes for mobile generation (slower than desktop)
+  test('should generate audio on Mobile Chrome', async ({ page }) => {
+    test.setTimeout(180000)
 
-    const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    await page.waitForSelector('text=Short Test Book', { timeout: 20000 })
+    // Pick MP3 as the export format in the export sheet settings
+    await openSettingsPanel(page)
+    await settingsPanel(page)
+      .locator('label.field:has-text("Export format") select')
+      .selectOption('mp3')
+    await page.locator('aside.settings button[aria-label="Close"]').tap()
 
-    // Deselect all chapters first, then select only the first one
-    await page.locator('button:has-text("Deselect all")').click()
-    const firstCheckbox = page.locator('input[type="checkbox"]').first()
-    await firstCheckbox.check()
+    // Generate the first chapter by listening to it
+    await page.locator('button[aria-label="Listen to this chapter"]').tap()
+    await expect(page.locator('.transport')).toBeVisible({ timeout: 30000 })
+    await expect
+      .poll(async () => page.locator('[data-section="0"] .segment-generated').count(), {
+        timeout: 180000,
+      })
+      .toBe(await page.locator('[data-section="0"] .segment').count())
 
-    // Format selector is now in the main toolbar, not in advanced options
-    // Select MP3 format from the main toolbar dropdown (MP3 is already default)
-    const formatDropdown = page.locator('select').filter({ hasText: 'MP3' }).first()
-    if (await formatDropdown.isVisible().catch(() => false)) {
-      await formatDropdown.selectOption('MP3')
-    }
-
-    // Open advanced options and select bitrate
-    const advancedToggle = page.locator('button:has-text("Advanced Options")')
-    await advancedToggle.click()
-    const advanced = page.locator('.advanced-panel')
-    await expect(advanced).toBeVisible()
-
-    // Select lower bitrate for faster mobile tests
-    const bitrateSelect = advanced.locator('select#adv-bitrate')
-    await bitrateSelect.selectOption('128')
-
-    // Capture download console logs
-    const downloadConsoleLogs: { filename?: string; size?: number }[] = []
-    page.on('console', async (msg) => {
-      if (!msg.text().startsWith('download-trigger')) return
-      for (const arg of msg.args()) {
-        try {
-          const val = await arg.jsonValue()
-          if (val && typeof val === 'object' && 'filename' in val) {
-            downloadConsoleLogs.push(val as { filename?: string; size?: number })
-          }
-        } catch {
-          // ignore
-        }
-      }
-    })
-
-    // Click generate button (text changed to "Generate Selected")
-    await page.locator('button:has-text("Generate Selected")').click()
-
-    // Wait for generation to complete (mobile is slower due to WASM/smaller chunks)
-    await page.waitForSelector('text=/Audiobook created successfully/i', { timeout: 180000 })
-
-    // Wait for download
-    await page.waitForSelector('text=Download started!', { timeout: 60000 })
-    expect(downloadConsoleLogs.length).toBeGreaterThan(0)
-    expect(downloadConsoleLogs[0].filename?.endsWith('.mp3')).toBeTruthy()
-    expect(downloadConsoleLogs[0].size).toBeGreaterThan(1000)
+    // Export and verify the download
+    const { filename, download } = await exportAs(page, 'mp3')
+    expect(filename?.endsWith('.mp3')).toBeTruthy()
+    const saved = join(process.cwd(), 'test-results', 'mobile-export.mp3')
+    await download.saveAs(saved)
+    const buf = await readFile(saved)
+    expect(buf.length).toBeGreaterThan(1000)
   })
 
-  test('should generate audio on Mobile Firefox with WASM fallback', async ({ page }, testInfo) => {
-    test.skip(!testInfo.project.name.includes('Firefox'), 'Firefox-specific test')
-    test.setTimeout(240000) // 4 minutes for mobile generation
+  test('should generate audio on Mobile Firefox with WASM fallback', async ({ page }) => {
+    test.setTimeout(180000)
 
-    const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    await page.waitForSelector('text=Short Test Book', { timeout: 20000 })
+    // Force the WASM device — WebGPU is unavailable on mobile Firefox
+    await openSettingsPanel(page)
+    const panel = settingsPanel(page)
+    await panel.locator('label.field:has-text("Device") select').selectOption('wasm')
+    await panel.locator('label.field:has-text("Model") select').selectOption('kokoro')
+    await page.locator('aside.settings button[aria-label="Close"]').tap()
 
-    // Deselect all chapters first, then select only the first one
-    await page.locator('button:has-text("Deselect all")').click()
-    const firstCheckbox = page.locator('input[type="checkbox"]').first()
-    await firstCheckbox.check()
+    // Generate and export as MP3
+    await page.locator('button[aria-label="Listen to this chapter"]').tap()
+    await expect(page.locator('.transport')).toBeVisible({ timeout: 30000 })
+    await expect
+      .poll(async () => page.locator('[data-section="0"] .segment-generated').count(), {
+        timeout: 180000,
+      })
+      .toBe(await page.locator('[data-section="0"] .segment').count())
 
-    // Open advanced options
-    const advancedToggle = page.locator('button:has-text("Advanced Options")')
-    await advancedToggle.click()
-    const advanced = page.locator('.advanced-panel')
-    await expect(advanced).toBeVisible()
-
-    // TTS Engine selector is now in the main toolbar, select Piper TTS for Firefox
-    const ttsSelect = page.locator('select').filter({ hasText: 'Kokoro TTS' }).first()
-    if (await ttsSelect.isVisible().catch(() => false)) {
-      await ttsSelect.selectOption({ label: 'Piper TTS' })
-    }
-
-    // Format selector is in the main toolbar - MP3 is default
-    const formatDropdown = page.locator('select').filter({ hasText: 'MP3' }).first()
-    if (await formatDropdown.isVisible().catch(() => false)) {
-      await formatDropdown.selectOption('MP3')
-    }
-
-    // Select lower bitrate for faster mobile tests
-    const bitrateSelect = advanced.locator('select#adv-bitrate')
-    await bitrateSelect.selectOption('128')
-
-    // Capture download console logs
-    const downloadConsoleLogs: { filename?: string; size?: number }[] = []
-    page.on('console', async (msg) => {
-      if (!msg.text().startsWith('download-trigger')) return
-      for (const arg of msg.args()) {
-        try {
-          const val = await arg.jsonValue()
-          if (val && typeof val === 'object' && 'filename' in val) {
-            downloadConsoleLogs.push(val as { filename?: string; size?: number })
-          }
-        } catch {
-          // ignore
-        }
-      }
-    })
-
-    // Click generate button (text changed to "Generate Selected")
-    await page.locator('button:has-text("Generate Selected")').click()
-
-    // Wait for generation to complete
-    await page.waitForSelector('text=/Audiobook created successfully/i', { timeout: 180000 })
-
-    // Wait for download
-    await page.waitForSelector('text=Download started!', { timeout: 60000 })
-    expect(downloadConsoleLogs.length).toBeGreaterThan(0)
-    expect(downloadConsoleLogs[0].filename?.endsWith('.mp3')).toBeTruthy()
-    expect(downloadConsoleLogs[0].size).toBeGreaterThan(1000)
+    const { filename } = await exportAs(page, 'mp3')
+    expect(filename?.endsWith('.mp3')).toBeTruthy()
   })
 
-  test('should handle touch interactions for chapter selection', async ({ page }) => {
-    const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+  test('should handle touch interactions for chapter navigation', async ({ page }) => {
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    await page.waitForSelector('text=Short Test Book', { timeout: 20000 })
+    // Use tap instead of click for touch simulation: the chapter list lives
+    // in the table of contents now
+    await page.locator('button[aria-label="Table of contents"]').tap()
+    const tocItems = page.locator('.toc-item')
+    await expect(tocItems.first()).toBeVisible()
+    const count = await tocItems.count()
+    expect(count).toBeGreaterThanOrEqual(3)
 
-    // Use tap instead of click for touch simulation
-    const deselectBtn = page.locator('button:has-text("Deselect all")')
-    await deselectBtn.tap()
-
-    // Verify all chapters are deselected
-    const checkboxes = page.locator('input[type="checkbox"]')
-    const count = await checkboxes.count()
-    for (let i = 0; i < count; i++) {
-      await expect(checkboxes.nth(i)).not.toBeChecked()
-    }
-
-    // Tap to select first chapter
-    const firstCheckbox = checkboxes.first()
-    await firstCheckbox.tap()
-    await expect(firstCheckbox).toBeChecked()
+    // Tap the last chapter to jump there
+    await tocItems.nth(count - 1).tap()
+    await expect(page.locator('.toc')).toBeHidden()
   })
 
   test('should open reader view with touch on mobile', async ({ page }) => {
-    const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    await page.waitForSelector('text=Short Test Book', { timeout: 20000 })
+    // Tap the play control to start listening
+    await page.locator('button[aria-label="Listen to this chapter"]').tap()
 
-    // Deselect all and select first chapter
-    await page.locator('button:has-text("Deselect all")').tap()
-    const firstCheckbox = page.locator('input[type="checkbox"]').first()
-    await firstCheckbox.tap()
-
-    // Tap Read button
-    const readButton = page.locator('button:has-text("Read")').first()
-    await readButton.tap()
-
-    // Verify reader opens
-    const chapterTitle = page.locator('#chapter-title')
-    await expect(chapterTitle).toBeVisible({ timeout: 10000 })
-
-    // Verify play controls are visible and accessible on mobile
-    const playPauseBtn = page.locator('.reader-page .control-btn.play-pause')
+    // Verify the reading surface shows the chapter and the player is up
+    await expect(page.locator('.chapter-title')).toBeVisible({ timeout: 10000 })
+    const playPauseBtn = page.locator('.transport button[aria-label="Play or pause"]')
     await expect(playPauseBtn).toBeVisible()
   })
 
   test('should handle playback controls via touch', async ({ page }) => {
-    const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    await page.waitForSelector('text=Short Test Book', { timeout: 20000 })
+    await page.locator('button[aria-label="Listen to this chapter"]').tap()
+    await expect(page.locator('.transport')).toBeVisible({ timeout: 10000 })
 
-    // Open reader
-    await page.locator('button:has-text("Deselect all")').tap()
-    await page.locator('input[type="checkbox"]').first().tap()
-    await page.locator('button:has-text("Read")').first().tap()
-
-    await page.waitForSelector('#chapter-title', { timeout: 10000 })
-
-    const playPauseBtn = page.locator('.reader-page .control-btn.play-pause')
-    await expect(playPauseBtn).toBeVisible()
+    const playPauseBtn = page.locator('.transport button[aria-label="Play or pause"]')
 
     // Should be playing initially (auto-play)
-    await expect(playPauseBtn).toHaveAttribute('aria-label', 'Pause')
+    await expect(playPauseBtn).toContainText('❚❚', { timeout: 10000 })
 
     // Tap to pause
     await playPauseBtn.tap()
-    await expect(playPauseBtn).toHaveAttribute('aria-label', 'Play')
+    await expect(playPauseBtn).toContainText('▶', { timeout: 5000 })
 
     // Tap to resume
     await playPauseBtn.tap()
-    await expect(playPauseBtn).toHaveAttribute('aria-label', 'Pause')
+    await expect(playPauseBtn).toContainText('❚❚', { timeout: 5000 })
   })
 
   test('should display progress correctly on mobile viewport', async ({ page }) => {
     test.setTimeout(120000)
 
-    const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    await page.waitForSelector('text=Short Test Book', { timeout: 20000 })
+    // Start generating the book
+    await openSettingsPanel(page)
+    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).tap()
+    await page.locator('aside.settings button[aria-label="Close"]').tap()
 
-    // Select first chapter only
-    await page.locator('button:has-text("Deselect all")').tap()
-    await page.locator('input[type="checkbox"]').first().tap()
-
-    // Open advanced options
-    const advancedToggle = page.locator('button:has-text("Advanced Options")')
-    await advancedToggle.tap()
-
-    // Start generation (button text changed to "Generate Selected")
-    await page.locator('button:has-text("Generate Selected")').tap()
-
-    // Verify progress indicator is visible on mobile viewport
-    // Progress should be visible without horizontal scrolling
-    const progressElement = page.locator(
-      '.progress-bar, .generation-progress, [role="progressbar"]'
-    )
-    await expect(progressElement.first()).toBeVisible({ timeout: 30000 })
+    // The progress strip is visible without horizontal scrolling
+    const prep = page.locator('.prep')
+    await expect(prep).toBeVisible({ timeout: 30000 })
 
     // Verify progress text is readable (not cut off)
-    const progressText = page.locator('text=/\\d+%/')
-    await expect(progressText.first()).toBeVisible({ timeout: 30000 })
+    await expect(prep).toContainText(/Preparing audio… \d+%/)
   })
 })

@@ -3,6 +3,8 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
+import { exportAs, importAndOpen } from './helpers/flows'
+
 /**
  * Mobile Full-Book Processing E2E Test
  *
@@ -37,6 +39,8 @@ test.describe('Mobile Full-Book Processing — OOM regression', () => {
       localStorage.clear()
       sessionStorage.clear()
     })
+    await page.reload()
+    await page.waitForLoadState('networkidle')
   })
 
   test('should generate multiple chapters on mobile without OOM', async ({ page }) => {
@@ -63,37 +67,28 @@ test.describe('Mobile Full-Book Processing — OOM regression', () => {
 
     // --- Upload book ---
     const epubBuffer = await readFile(CONAN_DOYLE_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(
+      page,
+      {
+        name: 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub',
+        mimeType: 'application/epub+zip',
+        buffer: epubBuffer,
+      },
+      /Sign of the Four/i
+    )
 
-    await page.waitForSelector('text=/Sign of the Four/i', { timeout: 30000 })
-    await expect(page.getByText(/Arthur Conan Doyle/i)).toBeVisible()
+    // --- Generate only the two shortest chapters to keep the test fast ---
+    // "The Sign of the Four" (~25 words) and "Imprint" (~238 words) are the
+    // first two chapters; chapter selection is per-listen now.
+    await page.locator('button[aria-label="Listen to this chapter"]').tap()
+    await expect(page.locator('.transport')).toBeVisible({ timeout: 30000 })
 
-    // --- Select only the two shortest chapters to keep the test fast ---
-    // "The Sign of the Four" (~25 words) and "Imprint" (~238 words)
-    await page.locator('button:has-text("Deselect All")').click()
-
-    const checkboxes = page.locator('input[type="checkbox"]')
-    // First checkbox = title chapter (~25 words)
-    await checkboxes.nth(0).check()
-    // Second checkbox = Imprint (~238 words)
-    await checkboxes.nth(1).check()
-
-    await expect(checkboxes.nth(0)).toBeChecked()
-    await expect(checkboxes.nth(1)).toBeChecked()
-
-    // --- Verify Kokoro TTS is selected ---
-    const ttsSelect = page.locator('select').filter({ hasText: 'Kokoro TTS' }).first()
-    if (await ttsSelect.isVisible().catch(() => false)) {
-      await ttsSelect.selectOption({ label: 'Kokoro TTS' })
-    }
-
-    // --- Generate ---
-    await page.locator('button:has-text("Generate Selected")').click()
+    // Move to the second chapter and generate it too
+    await page.locator('.transport button[aria-label="Close player"]').tap()
+    await page.locator('button[aria-label="Table of contents"]').tap()
+    await page.locator('.toc-item').nth(1).tap()
+    await page.locator('button[aria-label="Listen to this chapter"]').tap()
+    await expect(page.locator('.transport')).toBeVisible({ timeout: 30000 })
 
     // Wait for both chapters to have audio players in the DOM (generation complete).
     // Audio elements may be hidden by CSS so we check attachment, not visibility.
@@ -130,15 +125,8 @@ test.describe('Mobile Full-Book Processing — OOM regression', () => {
     }
 
     // --- Export WAV and validate ---
-    const exportButton = page.locator('button:has-text("Export")').first()
-    if (await exportButton.isVisible().catch(() => false)) {
-      const [download] = await Promise.all([
-        page.waitForEvent('download', { timeout: 60000 }),
-        exportButton.click(),
-      ])
-      const filename = download.suggestedFilename()
-      expect(filename.length).toBeGreaterThan(0)
-      console.log('[mobile-oom-test] exported file:', filename)
-    }
+    const { filename } = await exportAs(page, 'wav')
+    expect(filename.length).toBeGreaterThan(0)
+    console.log('[mobile-oom-test] exported file:', filename)
   })
 })

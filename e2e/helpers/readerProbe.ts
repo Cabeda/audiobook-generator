@@ -13,6 +13,7 @@
 
 import { expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { importBookFile } from './flows'
 
 export interface ReaderProbeState {
   /** Segment indexes that became active, in order. */
@@ -192,21 +193,19 @@ export async function readProbe(page: Page): Promise<ReaderProbeState> {
 }
 
 /**
- * Uploads a book, opens its first chapter in the reader and waits for the
- * segments to be rendered. Returns the number of segments in the chapter.
+ * Uploads a book through the import panel, opens it on the reading surface and
+ * starts playback of its first chapter. Returns the number of segments in that
+ * chapter.
  */
-export async function openReader(page: Page, file: string, heading: RegExp): Promise<number> {
-  await page.locator('input[type="file"]').setInputFiles(file)
-  await expect(page.getByRole('heading', { name: heading })).toBeVisible({ timeout: 30000 })
+export async function openReader(page: Page, file: string, title: RegExp): Promise<number> {
+  await importBookFile(page, file)
+  await expect(page.locator('.book-title')).toContainText(title, { timeout: 30000 })
+  await expect(page.locator('[data-section="0"] .segment').first()).toBeVisible({ timeout: 15000 })
 
-  await page
-    .getByRole('button', { name: /Read chapter/ })
-    .first()
-    .click()
-  await expect(page.locator('.reader-page')).toBeVisible({ timeout: 15000 })
-  await expect(page.locator('.segment').first()).toBeVisible({ timeout: 15000 })
+  await page.locator('button[aria-label="Listen to this chapter"]').click()
+  await expect(page.locator('.transport')).toBeVisible({ timeout: 15000 })
 
-  return page.locator('.segment').count()
+  return page.locator('[data-section="0"] .segment').count()
 }
 
 /**

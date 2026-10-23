@@ -2,45 +2,47 @@ import { test, expect } from '@playwright/test'
 import { join } from 'path'
 import process from 'node:process'
 
+import { importAndOpen, openSettingsPanel, settingsPanel } from '../helpers/flows'
+
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
 test.describe('Reader Interaction', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
     await page.waitForLoadState('domcontentloaded')
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
   })
 
   test('should upload a book and see chapter list with controls', async ({ page }) => {
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SHORT_EPUB)
-    await expect(page.getByRole('heading', { name: 'Short Test Book' })).toBeVisible({
-      timeout: 10000,
-    })
+    // Chapter list lives in the table of contents
+    await page.locator('button[aria-label="Table of contents"]').click()
+    const tocItems = page.locator('.toc-item')
+    await expect(tocItems.first()).toBeVisible()
 
-    // Model select is visible in toolbar
-    const modelSelect = page.locator('.toolbar-left .premium-select').first()
-    await expect(modelSelect).toBeVisible()
+    // Model select is visible in the Aa settings panel
+    await page.locator('button[aria-label="Close"]:visible').first().click()
+    await openSettingsPanel(page)
+    await expect(settingsPanel(page).locator('label.field:has-text("Model") select')).toBeVisible()
 
-    // Chapter selection controls exist
-    await expect(page.getByRole('button', { name: 'Select All', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Deselect All', exact: true })).toBeVisible()
+    // The library is reachable from the title button
+    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await expect(page.locator('button[aria-label="Books"]')).toBeVisible()
   })
 
   test('should open text reader from chapter', async ({ page }) => {
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SHORT_EPUB)
-    await expect(page.getByRole('heading', { name: 'Short Test Book' })).toBeVisible({
-      timeout: 10000,
-    })
+    // The chapter titles of the reading surface, in order
+    const titles = await page.locator('.chapter-mark').allInnerTexts()
+    expect(titles.length).toBeGreaterThanOrEqual(2)
 
-    // Click Read button on first chapter
-    const readButton = page.getByRole('button', { name: /Read chapter/ }).first()
-    await readButton.click()
+    // Jump to the second chapter from the table of contents
+    await page.locator('button[aria-label="Table of contents"]').click()
+    await page.locator('.toc-item').nth(1).click()
 
-    // Reader page should open
-    await expect(page.locator('.reader-page')).toBeVisible({ timeout: 5000 })
+    // The reading surface scrolls to the chapter and the top bar follows it
+    await expect(page.locator('.toc')).toBeHidden()
+    await expect(page.locator('.chapter-title')).toHaveText(titles[1])
 
-    // Back button should be available
-    await expect(page.getByRole('button', { name: 'Back to book' })).toBeVisible()
+    // The title button is the way back to the library
+    await expect(page.locator('button[aria-label="Books"]')).toBeVisible()
   })
 })
