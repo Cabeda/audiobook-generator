@@ -140,7 +140,11 @@
   onMount(() => {
     applyRoute()
     const onHash = () => applyRoute()
+    const goOnline = () => (online = true)
+    const goOffline = () => (online = false)
     window.addEventListener('hashchange', onHash)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
 
     // Lock screen / notification controls, bound once.
     bindLockScreenControls({
@@ -160,7 +164,11 @@
       },
     })
 
-    return () => window.removeEventListener('hashchange', onHash)
+    return () => {
+      window.removeEventListener('hashchange', onHash)
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
   })
 
   // Now playing + keep the screen on while audio runs.
@@ -320,6 +328,9 @@
     playback.chapterId === book?.chapters[ui.chapterIndex]?.id && playback.playing
   )
 
+  // Offline is a state the reader wears openly: generated audio keeps playing.
+  let online = $state(typeof navigator === 'undefined' || navigator.onLine)
+
   // Position in the book as a whole, not just the chapter being played: the
   // chapters before it plus the share of it already played.
   let listen = $derived.by(() => {
@@ -363,6 +374,32 @@
 
   function fmt(s: number) {
     return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+  }
+
+  // ---- transport conveniences: speed, sleep timer ----
+  const SPEEDS = [1, 1.25, 1.5, 2]
+
+  function cycleSpeed() {
+    const current = reader.prefs.rate
+    reader.prefs.rate = SPEEDS[(SPEEDS.indexOf(current) + 1) % SPEEDS.length] ?? 1
+    toastStore.info(`Speed ${reader.prefs.rate}×`)
+  }
+
+  let sleepMinutes = $state(0)
+  let sleepTimer: ReturnType<typeof setTimeout> | undefined
+
+  function cycleSleep() {
+    clearTimeout(sleepTimer)
+    const steps = [0, 15, 30, 60]
+    sleepMinutes = steps[(steps.indexOf(sleepMinutes) + 1) % steps.length] ?? 0
+    if (sleepMinutes > 0) {
+      sleepTimer = setTimeout(() => {
+        reader.stop()
+        sleepMinutes = 0
+        toastStore.info('Sleep timer finished — playback stopped')
+      }, sleepMinutes * 60_000)
+      toastStore.info(`Sleep timer set for ${sleepMinutes} minutes`)
+    }
   }
 
   /** What one chapter's audio looks like, re-read so generation moves it. */
@@ -664,6 +701,9 @@
           <span class="book-title">{book.title} ▾</span>
           <span class="chapter-title">{book.chapters[ui.chapterIndex]?.title}</span>
         </button>
+        {#if !online}
+          <span class="offline-chip" title="Generated audio keeps playing offline">Offline</span>
+        {/if}
         <button class="icon" onclick={playCurrent} aria-label="Listen to this chapter"
           >{playingThis ? '❚❚' : '▶'}</button
         >
@@ -737,6 +777,12 @@
           </div>
         </div>
         <span class="t-time">{fmt(listen.position)} / {fmt(listen.duration)}</span>
+        <button class="icon" onclick={cycleSpeed} aria-label="Playback speed"
+          >{reader.prefs.rate}×</button
+        >
+        <button class="icon" onclick={cycleSleep} aria-label="Sleep timer"
+          >{sleepMinutes > 0 ? `${sleepMinutes}m` : '☾'}</button
+        >
         <button class="icon" onclick={() => reader.stop()} aria-label="Close player">✕</button>
       </div>
     {:else if $isGenerating || counts.generating > 0}
@@ -1280,6 +1326,16 @@
     height: 100%;
     background: var(--v-accent);
     border-radius: 2px;
+  }
+
+  .offline-chip {
+    font-size: 0.68rem;
+    color: var(--v-sub);
+    border: 1px solid var(--v-line);
+    border-radius: 999px;
+    padding: 3px 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .t-time {

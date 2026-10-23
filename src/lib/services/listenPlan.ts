@@ -10,6 +10,7 @@ import type { Book, Chapter } from '../types/book'
 import type { PiperVoice } from '../piper/piperClient'
 import { planChapter, type ChapterPlan } from './chapterPlan'
 import { resolveChapterLanguageWithDetection } from '../utils/languageResolver'
+import { isBrowserSpeech, type SelectedModel } from '../tts/ttsModels'
 import type { Device, Quantization } from '../../stores/ttsStore'
 
 export interface ListenPrefs {
@@ -21,6 +22,20 @@ export interface ListenPrefs {
   isMobile?: boolean
   /** The app's per-language defaults. */
   languageDefaults?: Record<string, { model?: string; voice?: string } | undefined>
+}
+
+/**
+ * The engine a plan may actually run: an engine whose model is not on the
+ * device yet cannot be downloaded on a plane, so listening degrades to the
+ * browser's own speech instead of stopping.
+ */
+export function resolveModel(
+  requested: SelectedModel,
+  availability: { offline: boolean; modelReady: boolean }
+): SelectedModel {
+  if (isBrowserSpeech(requested)) return requested
+  if (availability.offline && !availability.modelReady) return 'web_speech'
+  return requested
 }
 
 /** The plan the reader plays a chapter with. */

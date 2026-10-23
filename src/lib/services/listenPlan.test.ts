@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PiperVoice } from '../piper/piperClient'
 import type { Book, Chapter } from '../types/book'
-import { listenPlanFor } from './listenPlan'
+import { listenPlanFor, resolveModel } from './listenPlan'
 
 const piperVoices: PiperVoice[] = [
   { key: 'en_US-lessac-medium', name: 'Lessac (US)', language: 'en_US', quality: 'medium' },
@@ -63,5 +63,19 @@ describe('listenPlanFor', () => {
 
     expect(listenPlanFor(book, chapter, prefs).quantization).toBe('q8')
     expect(listenPlanFor(book, chapter, { ...prefs, isMobile: true }).quantization).toBe('q4')
+  })
+})
+
+describe('resolveModel', () => {
+  it('falls back to the browser voice when the engine cannot run offline', () => {
+    // On a plane with the model not yet downloaded, generation must degrade
+    // instead of dying: the browser speaks without any download.
+    expect(resolveModel('kokoro', { offline: true, modelReady: false })).toBe('web_speech')
+  })
+
+  it('keeps the chosen engine when it is ready or the network is up', () => {
+    expect(resolveModel('kokoro', { offline: true, modelReady: true })).toBe('kokoro')
+    expect(resolveModel('kokoro', { offline: false, modelReady: false })).toBe('kokoro')
+    expect(resolveModel('web_speech', { offline: true, modelReady: false })).toBe('web_speech')
   })
 })

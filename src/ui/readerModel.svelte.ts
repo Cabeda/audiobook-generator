@@ -40,7 +40,7 @@ import {
   generateMissing,
   retryChapters,
 } from '../lib/services/audiobookService'
-import { listenPlanFor } from '../lib/services/listenPlan'
+import { listenPlanFor, resolveModel } from '../lib/services/listenPlan'
 import { appSettings } from '../stores/appSettingsStore'
 import { loadPosition } from '../stores/readerPositionStore'
 import { toastStore } from '../stores/toastStore'
@@ -71,6 +71,8 @@ let autoContinueState = $state(true)
 
 class ReaderModel {
   exportState = $state<ExportState>({ busy: false, done: false })
+  /** A model that has run in this session is on the device. */
+  private modelWarmed = false
 
   /** The book being read, straight from the real store. */
   get book(): Book | null {
@@ -204,7 +206,12 @@ class ReaderModel {
       book,
       chapter,
       {
-        model: this.prefs.model,
+        // shortcut: readiness means 'ran this session'; per-model download
+        // state belongs to modelStatus when it exposes one
+        model: resolveModel(this.prefs.model as never, {
+          offline: typeof navigator !== 'undefined' && !navigator.onLine,
+          modelReady: this.modelWarmed,
+        }),
         voice: this.prefs.voice,
         quantization: get(selectedQuantization),
         device: get(selectedDevice),
@@ -225,6 +232,7 @@ class ReaderModel {
       logger.warn('loadChapter did not succeed', result)
       return
     }
+    this.modelWarmed = true
     if (atSegment != null && atSegment > 0) {
       await audioService.playFromSegment(atSegment)
     } else {
