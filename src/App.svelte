@@ -119,8 +119,23 @@
 
   onMount(() => {
     loadPiperVoices()
-    refreshLibrary().catch((e) => logger.warn('Failed to load library', e))
-    applyHash().catch((e) => logger.warn('Failed to restore hash', e))
+    const start = async () => {
+      await refreshLibrary().catch((e) => logger.warn('Failed to load library', e))
+      // No deep link means the app was opened fresh (a phone home screen, a
+      // closed tab): open where the reader left off instead of showing the
+      // empty state on top of a full library.
+      const view = shellViewFromHash(location.hash)
+      const linked = view && 'bookId' in view ? view.bookId : null
+      if ((linked == null || linked === 'unsaved') && libraryBooks[0]?.id != null) {
+        const recent = await openBook(libraryBooks[0].id)
+        if (recent) {
+          bookStore.set(recent)
+          currentLibraryBookId.set(libraryBooks[0].id!)
+        }
+      }
+      await applyHash().catch((e) => logger.warn('Failed to restore hash', e))
+    }
+    void start()
     window.addEventListener('hashchange', () => applyHash().catch(() => {}))
   })
 </script>

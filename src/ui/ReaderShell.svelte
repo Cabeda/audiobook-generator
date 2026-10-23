@@ -21,6 +21,9 @@
     type ChapterAudioView,
   } from '../lib/reader/readerViewState'
   import { loadPosition, savePosition } from '../stores/readerPositionStore'
+  import { get } from 'svelte/store'
+  import { readerFontSize, readerTheme } from '../stores/readerPrefsStore'
+  import { createChapterWrapper } from '../lib/reader/wrapChapter'
   import {
     bindLockScreenControls,
     keepScreenAwake,
@@ -74,8 +77,13 @@
 
   const THEMES = ['light', 'sepia', 'dark'] as const
 
-  let theme = $state<(typeof THEMES)[number]>('light')
-  let fontSize = $state(17) // px, stepped with A− / A+ like variant C
+  // How the reader looks is remembered: relaunching must not reset it.
+  let theme = $state(get(readerTheme))
+  let fontSize = $state(get(readerFontSize)) // px, stepped with A− / A+ like variant C
+  $effect(() => {
+    readerTheme.set(theme)
+    readerFontSize.set(fontSize)
+  })
   let chromeVisible = $state(true)
   let tocOpen = $state(false)
   let settingsOpen = $state(false)
@@ -201,7 +209,25 @@
   // reading position in the scroll; overlays see it as `ui`
   let ui = $state({ bookIndex: 0, chapterIndex: 0, progress: 0 })
   let chIds = $derived((book?.chapters ?? []).map((c) => c.id))
-  let wrapped = $derived((book?.chapters ?? []).map((c) => segmentHtmlContent(c.id, c.content)))
+  // Chapters wrap (sentence spans) lazily and are rendered in windows: a large
+  // book must not be segmented and laid out all at once — that is what made it
+  // stall on phones. Unrendered chapters wrap when they are first shown.
+  const wrapChapter = createChapterWrapper()
+  let renderedCount = $state(3)
+
+  function growWhenNear(node: HTMLElement) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          const total = book?.chapters.length ?? 0
+          renderedCount = Math.min(total, renderedCount + 2)
+        }
+      },
+      { rootMargin: '800px' }
+    )
+    observer.observe(node)
+    return { destroy: () => observer.disconnect() }
+  }
   let scroller: HTMLElement | undefined = $state()
   let hideTimer: ReturnType<typeof setTimeout> | undefined
   let lastScrollTop = 0
@@ -308,9 +334,12 @@
   function goToChapter(i: number) {
     tocOpen = false
     ui.chapterIndex = i
-    scroller
-      ?.querySelector(`[data-chapter="${i}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (i >= renderedCount) renderedCount = i + 1 // the chapter must exist to scroll to
+    requestAnimationFrame(() =>
+      scroller
+        ?.querySelector(`[data-chapter="${i}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    )
     poke()
   }
 
@@ -496,6 +525,13 @@
     restorePosition()
   }
 
+  // remember where the reader is whenever the open book changes (startup,
+  // deep links and the books page all land here)
+  $effect(() => {
+    void $currentLibraryBookId
+    restorePosition()
+  })
+
   // ---- where the reader left off ----
   let lastSavedAt = 0
 
@@ -623,6 +659,13 @@
     const idx = reader.segmentIndex
     const root = scroller
     if (!root) return
+    // The spoken chapter must be rendered before it can be highlighted; grow
+    // the window and let the effect re-run once it is on the page.
+    const ci = (book?.chapters ?? []).findIndex((c) => c.id === chId)
+    if (chId != null && ci >= renderedCount) {
+      renderedCount = ci + 1
+      return
+    }
     // only touch the DOM when the spoken segment changes: re-adding .active on
     // every playback tick would restart its background transition forever
     const key = chId == null || idx < 0 ? 'none' : `${chId}:${idx}`
@@ -633,7 +676,6 @@
       detached = false
       return
     }
-    const ci = (book?.chapters ?? []).findIndex((c) => c.id === chId)
     const section = ci >= 0 ? root.querySelector(`[data-section="${ci}"]`) : null
     highlightActiveSegment(idx, section)
     const el = section && findSegmentElement(idx, section)
@@ -654,9 +696,9 @@
     liveGeneration // reader.segmentStateOf reads the store with get()
     if (!root) return
     ;(book?.chapters ?? []).forEach((c, ci) => {
-      const n = wrapped[ci]?.segments.length ?? 0
       const section = root.querySelector(`[data-section="${ci}"]`)
-      if (!section) return
+      if (!section) return // unrendered chapters wrap and colour when shown
+      const n = wrapChapter(c.id, c.content).segments.length
       const prev = (appliedGen[c.id] ??= new Array(n))
       for (let i = 0; i < n; i++) {
         const st = reader.segmentStateOf(c.id, i)
@@ -681,7 +723,7 @@
   }}
   ondrop={onDropAnywhere}
 >
-  {#if book && books.length > 0}
+  {#if book}
     <div
       class="reader"
       bind:this={scroller}
@@ -691,12 +733,15 @@
       aria-label="Book content"
     >
       <div class="column" style="font-size: {fontSize}px">
-        {#each book.chapters as chapter, i (chapter.id)}
+        {#each book.chapters.slice(0, renderedCount) as chapter, i (chapter.id)}
           <section class="chapter" data-section={i}>
             <h2 class="chapter-mark" data-chapter={i}>{chapter.title}</h2>
-            {@html wrapped[i].html}
+            {@html wrapChapter(chapter.id, chapter.content).html}
           </section>
         {/each}
+        {#if renderedCount < book.chapters.length}
+          <div class="sentinel" use:growWhenNear></div>
+        {/if}
         <p class="the-end">· · ·</p>
       </div>
     </div>
@@ -959,7 +1004,7 @@
         </button>
       </aside>
     {/if}
-  {:else}
+  {:else if books.length === 0}
     <!-- first-run / empty library -->
     <div class="empty-state">
       <div class="empty-card">
@@ -971,6 +1016,14 @@
           <button class="empty-link" onclick={() => (tourOpen = true)}>Take the tour</button>
           <button class="empty-link" onclick={() => (booksOpen = true)}>Your books</button>
         </div>
+      </div>
+    </div>
+  {:else}
+    <!-- a book is on its way: never claim the library is empty -->
+    <div class="empty-state">
+      <div class="empty-card">
+        <span class="empty-icon" aria-hidden="true">📖</span>
+        <h1>Opening your book…</h1>
       </div>
     </div>
   {/if}
