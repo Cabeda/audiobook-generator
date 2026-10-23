@@ -157,8 +157,18 @@ export async function exportAs(
   format: 'mp3' | 'm4b' | 'mp4' | 'wav' | 'epub'
 ): Promise<{ filename: string; download: Download }> {
   // The sheet is opened from the Aa settings panel. After a long generation
-  // wait the chrome has hidden itself — scroll up first to bring it back.
-  await page.mouse.wheel(0, -120)
+  // wait the chrome has hidden itself (and its buttons are unmounted): tap
+  // the reader edge to toggle it back, retrying once for the toggle case.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (
+      await page
+        .locator('button[aria-label="Settings"]')
+        .isVisible()
+        .catch(() => false)
+    )
+      break
+    await page.locator('.reader').click({ position: { x: 5, y: 5 } })
+  }
   const settings = page.locator('aside.settings')
   if (!(await settings.isVisible().catch(() => false))) {
     await page.locator('button[aria-label="Settings"]').click()

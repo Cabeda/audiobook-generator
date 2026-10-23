@@ -40,7 +40,8 @@ import {
   generateMissing,
   retryChapters,
 } from '../lib/services/audiobookService'
-import { generationService } from '../lib/services/generationService'
+import { synthesizeSegment } from '../lib/services/segmentProduction'
+import { resolveChapterLanguageWithDetection } from '../lib/utils/languageResolver'
 import { listenPlanFor, resolveModel } from '../lib/services/listenPlan'
 import { appSettings } from '../stores/appSettingsStore'
 import { loadPosition } from '../stores/readerPositionStore'
@@ -322,17 +323,27 @@ class ReaderModel {
   async remakeCurrentSegment(): Promise<void> {
     const book = this.book
     const chapterId = this.chapterId
-    const index = this.segmentIndex
-    if (!book || !chapterId || index < 0) return
+    if (!book || !chapterId) return
+    const index = Math.max(0, this.segmentIndex)
     const chapter = book.chapters.find((c) => c.id === chapterId)
-    if (!chapter) return
+    const text = get(segmentProgress).get(chapterId)?.segmentTexts.get(index)
+    if (!chapter || !text) return
     try {
-      await generationService.generateSingleChapterFromSegment(
-        chapter,
+      // A forced synthesis of this one segment: generation pipelines skip
+      // segments that already have audio, which is exactly what a voice change
+      // must not do. The service swaps the blob in (upgrading the playing one
+      // when its sound runs out).
+      const segment = await synthesizeSegment({
+        text,
         index,
-        undefined,
-        this.bookId ?? undefined
-      )
+        chapterId,
+        language: resolveChapterLanguageWithDetection(chapter, book),
+        model: this.prefs.model,
+        voice: this.prefs.voice,
+        quantization: get(selectedQuantization),
+        device: get(selectedDevice),
+      } as Parameters<typeof synthesizeSegment>[0])
+      audioService.replaceSegmentAudio(index, segment.audioBlob)
     } catch (error) {
       logger.warn('Could not re-make the current segment', error)
     }
