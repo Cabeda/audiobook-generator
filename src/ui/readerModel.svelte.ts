@@ -42,6 +42,7 @@ import {
 } from '../lib/services/audiobookService'
 import { listenPlanFor } from '../lib/services/listenPlan'
 import { appSettings } from '../stores/appSettingsStore'
+import { loadPosition } from '../stores/readerPositionStore'
 import { toastStore } from '../stores/toastStore'
 import logger from '../lib/utils/logger'
 import type { ExportFormat } from '../lib/exportFormats'
@@ -231,7 +232,8 @@ class ReaderModel {
     }
   }
 
-  /** Play a chapter: resume the loaded one, or load it and start from the top. */
+  /** Play a chapter: resume the loaded one, or load it and continue from where
+   * the listener left off. */
   async play(chapter: Chapter): Promise<void> {
     try {
       if (this.chapterId === chapter.id) {
@@ -241,7 +243,9 @@ class ReaderModel {
       if (this.statusOf(chapter.id).state === 'none') {
         await this.generate([chapter.id])
       }
-      await this.openChapter(chapter)
+      const saved = loadPosition(this.bookId)
+      const at = saved?.chapterId === chapter.id ? saved.segmentIndex : 0
+      await this.openChapter(chapter, at > 0 ? at : undefined)
     } catch (error) {
       logger.error('Could not start playback', error)
       toastStore.error('Could not start playback')

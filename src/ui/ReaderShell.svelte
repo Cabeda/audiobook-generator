@@ -17,8 +17,10 @@
     bookProgressOf,
     chapterEstimateSeconds,
     nextChapterFor,
+    resumePoint,
     type ChapterAudioView,
   } from '../lib/reader/readerViewState'
+  import { loadPosition, savePosition } from '../stores/readerPositionStore'
   import { reader } from './readerModel.svelte'
   import { toastStore } from '../stores/toastStore'
   import { onMount } from 'svelte'
@@ -181,6 +183,13 @@
     if (el.scrollTop > lastScrollTop + 4) chromeVisible = false
     else if (el.scrollTop < lastScrollTop - 4) poke()
     lastScrollTop = el.scrollTop
+
+    // Remember where the reader is, at most every few seconds.
+    const now = Date.now()
+    if (now - lastSavedAt > 3000) {
+      lastSavedAt = now
+      saveCurrentPosition()
+    }
 
     // Eleven-style: scrolling never moves the narration, it only detaches the
     // view; a button offers the return trip.
@@ -407,6 +416,41 @@
     ui.chapterIndex = 0
     ui.progress = 0
     scroller?.scrollTo({ top: 0 })
+    restorePosition()
+  }
+
+  // ---- where the reader left off ----
+  let lastSavedAt = 0
+
+  function saveCurrentPosition() {
+    const chapter = book?.chapters[ui.chapterIndex]
+    if (!chapter) return
+    const previous = loadPosition(reader.bookId)
+    savePosition(reader.bookId, {
+      chapterId: chapter.id,
+      segmentIndex:
+        reader.chapterId === chapter.id && reader.segmentIndex >= 0
+          ? reader.segmentIndex
+          : (previous?.segmentIndex ?? 0),
+      scrollFraction: ui.progress,
+      savedAt: Date.now(),
+    })
+  }
+
+  function restorePosition() {
+    const saved = loadPosition(reader.bookId)
+    const at = resumePoint(
+      saved ? { chapterId: saved.chapterId, segmentIndex: saved.segmentIndex } : null,
+      book?.chapters ?? []
+    )
+    if (!at) return
+    ui.chapterIndex = at.chapterIndex
+    ui.progress = saved?.scrollFraction ?? 0
+    requestAnimationFrame(() => {
+      const el = scroller
+      if (!el) return
+      el.scrollTop = ui.progress * (el.scrollHeight - el.clientHeight)
+    })
   }
 
   function openLibraryBook(i: number) {
@@ -481,6 +525,7 @@
     booksOpen = false
     importOpen = false
     scroller?.scrollTo({ top: 0 })
+    restorePosition()
     onLibraryChanged?.()
   }
 
