@@ -43,11 +43,16 @@ export async function openImportPanel(page: Page): Promise<void> {
   const panel = importPanel(page)
   if (await panel.isVisible().catch(() => false)) return
 
+  // Wait for the shell to render: isVisible does not retry, and a choice made
+  // before the app mounts walks into the wrong branch and auto-waits forever.
   const emptyCta = page.locator('.empty-cta')
+  const tocButton = page.locator('button[aria-label="Table of contents"]')
+  await expect(emptyCta.or(tocButton).first()).toBeVisible({ timeout: 15000 })
+
   if (await emptyCta.isVisible().catch(() => false)) {
     await emptyCta.click()
   } else {
-    await page.locator('button[aria-label="Table of contents"]').click()
+    await tocButton.click()
     await page.locator('.import-chip').click()
   }
   await expect(panel).toBeVisible()
@@ -88,7 +93,8 @@ export async function openSettingsPanel(page: Page): Promise<void> {
 
 /** Closes the Aa settings panel. */
 export async function closeOverlay(page: Page): Promise<void> {
-  await page.locator('[aria-label="Close"]:visible').first().click()
+  const close = page.locator('[aria-label="Close"]:visible').first()
+  if (await close.isVisible().catch(() => false)) await close.click()
 }
 
 /** Picks a TTS model in the Aa settings panel (options come from MODEL_OPTIONS). */

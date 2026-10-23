@@ -31,6 +31,7 @@
   import { onMount } from 'svelte'
   import {
     ACTIVITY_HASH,
+    LIBRARY_HASH,
     buildAudiobookHash,
     buildBookHash,
     buildReaderHash,
@@ -102,7 +103,8 @@
     if (audiobookBook?.id != null) return buildAudiobookHash(audiobookBook.id, audiobookBook)
     if (appSettingsOpen) return '#/settings'
     if (queueOpen) return ACTIVITY_HASH
-    if (booksOpen || importOpen || !b) return '#/'
+    if (booksOpen) return LIBRARY_HASH
+    if (importOpen || !b) return '#/'
     const chapter = b.chapters[ui.chapterIndex]
     return chapter ? buildReaderHash(id, chapter.id, b) : buildBookHash(id, b)
   }

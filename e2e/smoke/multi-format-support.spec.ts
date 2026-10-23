@@ -37,10 +37,9 @@ test.describe('Multi-Format Support', () => {
     await expect(booksOverlay(page).locator('.card .meta').first()).toContainText('Test Author')
 
     // Format shown in the book details
-    await booksOverlay(page)
-      .locator('.card', { hasText: 'The Great Adventure' })
-      .locator('button', { hasText: 'Details' })
-      .click()
+    const card = booksOverlay(page).locator('.card', { hasText: 'The Great Adventure' })
+    await card.locator('button[aria-label^="More actions"]').click()
+    await card.locator('.menu button', { hasText: 'Details' }).click()
     await expect(page.locator('section[aria-label="Book details"]')).toContainText(/format txt/i)
 
     // Chapters detected
@@ -61,10 +60,9 @@ test.describe('Multi-Format Support', () => {
     )
 
     // Format shown in the book details
-    await booksOverlay(page)
-      .locator('.card', { hasText: 'Sample HTML Book' })
-      .locator('button', { hasText: 'Details' })
-      .click()
+    const htmlCard = booksOverlay(page).locator('.card', { hasText: 'Sample HTML Book' })
+    await htmlCard.locator('button[aria-label^="More actions"]').click()
+    await htmlCard.locator('.menu button', { hasText: 'Details' }).click()
     await expect(page.locator('section[aria-label="Book details"]')).toContainText(/format html/i)
 
     // Chapters from h1 tags
@@ -93,10 +91,9 @@ test.describe('Multi-Format Support', () => {
     // Chapter selection is gone; every chapter instead carries its own
     // language/model/voice settings in the book details.
     await openBooksOverlay(page)
-    await booksOverlay(page)
-      .locator('.card', { hasText: 'The Great Adventure' })
-      .locator('button', { hasText: 'Details' })
-      .click()
+    const advCard = booksOverlay(page).locator('.card', { hasText: 'The Great Adventure' })
+    await advCard.locator('button[aria-label^="More actions"]').click()
+    await advCard.locator('.menu button', { hasText: 'Details' }).click()
     const detail = page.locator('section[aria-label="Book details"]')
     await expect(detail.locator('.row')).toHaveCount(3)
     await expect(detail.locator('select[aria-label="Language for Chapter 1"]')).toBeVisible()

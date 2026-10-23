@@ -332,6 +332,12 @@
     gap: 6px;
     margin-top: auto; /* buttons line up at the card bottom whatever the title does */
     padding-top: 6px;
+    z-index: 6; /* the menu must sit above neighbouring cards */
+  }
+
+  .card:has(.menu) {
+    z-index: 7;
+    position: relative;
   }
 
   .icon.more {

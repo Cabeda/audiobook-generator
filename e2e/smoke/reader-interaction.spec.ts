@@ -20,7 +20,7 @@ test.describe('Reader Interaction', () => {
     await expect(tocItems.first()).toBeVisible()
 
     // Model select is visible in the Aa settings panel
-    await page.locator('button[aria-label="Close"]:visible').first().click()
+    await page.locator('.toc-backdrop').click()
     await openSettingsPanel(page)
     await expect(settingsPanel(page).locator('label.field:has-text("Model") select')).toBeVisible()
 
@@ -40,7 +40,8 @@ test.describe('Reader Interaction', () => {
 
     // The reading surface scrolls to the chapter and the top bar follows it
     await expect(page.locator('.toc')).toBeHidden()
-    await expect(page.locator('.chapter-title')).toHaveText(titles[1])
+    // chapter headings render uppercase; the top bar shows them as written
+    await expect(page.locator('.chapter-title')).toContainText(titles[1], { ignoreCase: true })
 
     // The title button is the way back to the library
     await expect(page.locator('button[aria-label="Books"]')).toBeVisible()

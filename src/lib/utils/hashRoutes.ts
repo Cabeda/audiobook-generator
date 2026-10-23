@@ -25,9 +25,11 @@ export function buildAudiobookHash(id: BookId, book: Book | null | undefined): s
 }
 
 export const ACTIVITY_HASH = '#/activity'
+export const LIBRARY_HASH = '#/library'
 
 export type ParsedHash =
   | { view: 'landing' }
+  | { view: 'library' }
   | { view: 'settings' }
   | { view: 'activity' }
   | { view: 'audiobook'; bookId: BookId }
@@ -35,8 +37,8 @@ export type ParsedHash =
   | { view: 'reader'; bookId: BookId; chapterId: string }
 
 export function parseHash(hash: string | null | undefined): ParsedHash | null {
-  if (!hash || hash === '#/' || hash === '#' || hash === '#/upload' || hash === '#/library')
-    return { view: 'landing' }
+  if (!hash || hash === '#/' || hash === '#' || hash === '#/upload') return { view: 'landing' }
+  if (hash === LIBRARY_HASH) return { view: 'library' }
 
   if (hash === '#/settings') return { view: 'settings' }
   if (hash === '#/activity') return { view: 'activity' }
@@ -94,7 +96,11 @@ export function shellViewFromHash(hash: string | null | undefined): ShellView | 
       return { kind: 'activity' }
     case 'audiobook':
       return { kind: 'audiobook', bookId: parsed.bookId }
-    case 'landing':
+    case 'library':
       return { kind: 'library' }
+    case 'landing':
+      // '#/' is home: the reader (or its empty state), never the books page —
+      // the writer uses it as the default, and a default must not open overlays
+      return { kind: 'reader', bookId: 'unsaved', chapterId: null }
   }
 }

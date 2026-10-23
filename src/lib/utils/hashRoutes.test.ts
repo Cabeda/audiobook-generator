@@ -69,8 +69,11 @@ describe('shellViewFromHash', () => {
     })
   })
 
-  it('opens the library from the root link', () => {
-    expect(shellViewFromHash('#/')).toEqual({ kind: 'library' })
+  it('opens the library from its own link, and home is the reader', () => {
+    // '#/' is the default the writer emits; it must never open an overlay,
+    // while '#/library' is the books page and survives refresh.
+    expect(shellViewFromHash('#/library')).toEqual({ kind: 'library' })
+    expect(shellViewFromHash('#/')).toEqual({ kind: 'reader', bookId: 'unsaved', chapterId: null })
   })
 
   it('opens app settings from the settings link', () => {
