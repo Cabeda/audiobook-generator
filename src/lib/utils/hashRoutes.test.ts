@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { buildBookHash, buildReaderHash, parseHash } from './hashRoutes'
+import {
+  buildAudiobookHash,
+  buildBookHash,
+  buildReaderHash,
+  hashForShellState,
+  parseHash,
+  shellViewFromHash,
+} from './hashRoutes'
 
 const sampleBook = { title: 'The Great Adventure', author: 'Jane Doe', chapters: [] }
 
@@ -42,5 +49,84 @@ describe('hashRoutes', () => {
   it('returns null for invalid hashes', () => {
     expect(parseHash('#/unknown/route')).toBeNull()
     expect(parseHash('#/book/not-a-number/slug')).toBeNull()
+  })
+})
+
+// What the revamp shell restores from a deep link.
+describe('shellViewFromHash', () => {
+  it('restores the book and the chapter to resume at from a reader link', () => {
+    expect(shellViewFromHash(buildReaderHash(7, 'ch-2', sampleBook))).toEqual({
+      kind: 'reader',
+      bookId: 7,
+      chapterId: 'ch-2',
+    })
+  })
+
+  it('restores the book at the top from a book link', () => {
+    expect(shellViewFromHash(buildBookHash(7, sampleBook))).toEqual({
+      kind: 'reader',
+      bookId: 7,
+      chapterId: null,
+    })
+  })
+
+  it('opens the library from its own link, and home is the reader', () => {
+    // '#/' is the default the writer emits; it must never open an overlay,
+    // while '#/library' is the books page and survives refresh.
+    expect(shellViewFromHash('#/library')).toEqual({ kind: 'library' })
+    expect(shellViewFromHash('#/')).toEqual({ kind: 'reader', bookId: 'unsaved', chapterId: null })
+  })
+
+  it('opens app settings from the settings link', () => {
+    expect(shellViewFromHash('#/settings')).toEqual({ kind: 'settings' })
+  })
+
+  it('opens the activity page from its link', () => {
+    expect(shellViewFromHash('#/activity')).toEqual({ kind: 'activity' })
+    expect(parseHash('#/activity')).toEqual({ view: 'activity' })
+  })
+
+  it('opens a book’s audiobook page from its link', () => {
+    const hash = buildAudiobookHash(7, sampleBook)
+    expect(parseHash(hash)).toEqual({ view: 'audiobook', bookId: 7 })
+    expect(shellViewFromHash(hash)).toEqual({ kind: 'audiobook', bookId: 7 })
+  })
+
+  it('restores nothing from an invalid link', () => {
+    expect(shellViewFromHash('#/book/not-a-number')).toBeNull()
+  })
+})
+
+describe('hashForShellState', () => {
+  it('writes what the reader reads — every page round-trips', () => {
+    // The '#/' poisoning bug: what the writer emits as its default must read
+    // back as home, never as an overlay.
+    const states = [
+      { bookId: 'unsaved' as const, book: null },
+      { library: true, bookId: 'unsaved' as const, book: null },
+      { settings: true, bookId: 'unsaved' as const, book: null },
+      { activity: true, bookId: 'unsaved' as const, book: null },
+      { bookId: 7 as const, book: sampleBook, chapterId: 'ch-2' },
+      {
+        audiobookBookId: 7,
+        audiobookBook: sampleBook,
+        bookId: 7 as const,
+        book: sampleBook,
+      },
+    ]
+    for (const state of states) {
+      expect(shellViewFromHash(hashForShellState(state))).not.toBeNull()
+    }
+    expect(shellViewFromHash(hashForShellState(states[0]))?.kind).toBe('reader')
+    expect(shellViewFromHash(hashForShellState(states[1]))?.kind).toBe('library')
+    expect(shellViewFromHash(hashForShellState(states[4]))).toEqual({
+      kind: 'reader',
+      bookId: 7,
+      chapterId: 'ch-2',
+    })
+    expect(shellViewFromHash(hashForShellState(states[5]))).toEqual({
+      kind: 'audiobook',
+      bookId: 7,
+    })
   })
 })

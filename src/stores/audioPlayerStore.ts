@@ -1,6 +1,7 @@
 import { writable, derived } from 'svelte/store'
 import logger from '../lib/utils/logger'
 import type { Chapter } from '../lib/types/book'
+import type { SelectedModel } from '../lib/tts/ttsModels'
 
 export interface AudioPlayerState {
   // Current playback
@@ -22,7 +23,7 @@ export interface AudioPlayerState {
   voice: string
   quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
   device: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-  selectedModel: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+  selectedModel: SelectedModel
   playbackSpeed: number
 }
 
@@ -101,7 +102,7 @@ function createAudioPlayerStore() {
         voice: string
         quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
         device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-        selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+        selectedModel?: SelectedModel
         playbackSpeed?: number
       },
       startPlaying: boolean = true,

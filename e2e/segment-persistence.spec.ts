@@ -1,12 +1,16 @@
 import { test, expect } from '@playwright/test'
 import { join } from 'path'
 
+import { importAndOpen } from './helpers/flows'
+
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
 test.describe('Segment Persistence on Page Refresh', () => {
   test('should persist generated segments and merged audio after page refresh', async ({
     page,
   }) => {
+    test.setTimeout(120000)
+
     // Capture console logs
     const logs: string[] = []
     page.on('console', (msg) => {
@@ -16,25 +20,18 @@ test.describe('Segment Persistence on Page Refresh', () => {
     })
 
     // Navigate to the app
-    await page.goto('http://localhost:5173')
+    await page.goto('/')
 
     // Clear storage first
     await page.evaluate(() => {
       localStorage.clear()
       sessionStorage.clear()
     })
+    await page.reload()
+    await page.waitForLoadState('networkidle')
 
-    // Upload test file
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SHORT_EPUB)
-    await page.waitForSelector('text=Short Test Book', { timeout: 10000 })
-
-    // Open the book
-    await page.locator('button:has-text("Deselect all")').click()
-    await page.locator('input[type="checkbox"]').first().check()
-    await page.locator('button:has-text("Read")').first().click()
-    await page.waitForSelector('.reader-page', { timeout: 5000 })
-    await page.waitForSelector('.segment', { timeout: 5000 })
+    // Import the test book — it opens on the reading surface
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
     // Click first segment to start generation
     const firstSegment = page.locator('.segment').first()
@@ -42,81 +39,34 @@ test.describe('Segment Persistence on Page Refresh', () => {
 
     // Wait for first segment to be generated
     await expect(page.locator('.segment-generated').first()).toBeVisible({ timeout: 30000 })
+    const generatedBefore = await page.locator('.segment-generated').count()
+    expect(generatedBefore).toBeGreaterThan(0)
 
     // Wait for audio to be saved
     await page.waitForTimeout(3000)
-
-    // Log what's in IndexedDB
-    await page.evaluate(() => {
-      console.log('=== CHECKING INDEXEDDB BEFORE REFRESH ===')
-      const request = indexedDB.open('AudiobookGeneratorDB')
-      request.onsuccess = () => {
-        const db = request.result
-        console.log('DB opened, stores:', Array.from(db.objectStoreNames))
-
-        const segmentsTx = db.transaction('chapterSegments', 'readonly')
-        const segmentsStore = segmentsTx.objectStore('chapterSegments')
-        const segmentsRequest = segmentsStore.getAll()
-        segmentsRequest.onsuccess = () => {
-          console.log('Segments in DB:', segmentsRequest.result.length)
-        }
-
-        const audioTx = db.transaction('chapterAudio', 'readonly')
-        const audioStore = audioTx.objectStore('chapterAudio')
-        const audioRequest = audioStore.getAll()
-        audioRequest.onsuccess = () => {
-          console.log('Audio entries in DB:', audioRequest.result.length)
-        }
-      }
-    })
-
-    await page.waitForTimeout(1000)
 
     // Refresh the page
     await page.reload()
     await page.waitForTimeout(2000)
 
-    // Log what's in IndexedDB after refresh
-    await page.evaluate(() => {
-      console.log('=== CHECKING INDEXEDDB AFTER REFRESH ===')
-      const request = indexedDB.open('AudiobookGeneratorDB')
-      request.onsuccess = () => {
-        const db = request.result
-
-        const segmentsTx = db.transaction('chapterSegments', 'readonly')
-        const segmentsStore = segmentsTx.objectStore('chapterSegments')
-        const segmentsRequest = segmentsStore.getAll()
-        segmentsRequest.onsuccess = () => {
-          console.log('Segments in DB after refresh:', segmentsRequest.result.length)
-        }
-
-        const audioTx = db.transaction('chapterAudio', 'readonly')
-        const audioStore = audioTx.objectStore('chapterAudio')
-        const audioRequest = audioStore.getAll()
-        audioRequest.onsuccess = () => {
-          console.log('Audio entries in DB after refresh:', audioRequest.result.length)
-        }
-      }
-    })
-
-    await page.waitForTimeout(1000)
-
-    // Navigate back to reader and verify UI shows generated segments
-    await page.waitForSelector('text=Short Test Book', { timeout: 5000 })
-    await page.locator('button:has-text("Deselect all")').click()
-    await page.locator('input[type="checkbox"]').first().check()
-    await page.locator('button:has-text("Read")').first().click()
-    await page.waitForSelector('.reader-page', { timeout: 5000 })
-    await page.waitForSelector('.segment', { timeout: 5000 })
+    // Re-open the book from the library — the reader restores it whole
+    const emptyBooks = page.locator('.empty-link', { hasText: 'Your books' })
+    if (await emptyBooks.isVisible().catch(() => false)) {
+      await emptyBooks.click()
+      await page
+        .locator('.card', { hasText: 'Short Test Book' })
+        .locator('button', { hasText: 'Read' })
+        .click()
+    }
+    await expect(page.locator('.book-title')).toContainText(/Short Test Book/, { timeout: 15000 })
+    await expect(page.locator('.segment').first()).toBeVisible({ timeout: 15000 })
 
     // Wait for segments to load from DB
     await page.waitForTimeout(3000)
 
-    // Check if segments are marked as generated in UI
+    // Segments generated before the refresh are still marked as generated
     const generatedSegmentsInUI = await page.locator('.segment-generated').count()
     console.log('Generated segments in UI after refresh:', generatedSegmentsInUI)
-
-    // The test passes if we see the console logs showing segments persist
-    // We'll manually verify the output
+    expect(generatedSegmentsInUI).toBeGreaterThanOrEqual(generatedBefore)
   })
 })

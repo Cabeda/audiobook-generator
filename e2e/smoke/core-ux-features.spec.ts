@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test'
 import { join } from 'path'
 import process from 'node:process'
 
+import { importAndOpen, openSettingsPanel, settingsPanel } from '../helpers/flows'
+
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
 test.describe('Core UX Features', () => {
@@ -9,76 +11,46 @@ test.describe('Core UX Features', () => {
     await page.goto('/')
     await page.waitForLoadState('domcontentloaded')
 
-    // Upload test book
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SHORT_EPUB)
-    await expect(page.getByRole('heading', { name: 'Short Test Book' })).toBeVisible({
-      timeout: 10000,
-    })
-
-    // Open text reader
-    await page.getByRole('button', { name: 'Deselect All', exact: true }).click()
-    await page.locator('input[type="checkbox"]').first().check()
-    const readButton = page.getByRole('button', { name: /Read chapter/ }).first()
-    await readButton.click()
-    await expect(page.locator('.reader-page')).toBeVisible({ timeout: 10000 })
+    // Import the test book — it opens on the reading surface
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
   })
 
-  test('should show keyboard help overlay', async ({ page }) => {
-    // Press ? to show help
-    await page.keyboard.press('?')
+  test('should toggle playback from the transport bar', async ({ page }) => {
+    // Start listening, then pause and resume from the transport
+    await page.locator('button[aria-label="Listen to this chapter"]').click()
+    const playPause = page.locator('.transport button[aria-label="Play or pause"]')
+    // The first listen generates the chapter before it can play; give real
+    // TTS the time it needs on slower runners.
+    await expect(playPause).toContainText('❚❚', { timeout: 60000 })
 
-    // Verify overlay is visible with shortcuts
-    await expect(page.locator('.keyboard-help-overlay')).toBeVisible()
-    await expect(page.getByText('Keyboard Shortcuts')).toBeVisible()
-    await expect(page.getByText('Play / Pause')).toBeVisible()
-    await expect(page.getByText('Previous / Next segment')).toBeVisible()
+    await playPause.click()
+    await expect(playPause).toContainText('▶')
 
-    // Close by pressing ? again
-    await page.keyboard.press('?')
-    await expect(page.locator('.keyboard-help-overlay')).not.toBeVisible()
+    await playPause.click()
+    await expect(playPause).toContainText('❚❚')
   })
 
-  test('should close keyboard help with close button', async ({ page }) => {
-    await page.keyboard.press('?')
-    await expect(page.locator('.keyboard-help-overlay')).toBeVisible()
-
-    // Close via button
-    await page.locator('.keyboard-help-overlay .close-btn').click()
-    await expect(page.locator('.keyboard-help-overlay')).not.toBeVisible()
-  })
-
-  test('should toggle settings panel', async ({ page }) => {
+  test('should open settings panel with playback controls', async ({ page }) => {
     // Open settings via aria-label button
-    await page.getByRole('button', { name: 'Settings' }).click()
+    await openSettingsPanel(page)
 
     // Model select should be visible in settings
-    await expect(page.locator('#model-select')).toBeVisible()
+    await expect(settingsPanel(page).locator('label.field:has-text("Model") select')).toBeVisible()
 
-    // Auto-scroll checkbox should be visible
-    await expect(page.getByText('Auto-scroll during playback')).toBeVisible()
+    // Playback speed should be adjustable there
+    await expect(settingsPanel(page).locator('label.field:has-text("Speed") select')).toBeVisible()
   })
 
-  test('should toggle auto-scroll in settings', async ({ page }) => {
-    // Open settings
-    await page.getByRole('button', { name: 'Settings' }).click()
+  test('should change text size from settings', async ({ page }) => {
+    const column = page.locator('.column')
+    const initialSize = await column.evaluate((el) => getComputedStyle(el).fontSize)
 
-    // Find auto-scroll checkbox
-    const autoScrollCheckbox = page
-      .locator('label')
-      .filter({ hasText: 'Auto-scroll' })
-      .locator('input[type="checkbox"]')
+    // The A+ control steps the reading size up
+    await page.locator('button[aria-label="Larger text"]').click()
 
-    // Should be checked by default
-    await expect(autoScrollCheckbox).toBeChecked()
-
-    // Uncheck it
-    await autoScrollCheckbox.click()
-    await expect(autoScrollCheckbox).not.toBeChecked()
-
-    // Check it again
-    await autoScrollCheckbox.click()
-    await expect(autoScrollCheckbox).toBeChecked()
+    await expect
+      .poll(() => column.evaluate((el) => getComputedStyle(el).fontSize))
+      .not.toBe(initialSize)
   })
 
   test('should have toast container in DOM', async ({ page }) => {

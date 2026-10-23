@@ -13,18 +13,22 @@ permissions:
 
 jobs:
   e2e:
-    name: E2E Smoke Tests
+    name: E2E Smoke Tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    # Installing the dependencies and the browser, building the app and
-    # running the suite does not fit in five minutes.
-    timeout-minutes: 15
+    # Two shards × two workers: each job carries a quarter of the suite and
+    # finishes comfortably inside the budget.
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
           version: 10
 
@@ -42,10 +46,9 @@ jobs:
 
       - name: Build app
         run: pnpm build
-        continue-on-error: true
 
       - name: Run E2E smoke tests
-        run: npx playwright test --project=chromium
+        run: npx playwright test --project=chromium --shard=${{ matrix.shard }}/2
         env:
           CI: true
 
@@ -53,7 +56,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-test-results
+          name: e2e-test-results-${{ matrix.shard }}
           path: |
             test-results/
             playwright-report/

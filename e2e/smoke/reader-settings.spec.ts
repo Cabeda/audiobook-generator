@@ -18,6 +18,7 @@ import {
   openReader,
   readProbe,
 } from '../helpers/readerProbe'
+import { settingsPanel } from '../helpers/flows'
 
 const EXAMPLE_ARTICLE = join(process.cwd(), 'example', 'esim_article.epub')
 
@@ -56,10 +57,10 @@ test.describe('Reader settings', () => {
     await openCleanReader(page)
 
     await page.locator('button[aria-label="Settings"]').click()
-    await expect(page.locator('.settings-menu')).toBeVisible()
+    await expect(settingsPanel(page)).toBeVisible()
 
-    const models = await page
-      .locator('#model-select option')
+    const models = await settingsPanel(page)
+      .locator('label.field:has-text("Model") select option')
       .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value))
 
     expect(models).toEqual(['web_speech', 'kokoro', 'piper', 'pocket', 'kitten'])
@@ -80,8 +81,8 @@ test.describe('Reader settings', () => {
 
     // Change the voice while it plays.
     await page.locator('button[aria-label="Settings"]').click()
-    await expect(page.locator('.settings-menu')).toBeVisible()
-    const voiceSelect = page.locator('#voice-select')
+    await expect(settingsPanel(page)).toBeVisible()
+    const voiceSelect = settingsPanel(page).locator('label.field:has-text("Voice") select')
     const currentVoice = await voiceSelect.inputValue()
     const otherVoice = await voiceSelect
       .locator('option')
@@ -94,7 +95,7 @@ test.describe('Reader settings', () => {
       )
     expect(otherVoice).toBeTruthy()
     await voiceSelect.selectOption(otherVoice as string)
-    await page.locator('.close-settings').click()
+    await page.locator('aside.settings button[aria-label="Close"]').click()
 
     // The segment that was playing is made again with the new voice, with no click.
     await expect

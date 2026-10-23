@@ -3,6 +3,8 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
+import { importBookFile, importPanel, openSettingsPanel, settingsPanel } from './helpers/flows'
+
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
 test.describe('Kokoro TTS Caching', () => {
@@ -21,26 +23,23 @@ test.describe('Kokoro TTS Caching', () => {
 
     await page.goto('/')
 
-    // Upload EPUB
+    // Import the book — it opens on the reading surface
     const epubBuffer = await readFile(SHORT_EPUB)
-    await page.locator('input[type="file"]').setInputFiles({
+    await importBookFile(page, {
       name: 'test.epub',
       mimeType: 'application/epub+zip',
       buffer: epubBuffer,
     })
-    await page.waitForSelector('text=Short Test Book', { timeout: 20000 })
+    await expect(page.locator('.book-title')).toContainText(/Short Test Book/, { timeout: 20000 })
 
-    // Select Kokoro TTS
-    const modelSelect = page.locator('label:has-text("TTS Model") select')
-    await modelSelect.selectOption('kokoro')
-
-    // Select first chapter only
-    await page.locator('button:has-text("Deselect all")').click()
-    await page.locator('input[type="checkbox"]').first().check()
+    // Select Kokoro TTS in the Aa settings panel
+    await openSettingsPanel(page)
+    await settingsPanel(page).locator('label.field:has-text("Model") select').selectOption('kokoro')
 
     // Generate (this triggers model download)
     console.log('Triggering first generation...')
-    await page.locator('button:has-text("Generate & Download")').click()
+    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
+    await page.locator('aside.settings button[aria-label="Close"]').click()
 
     // Wait for "Fetching and caching" log
     // The model loading logs might appear before generation starts fully
@@ -63,45 +62,35 @@ test.describe('Kokoro TTS Caching', () => {
 
     // Reload page to test caching
     await page.reload()
+    await page.waitForLoadState('networkidle')
 
-    // Re-upload (storage might be cleared or not, but safe to re-upload)
-    await page.locator('input[type="file"]').setInputFiles({
+    // Re-open the book (storage might be cleared or not, but safe to re-import)
+    await importBookFile(page, {
       name: 'test.epub',
       mimeType: 'application/epub+zip',
       buffer: epubBuffer,
     })
-    await page.waitForSelector('text=Short Test Book', { timeout: 20000 })
+    await expect(page.locator('.book-title')).toContainText(/Short Test Book/, { timeout: 20000 })
+    await expect(importPanel(page)).toBeHidden()
 
     // Select Kokoro again
-    await page.locator('label:has-text("TTS Model") select').selectOption('kokoro')
-
-    // Generate again
-    await page.locator('button:has-text("Deselect all")').click()
-    await page.locator('input[type="checkbox"]').first().check()
-
-    // Verify selection
-    await expect(page.locator('text=Selected: 1 /')).toBeVisible()
-
-    const genBtn = page.locator('button:has-text("Generate & Download")')
-    await expect(genBtn).toBeEnabled()
+    await openSettingsPanel(page)
+    await settingsPanel(page).locator('label.field:has-text("Model") select').selectOption('kokoro')
 
     console.log('Triggering second generation...')
-    await genBtn.click()
+    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
+    await page.locator('aside.settings button[aria-label="Close"]').click()
 
     // Verify generation started
-    await expect(page.locator('text=/Generating/i')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.prep')).toBeVisible({ timeout: 10000 })
 
-    // Expect "Serving from cache" OR "Model loaded" (if cached internally)
+    // Expect "Serving from cache" — the model must not be fetched again
     await expect
       .poll(
         () => {
           const hasCacheLog = consoleLogs.some((l) =>
             l.includes('[KokoroCache] Serving from cache')
           )
-          consoleLogs.some((l) => l.includes('Kokoro TTS model loaded successfully'))
-          // We want to ensure it didn't fetch again (no "Fetching and caching" after second trigger)
-          // But consoleLogs accumulates all logs. We need to check logs AFTER the second trigger.
-          // For now, just check if we hit the cache log.
           return hasCacheLog
         },
         {

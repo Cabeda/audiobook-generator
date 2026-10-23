@@ -1,5 +1,11 @@
 import { get } from 'svelte/store'
-import { engineCapabilities, voiceOptionsFor, type TTSModelType } from './tts/ttsModels'
+import {
+  engineCapabilities,
+  voiceOptionsFor,
+  type SelectedModel,
+  type TTSModelType,
+} from './tts/ttsModels'
+import { sessionChapterId } from './reader/readerViewState'
 import logger from './utils/logger'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import { toastStore } from '../stores/toastStore'
@@ -48,7 +54,7 @@ class AudioPlaybackService {
   private voice = ''
   private quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16' = 'q8'
   private device: 'auto' | 'wasm' | 'webgpu' | 'cpu' = 'auto'
-  private selectedModel: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech' = 'kokoro'
+  private selectedModel: SelectedModel = 'kokoro'
   private initAbort: AbortController | null = null
   playbackSpeed = $state(1.0)
 
@@ -81,7 +87,7 @@ class AudioPlaybackService {
       voice: string
       quantization: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+      selectedModel?: SelectedModel
       playbackSpeed?: number
     },
     options?: {
@@ -289,7 +295,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+      selectedModel?: SelectedModel
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -315,7 +321,7 @@ class AudioPlaybackService {
       voice?: string
       quantization?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16'
       device?: 'auto' | 'wasm' | 'webgpu' | 'cpu'
-      selectedModel?: 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech'
+      selectedModel?: SelectedModel
       playbackSpeed?: number
     }
   ): Promise<{ success: boolean; hasAudio: boolean }> {
@@ -668,7 +674,7 @@ class AudioPlaybackService {
     audioPlayerStore.setChapterDuration(0)
   }
 
-  getCurrentModel(): 'kokoro' | 'piper' | 'pocket' | 'kitten' | 'web_speech' {
+  getCurrentModel(): SelectedModel {
     return this.selectedModel
   }
 
@@ -693,14 +699,35 @@ class AudioPlaybackService {
       return
     }
 
-    // For audio files, skip time
-    if (this.audio) {
-      const newTime = Math.max(
-        0,
-        Math.min(this.audio.duration || 0, this.audio.currentTime + seconds)
-      )
-      this.audio.currentTime = newTime
+    // Inside one audio file (merged chapter or current segment): seek,
+    // but only while the target stays within it.
+    const audio = this.audio
+    const duration = audio?.duration
+    if (audio && duration && Number.isFinite(duration)) {
+      const target = audio.currentTime + seconds
+      if (target >= 0 && target <= duration) {
+        audio.currentTime = target
+        return
+      }
     }
+
+    // Across segments: walk sentence by sentence and land on a segment start.
+    const segments = this.segments
+    if (segments.length === 0) return
+    const segmentDuration = (segment: (typeof segments)[number]) => segment.duration ?? 6
+    let index = Math.max(0, this.currentSegmentIndex)
+    let remaining = Math.abs(seconds)
+    const forward = seconds > 0
+    if (audio && Number.isFinite(audio.currentTime)) {
+      remaining -= forward
+        ? segmentDuration(segments[index]) - audio.currentTime
+        : audio.currentTime
+    }
+    while (remaining > 0 && (forward ? index < segments.length - 1 : index > 0)) {
+      index += forward ? 1 : -1
+      remaining -= segmentDuration(segments[index])
+    }
+    if (index !== this.currentSegmentIndex) void this.playFromSegment(index)
   }
 
   /**
@@ -713,7 +740,14 @@ class AudioPlaybackService {
 
   /** The chapter the player is on, if any. */
   playingChapterId(): string | null {
-    return get(audioPlayerStore).chapterId || null
+    // The player store restores a chapter id across sessions; a restored id is
+    // not a session, so only report one with audio actually loaded. Chapter ids
+    // repeat across books, so a stale id would otherwise look like the chapter
+    // being played and make play buttons toggle instead of load.
+    return sessionChapterId(
+      get(audioPlayerStore).chapterId || null,
+      this.segments.length > 0 || this.audio != null
+    )
   }
 
   /**

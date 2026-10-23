@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   MODEL_OPTIONS,
+  TTS_MODELS,
+  TTS_MODEL_IDS,
   engineCapabilities,
   engineSupportsLanguage,
   engineVoices,
+  fitVoiceFor,
+  getModelInfo,
   getTTSEngine,
+  isTTSModelType,
   voiceOptionsFor,
   type TTSRequest,
 } from './ttsModels'
@@ -105,15 +110,38 @@ describe('TTS engine seam', () => {
   })
 })
 
+describe('the registry', () => {
+  it('derives every list from one entry per engine', () => {
+    // The scaling invariant: an engine added to the registry appears in the
+    // pickers and metadata with no other edit, and nothing else may drift.
+    expect(TTS_MODELS.map((model) => model.id)).toEqual(TTS_MODEL_IDS)
+    for (const id of TTS_MODEL_IDS) {
+      expect(getModelInfo(id)?.id).toBe(id)
+      expect(MODEL_OPTIONS.some((option) => option.id === id)).toBe(true)
+      expect(engineCapabilities(id).languages).toBeDefined()
+    }
+    expect(isTTSModelType('kitten')).toBe(true)
+    expect(isTTSModelType('nope')).toBe(false)
+  })
+
+  it('fits a voice for an engine with no rule of its own', () => {
+    expect(fitVoiceFor('pocket', 'en', 'alba', false)).toBe('alba') // known voice kept
+    expect(fitVoiceFor('pocket', 'en', '', false)).toBe('alba') // first catalogue voice
+    expect(fitVoiceFor('kitten', 'en', 'Luna', false)).toBe('Luna')
+  })
+
+  it('offers no voices for an unknown engine instead of throwing', () => {
+    // Selects bind '' for 'app default' and stored ids go stale; a picker must
+    // survive either without taking the app down.
+    expect(voiceOptionsFor('' as never, 'en', [])).toEqual([])
+    expect(engineSupportsLanguage('' as never, 'en')).toBe(false)
+    expect(voiceOptionsFor('web-speech' as never, 'en', [])).toEqual([])
+  })
+})
+
 describe('the picker lists', () => {
   it('offer every registered engine plus the browser one, in one place', () => {
-    expect(MODEL_OPTIONS.map((model) => model.id)).toEqual([
-      'web_speech',
-      'kokoro',
-      'piper',
-      'pocket',
-      'kitten',
-    ])
+    expect(MODEL_OPTIONS.map((model) => model.id)).toEqual(['web_speech', ...TTS_MODEL_IDS])
     expect(MODEL_OPTIONS.every((model) => model.name.length > 0)).toBe(true)
   })
 

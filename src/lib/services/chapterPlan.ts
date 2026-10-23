@@ -11,12 +11,7 @@
  * disagree about who says the words.
  */
 
-import {
-  normalizeLanguageCode,
-  selectKokoroVoiceForLanguage,
-  selectPiperVoiceForLanguage,
-} from '../utils/voiceSelector'
-import { engineSupportsLanguage, engineVoices, type TTSModelType } from '../tts/ttsModels'
+import { engineSupportsLanguage, fitVoiceFor, type TTSModelType } from '../tts/ttsModels'
 import type { PiperVoice } from '../piper/piperClient'
 import type { Device, Quantization } from '../../stores/ttsStore'
 
@@ -85,9 +80,9 @@ export function planChapter(input: ChapterPlanInput): ChapterPlan {
 /**
  * A voice the chosen engine can actually speak.
  *
- * A voice explicitly chosen for the chapter is kept even when its language
- * differs — the person asked for it. Everything else is a default and may be
- * replaced by one that fits the language.
+ * The registry owns the rules: engines with special fitting carry them in
+ * their entry, every other engine keeps the requested voice when its catalogue
+ * knows it. A new engine is covered without a branch of its own.
  */
 function pickVoice(
   input: ChapterPlanInput,
@@ -95,31 +90,8 @@ function pickVoice(
   requestedVoice: string,
   hasChapterVoice: boolean
 ): string {
-  if (model === 'piper') {
-    const voices = input.piperVoices
-    if (!voices || voices.length === 0) return requestedVoice
-    const requested = requestedVoice
-      ? voices.find((voice) => voice.key === requestedVoice)
-      : undefined
-    const fitsLanguage =
-      requested !== undefined &&
-      normalizeLanguageCode(requested.language) === normalizeLanguageCode(input.language)
-    if (fitsLanguage) return requestedVoice
-    if (hasChapterVoice && requested !== undefined) return requestedVoice
-    return selectPiperVoiceForLanguage(input.language, voices)
-  }
-
-  if (model === 'kokoro') {
-    const voice = selectKokoroVoiceForLanguage(input.language, requestedVoice)
-    const known = input.kokoroVoices
-    if (known && known.length > 0 && !known.includes(voice)) return known[0]
-    return voice
-  }
-
-  // Every other engine has a fixed catalogue: keep the voice the person asked
-  // for when the engine knows it, otherwise take its first. A new engine is
-  // covered by this without a branch of its own.
-  const catalogue = engineVoices(model)
-  if (!catalogue || catalogue.length === 0) return requestedVoice
-  return requestedVoice && catalogue.includes(requestedVoice) ? requestedVoice : catalogue[0]
+  return fitVoiceFor(model, input.language, requestedVoice, hasChapterVoice, {
+    kokoroVoices: input.kokoroVoices,
+    piperVoices: input.piperVoices,
+  })
 }

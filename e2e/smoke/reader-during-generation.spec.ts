@@ -1,9 +1,9 @@
 /**
  * Reader during book generation — E2E test.
  *
- * A book is uploaded and starts generating. While that is going on, the reader
- * is opened on a chapter further down the book. The reader is what the person
- * is listening to, so:
+ * A book is imported and the whole book starts generating. While that is going
+ * on, the reader is opened on a chapter further down the book. The reader is
+ * what the person is listening to, so:
  *
  * - it starts playing by itself, without asking anything;
  * - the book carries on afterwards;
@@ -22,6 +22,7 @@ import {
   readProbe,
   waitForPlayback,
 } from '../helpers/readerProbe'
+import { clearAppStorage, importAndOpen, openSettingsPanel, settingsPanel } from '../helpers/flows'
 
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
@@ -54,44 +55,28 @@ test.describe('Reader during book generation', () => {
 
     await page.goto('/')
     await page.waitForLoadState('networkidle')
-
-    await page.evaluate(async () => {
-      const databases = await indexedDB.databases()
-      await Promise.all(
-        databases.map((database) => {
-          if (!database.name) return Promise.resolve()
-          return new Promise<void>((resolve) => {
-            const request = indexedDB.deleteDatabase(database.name as string)
-            request.onsuccess = () => resolve()
-            request.onerror = () => resolve()
-            request.onblocked = () => resolve()
-          })
-        })
-      )
-      localStorage.clear()
-      sessionStorage.clear()
-    })
+    await clearAppStorage(page)
     await page.reload()
     await page.waitForLoadState('networkidle')
 
-    // The book starts generating on its own.
-    await page.locator('input[type="file"]').setInputFiles(SHORT_EPUB)
-    await expect(page.getByRole('heading', { name: 'Short Test Book' })).toBeVisible({
-      timeout: 30000,
-    })
-    await expect(page.getByRole('button', { name: 'Generating...', exact: true })).toBeVisible({
-      timeout: 30000,
-    })
+    // The book is imported and the whole book starts generating.
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
+    await openSettingsPanel(page)
+    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
+    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await expect(page.locator('.prep')).toBeVisible({ timeout: 30000 })
 
-    // No "generation was interrupted" banner while the generation is running.
+    // No interruption surface while the generation is running.
     await expect(page.locator('.resume-banner')).toHaveCount(0)
+    await expect(page.locator('.error-strip')).toHaveCount(0)
 
     // Open the reader on the last chapter while the book is still generating.
-    await page.getByRole('button', { name: /Read chapter: Chapter 3/ }).click()
-    await expect(page.locator('.reader-page')).toBeVisible({ timeout: 15000 })
-    await expect(page.locator('.segment').first()).toBeVisible({ timeout: 15000 })
+    await page.locator('button[aria-label="Table of contents"]').click()
+    await page.locator('.toc-item').nth(2).click()
+    await page.locator('button[aria-label="Listen to this chapter"]').click()
+    await expect(page.locator('.transport')).toBeVisible({ timeout: 15000 })
 
-    const segmentCount = await page.locator('.segment').count()
+    const segmentCount = await page.locator('[data-section="2"] .segment').count()
     expect(segmentCount).toBeGreaterThan(0)
 
     // The reader plays by itself: nothing is clicked from here on.
@@ -102,20 +87,19 @@ test.describe('Reader during book generation', () => {
         `ended=${state.ended} requests=${state.requests} errors=${JSON.stringify(logs.slice(0, 3))}`
     ).toBeGreaterThanOrEqual(segmentCount)
 
-    // The rest of the book is still generated while the reader is on.
-    await page.getByRole('button', { name: 'Back to book' }).click()
-    await expect(page.getByRole('heading', { name: 'Short Test Book' })).toBeVisible({
-      timeout: 15000,
-    })
-
-    // The generation carries on and finishes the book.
-    await expect(page.getByRole('button', { name: 'Generate Selected', exact: true })).toBeVisible({
-      timeout: 120_000,
-    })
+    // The generation carries on and finishes the book: every chapter of the
+    // book is made, and none of them was interrupted.
     await expect(page.locator('.resume-banner')).toHaveCount(0)
+    await expect(page.locator('.error-strip')).toHaveCount(0)
 
-    const chapters = new Set((await readProbe(page)).requestTexts.map(chapterOf))
-    // Every chapter of the book was made, and none of them was interrupted.
-    expect([...chapters].filter((chapter) => chapter > 0).sort()).toEqual([1, 2, 3])
+    await expect
+      .poll(
+        async () =>
+          [...new Set((await readProbe(page)).requestTexts.map(chapterOf))]
+            .filter((chapter) => chapter > 0)
+            .sort(),
+        { timeout: 120_000 }
+      )
+      .toEqual([1, 2, 3])
   })
 })

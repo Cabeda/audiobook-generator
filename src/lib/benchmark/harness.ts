@@ -12,6 +12,8 @@
 import { parseEpubFile } from '../epubParser'
 import { segmentHtmlContent } from '../services/segmentationService'
 import {
+  defaultEngineConfig,
+  fitVoiceFor,
   getTTSEngine,
   type TTSEngine,
   type TTSEngineConfig,
@@ -20,9 +22,6 @@ import {
 import { concatenateAudioChapters } from '../audioConcat'
 import { incrementalConcatWav, parseWavDuration } from '../wavUtils'
 import { piperClient } from '../piper/piperClient'
-import { selectPiperVoiceForLanguage } from '../utils/voiceSelector'
-import { POCKET_VOICE_IDS } from '../pocket/pocketAssets'
-import { KITTEN_VOICES } from '../kitten/kittenVoices'
 import logger from '../utils/logger'
 
 export type BenchmarkPhase = 'loading' | 'generating' | 'encoding'
@@ -100,34 +99,16 @@ export interface BenchmarkOptions {
   onProgress?: (progress: BenchmarkProgress) => void
 }
 
-/** The engine settings each model is measured with. */
+/** The engine settings each model is measured with (from the registry). */
 export function benchmarkConfig(model: TTSModelType): TTSEngineConfig {
-  switch (model) {
-    case 'kokoro':
-      // The benchmark runs on the CPU, so WebGPU is not part of the comparison.
-      return { model: 'onnx-community/Kokoro-82M-v1.0-ONNX', dtype: 'q8', device: 'wasm' }
-    case 'piper':
-    case 'pocket':
-    case 'kitten':
-      return {}
-  }
+  return defaultEngineConfig(model)
 }
 
-/** A voice the model can speak the book with. */
+/** A voice the model can speak the book with (the registry's voice fitting). */
 export async function benchmarkVoice(model: TTSModelType, language: string): Promise<string> {
-  switch (model) {
-    case 'kokoro':
-      return 'af_heart'
-    case 'piper': {
-      const voices = await piperClient.getVoices()
-      if (voices.length === 0) return ''
-      return selectPiperVoiceForLanguage(language, voices)
-    }
-    case 'pocket':
-      return POCKET_VOICE_IDS[0]
-    case 'kitten':
-      return KITTEN_VOICES[0]
-  }
+  // Piper is the one engine whose catalogue is downloaded; the rest ship theirs.
+  const piperVoices = model === 'piper' ? await piperClient.getVoices() : []
+  return fitVoiceFor(model, language, '', false, { piperVoices })
 }
 
 type ChapterText = { id: string; title: string; segments: { text: string }[] }

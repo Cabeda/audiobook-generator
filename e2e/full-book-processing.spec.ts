@@ -5,6 +5,14 @@ import process from 'node:process'
 
 import JSZip from 'jszip'
 
+import {
+  clearAppStorage,
+  exportAs,
+  importAndOpen,
+  openSettingsPanel,
+  settingsPanel,
+} from './helpers/flows'
+
 const CONAN_DOYLE_EPUB = join(
   process.cwd(),
   'books',
@@ -27,10 +35,9 @@ test.describe('Full Book Processing — Conan Doyle', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await page.evaluate(() => {
-      localStorage.clear()
-      sessionStorage.clear()
-    })
+    await clearAppStorage(page)
+    await page.reload()
+    await page.waitForLoadState('networkidle')
     page.on('console', (msg) => {
       console.log('[PAGE ' + msg.type() + '] ' + msg.text())
     })
@@ -40,22 +47,25 @@ test.describe('Full Book Processing — Conan Doyle', () => {
     test.setTimeout(60000)
 
     const epubBuffer = await readFile(CONAN_DOYLE_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(
+      page,
+      {
+        name: 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub',
+        mimeType: 'application/epub+zip',
+        buffer: epubBuffer,
+      },
+      /Sign of the Four/i
+    )
 
-    // Wait for book to load
-    await page.waitForSelector('text=/Sign of the Four/i', { timeout: 30000 })
-
-    // Verify author
+    // Verify author in the library overlay
+    await page.locator('button[aria-label="Books"]').click()
     await expect(page.getByText(/Arthur Conan Doyle/i)).toBeVisible()
 
     // Verify chapter count — the book has 12 chapters
-    const checkboxes = page.locator('input[type="checkbox"]')
-    const count = await checkboxes.count()
+    await page.locator('section[aria-label="Books"] button[aria-label="Close"]').click()
+    await page.locator('button[aria-label="Table of contents"]').click()
+    const chapterRows = page.locator('.toc-item')
+    const count = await chapterRows.count()
     expect(count).toBeGreaterThanOrEqual(12)
   })
 
@@ -65,72 +75,42 @@ test.describe('Full Book Processing — Conan Doyle', () => {
 
     // --- Upload ---
     const epubBuffer = await readFile(CONAN_DOYLE_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
-
-    await page.waitForSelector('text=/Sign of the Four/i', { timeout: 30000 })
-
-    // --- Select all chapters ---
-    const selectAllButton = page.getByRole('button', { name: 'Select all', exact: true })
-    await selectAllButton.click()
-
-    const checkboxes = page.locator('input[type="checkbox"]')
-    const chapterCount = await checkboxes.count()
-    expect(chapterCount).toBeGreaterThanOrEqual(12)
-
-    for (let i = 0; i < chapterCount; i++) {
-      await expect(checkboxes.nth(i)).toBeChecked()
-    }
-
-    // --- Generate audio for all chapters ---
-    const advancedToggle = page.locator('button:has-text("Advanced Options")')
-    if (await advancedToggle.isVisible().catch(() => false)) {
-      await advancedToggle.click()
-    }
-
-    const genButton = page.locator('button:has-text("Generate")')
-    await expect(genButton).toBeVisible()
-    await genButton.click()
-
-    // Wait for generation to start
-    await page.waitForSelector('text=/Generating/i', { timeout: 60000 })
-
-    // Wait for generation to finish — export button becomes enabled
-    await page.waitForFunction(
-      () => {
-        const exportBtn = document.querySelector('.export-primary-btn:not(:disabled)')
-        return !!exportBtn
+    await importAndOpen(
+      page,
+      {
+        name: 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub',
+        mimeType: 'application/epub+zip',
+        buffer: epubBuffer,
       },
-      { timeout: 1200000, polling: 5000 }
+      /Sign of the Four/i
     )
 
-    const exportButton = page.locator('.export-primary-btn.export-main')
-    await expect(exportButton).toBeEnabled({ timeout: 10000 })
+    // --- Verify chapters ---
+    await page.locator('button[aria-label="Table of contents"]').click()
+    const chapterCount = await page.locator('.toc-item').count()
+    expect(chapterCount).toBeGreaterThanOrEqual(12)
+    await page.locator('button[aria-label="Close"]:visible').first().click()
+
+    // --- Generate audio for all chapters ---
+    await openSettingsPanel(page)
+    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
+    await page.locator('aside.settings button[aria-label="Close"]').click()
+
+    // Wait for generation to start
+    await expect(page.locator('.prep')).toBeVisible({ timeout: 60000 })
+
+    // Wait for generation to finish — every segment of the book is generated
+    await expect
+      .poll(async () => page.locator('.segment-generated').count(), {
+        timeout: 1200000,
+        intervals: [5000],
+      })
+      .toBe(await page.locator('.segment').count())
 
     // --- Export to each format and validate ---
 
-    // Helper to select a format from the dropdown
-    async function selectExportFormat(formatLabel: string) {
-      const formatToggle = page.locator('.export-toggle')
-      await formatToggle.click()
-      await page.waitForSelector('.export-format-menu', { timeout: 5000 })
-      const formatOption = page.locator('.format-option').filter({ hasText: formatLabel })
-      await formatOption.click()
-    }
-
     // 1. Export MP3
-    await selectExportFormat('MP3')
-    await expect(exportButton).toContainText('MP3')
-
-    const mp3Download = await Promise.all([
-      page.waitForEvent('download', { timeout: 300000 }),
-      exportButton.click(),
-    ]).then(([dl]) => dl)
-
+    const mp3Download = (await exportAs(page, 'mp3')).download
     const mp3Name = mp3Download.suggestedFilename()
     expect(mp3Name.toLowerCase()).toContain('.mp3')
     const mp3Path = join(process.cwd(), 'test-results', 'full-book-export.mp3')
@@ -144,14 +124,7 @@ test.describe('Full Book Processing — Conan Doyle', () => {
     console.log('[Export MP3] size=' + mp3Buf.length + ' file=' + mp3Name)
 
     // 2. Export M4B
-    await selectExportFormat('M4B Audiobook')
-    await expect(exportButton).toContainText('M4B')
-
-    const m4bDownload = await Promise.all([
-      page.waitForEvent('download', { timeout: 300000 }),
-      exportButton.click(),
-    ]).then(([dl]) => dl)
-
+    const m4bDownload = (await exportAs(page, 'm4b')).download
     const m4bName = m4bDownload.suggestedFilename()
     expect(m4bName.toLowerCase()).toContain('.m4b')
     const m4bPath = join(process.cwd(), 'test-results', 'full-book-export.m4b')
@@ -164,14 +137,7 @@ test.describe('Full Book Processing — Conan Doyle', () => {
     console.log('[Export M4B] size=' + m4bBuf.length + ' file=' + m4bName)
 
     // 3. Export WAV
-    await selectExportFormat('WAV')
-    await expect(exportButton).toContainText('WAV')
-
-    const wavDownload = await Promise.all([
-      page.waitForEvent('download', { timeout: 300000 }),
-      exportButton.click(),
-    ]).then(([dl]) => dl)
-
+    const wavDownload = (await exportAs(page, 'wav')).download
     const wavName = wavDownload.suggestedFilename()
     expect(wavName.toLowerCase()).toContain('.wav')
     const wavPath = join(process.cwd(), 'test-results', 'full-book-export.wav')
@@ -183,14 +149,7 @@ test.describe('Full Book Processing — Conan Doyle', () => {
     console.log('[Export WAV] size=' + wavBuf.length + ' file=' + wavName)
 
     // 4. Export MP4
-    await selectExportFormat('MP4')
-    await expect(exportButton).toContainText('MP4')
-
-    const mp4Download = await Promise.all([
-      page.waitForEvent('download', { timeout: 300000 }),
-      exportButton.click(),
-    ]).then(([dl]) => dl)
-
+    const mp4Download = (await exportAs(page, 'mp4')).download
     const mp4Name = mp4Download.suggestedFilename()
     expect(mp4Name.toLowerCase()).toContain('.mp4')
     const mp4Path = join(process.cwd(), 'test-results', 'full-book-export.mp4')
@@ -202,14 +161,7 @@ test.describe('Full Book Processing — Conan Doyle', () => {
     console.log('[E MP4] size=' + mp4Buf.length + ' file=' + mp4Name)
 
     // 5. Export EPUB (with media overlays) — most thorough validation
-    await selectExportFormat('EPUB')
-    await expect(exportButton).toContainText('EPUB')
-
-    const epubDownload = await Promise.all([
-      page.waitForEvent('download', { timeout: 300000 }),
-      exportButton.click(),
-    ]).then(([dl]) => dl)
-
+    const epubDownload = (await exportAs(page, 'epub')).download
     const epubName = epubDownload.suggestedFilename()
     expect(epubName.toLowerCase()).toContain('.epub')
     const epubPath = join(process.cwd(), 'test-results', 'full-book-export.epub')

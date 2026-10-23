@@ -3,6 +3,8 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
+import { importAndOpen, openSettingsPanel, settingsPanel } from '../helpers/flows'
+
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
 test.describe('Audiobook Generation - Smoke', () => {
@@ -13,40 +15,38 @@ test.describe('Audiobook Generation - Smoke', () => {
 
   test('should load the application', async ({ page }) => {
     await expect(page).toHaveTitle(/Audiobook Generator/i)
-    await expect(page.locator('h1')).toContainText(/Audiobook Generator/i)
+    // The app opens straight into the reader's empty state
+    await expect(page.locator('.empty-state h1')).toContainText(/Your library is empty/i)
   })
 
   test('should upload EPUB and display book info', async ({ page }) => {
     const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(
+      page,
+      {
+        name: 'test-short.epub',
+        mimeType: 'application/epub+zip',
+        buffer: epubBuffer,
+      },
+      /Short Test Book/
+    )
 
-    // Wait for book to load
-    await expect(page.getByRole('heading', { name: 'Short Test Book' })).toBeVisible({
-      timeout: 20000,
-    })
-    await expect(page.getByText('Test Author')).toBeVisible()
+    await expect(page.locator('.book-title')).toContainText('Short Test Book')
 
     // Verify chapter list is shown
-    const checkboxes = page.locator('input[type="checkbox"]')
-    await expect(checkboxes.first()).toBeVisible()
-    const count = await checkboxes.count()
-    expect(count).toBeGreaterThanOrEqual(1)
+    await page.locator('button[aria-label="Table of contents"]').click()
+    const tocItems = page.locator('.toc-item')
+    await expect(tocItems.first()).toBeVisible()
+    expect(await tocItems.count()).toBeGreaterThanOrEqual(1)
   })
 
   test('should show model selector with options', async ({ page }) => {
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles(SHORT_EPUB)
-    await expect(page.getByRole('heading', { name: 'Short Test Book' })).toBeVisible({
-      timeout: 10000,
-    })
+    await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    // Model selector should be visible with Kokoro as default
-    const modelSelect = page.locator('.toolbar-left .premium-select').first()
+    // Model selector should be visible in the Aa settings panel with Kokoro as
+    // default
+    await openSettingsPanel(page)
+    const modelSelect = settingsPanel(page).locator('label.field:has-text("Model") select')
     await expect(modelSelect).toBeVisible()
     await expect(modelSelect).toHaveValue('kokoro')
 

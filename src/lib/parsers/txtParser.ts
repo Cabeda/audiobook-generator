@@ -24,6 +24,16 @@ export class TxtParser implements BookParser {
     // Detect and split chapters
     const chapters = this.detectChapters(text, metadata.contentStart)
 
+    // A file with no body past its title line is still one readable chapter.
+    if (chapters.length === 0) {
+      const paragraphs = text
+        .trim()
+        .split(/\n{2,}/)
+        .map((p) => `<p>${p.trim()}</p>`)
+        .join('')
+      chapters.push({ id: 'chapter-1', title: metadata.title, content: paragraphs })
+    }
+
     return {
       title: metadata.title,
       author: metadata.author,

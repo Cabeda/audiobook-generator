@@ -8,6 +8,8 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
+import { exportAs, importAndOpen, openSettingsPanel, settingsPanel } from './helpers/flows'
+
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
 test.describe('MP3 Export - Multi-segment chapter', () => {
@@ -24,33 +26,34 @@ test.describe('MP3 Export - Multi-segment chapter', () => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
 
-    // Upload EPUB
+    // Import EPUB
     const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(
+      page,
+      {
+        name: 'test-short.epub',
+        mimeType: 'application/epub+zip',
+        buffer: epubBuffer,
+      },
+      /Short Test Book/
+    )
 
-    // Wait for book to load
-    await page.waitForSelector('text=Short Test Book', { timeout: 10000 })
+    // Generate every chapter — the second one has multiple segments, which is
+    // where the concatenation used to break.
+    await openSettingsPanel(page)
+    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
+    await page.locator('aside.settings button[aria-label="Close"]').click()
 
-    // Select all and generate
-    await page.getByRole('button', { name: 'Select All', exact: true }).click()
-    await page.locator('button:has-text("Generate Selected")').click()
-
-    // Wait until at least the second chapter (6 segments) is generated
-    await expect(page.locator('text=✓ Generated').nth(1)).toBeVisible({ timeout: 90000 })
+    await expect
+      .poll(async () => page.locator('.segment-generated').count(), { timeout: 90000 })
+      .toBe(await page.locator('.segment').count())
 
     // Clear console before export
     consoleMessages.length = 0
 
-    // Click the global Export MP3 button
-    await page.locator('button:has-text("Export MP3")').click()
-
-    // Wait for export to process
-    await page.waitForTimeout(10000)
+    // Export the whole book as MP3 through the export sheet
+    const { filename } = await exportAs(page, 'mp3')
+    expect(filename?.endsWith('.mp3')).toBeTruthy()
 
     // Check results
     const hasConcatError = consoleMessages.some((m) => m.includes('Failed to concatenate'))

@@ -140,8 +140,11 @@ Workflow:
    - Use `take_snapshot` to capture page structure and identify elements
    - Use `click`, `fill`, `upload_file` etc. to interact with the UI
    - Use `take_screenshot` to visually verify styling and layout
-   - Use `list_console_messages` to check for runtime errors
-   - Use `evaluate_script` to inspect application state (stores, IndexedDB, etc.)
+
+- When the harness cannot paint (headless or occluded window — screenshots error), verify through the DOM instead: `evaluate` assertions, and `document.title` accumulation for timing-sensitive flows
+- Use `list_console_messages` to check for runtime errors
+- Use `evaluate_script` to inspect application state (stores, IndexedDB, etc.)
+
 4. If the feature involves file upload, use test files from `example/` directory
 5. **If you find a bug during agent-browser testing, fix it before moving on**
 
@@ -163,6 +166,7 @@ Rules:
 - **Bug fix = regression test.** If you fix a bug that could have been caught by E2E, add a test that would catch it if it regresses.
 - **Changed behavior = updated test.** If you change how a feature works, update the corresponding E2E test to match.
 - **Run E2E after changes:** `pnpm test:e2e` (or `pnpm test:e2e:fast` for quick smoke tests with the short EPUB).
+- **Budget assert timeouts for real work:** the first listen generates a chapter with real TTS before playback can start, so a 15s assert turns a working flow into a flake on slow runners. Assert against the work, not the local clock.
 - **Don't leave broken E2E tests.** If a test fails due to your change, fix the test — don't skip or delete it unless the tested feature was intentionally removed.
 
 E2E test patterns:
@@ -246,6 +250,8 @@ Testing and validation
 Files & locations (quick references)
 
 - Main scripts and dependencies: `package.json`
+- Engine registry: `src/lib/tts/ttsModels.ts` — one `ENGINES` entry per TTS engine; model/capability/voice questions answer here first
+- Review standards: `CODING_STANDARDS.md` — read at review time, not implementation
 - Playwright config: `playwright.config.ts`
 - Vitest config: `vitest.config.ts`
 - Source code: `src/` (components, lib, etc.)

@@ -46,8 +46,7 @@ test.describe('Reader engine matrix', () => {
       await page.evaluate((model) => {
         localStorage.clear()
         sessionStorage.clear()
-        localStorage.setItem('audiobook_model', model)
-        localStorage.setItem('text_reader_model', model)
+        localStorage.setItem('audiobook_model', JSON.stringify(model))
       }, engine)
       await page.reload()
       await page.waitForLoadState('networkidle')

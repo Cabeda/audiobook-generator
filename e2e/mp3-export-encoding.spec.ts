@@ -8,6 +8,8 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
+import { exportAs, exportSheet, importAndOpen } from './helpers/flows'
+
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
 test.describe('MP3 Export Encoding', () => {
@@ -22,46 +24,40 @@ test.describe('MP3 Export Encoding', () => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
 
-    // Upload short test EPUB
+    // Import the short test EPUB — it opens on the reading surface
     const epubBuffer = await readFile(SHORT_EPUB)
-    const fileInput = page.locator('input[type="file"]')
-    await fileInput.setInputFiles({
-      name: 'test-short.epub',
-      mimeType: 'application/epub+zip',
-      buffer: epubBuffer,
-    })
+    await importAndOpen(
+      page,
+      {
+        name: 'test-short.epub',
+        mimeType: 'application/epub+zip',
+        buffer: epubBuffer,
+      },
+      /Short Test Book/
+    )
 
-    // Wait for book to load
-    await page.waitForSelector('text=Short Test Book', { timeout: 10000 })
-
-    // Deselect all, then select only first chapter
-    await page.locator('button:has-text("Deselect All")').click()
-    const firstCheckbox = page.locator('input[type="checkbox"]').first()
-    await firstCheckbox.check()
-
-    // Generate the first chapter (Kokoro is default)
-    await page.locator('button:has-text("Generate Selected")').click()
-
-    // Wait for generation to complete
-    await page.waitForSelector('text=✓ Generated', { timeout: 90000 })
+    // Generate the first chapter (Kokoro is default) by listening to it
+    await page.locator('button[aria-label="Listen to this chapter"]').click()
+    await expect(page.locator('.transport')).toBeVisible({ timeout: 15000 })
+    await expect
+      .poll(async () => page.locator('[data-section="0"] .segment-generated').count(), {
+        timeout: 90000,
+      })
+      .toBe(await page.locator('[data-section="0"] .segment').count())
 
     // Clear console messages before export
     consoleMessages.length = 0
 
-    // Click Export MP3
-    const exportBtn = page.locator('button:has-text("Export MP3")')
-    await expect(exportBtn).toBeVisible({ timeout: 5000 })
-    await exportBtn.click()
+    // Export as MP3 through the export sheet
+    const { filename } = await exportAs(page, 'mp3')
+    expect(filename?.endsWith('.mp3')).toBeTruthy()
 
-    // Wait for export to process (check console for result)
-    await page.waitForTimeout(10000)
+    // The sheet reports success
+    await expect(exportSheet(page).locator('.done')).toContainText(/✓ Exported/)
 
     // Check results
     const hasEncodingError = consoleMessages.some((m) => m.includes('ENCODING_ERROR'))
     const hasExportFailed = consoleMessages.some((m) => m.includes('Export failed'))
-    const hasSuccess = consoleMessages.some(
-      (m) => m.includes('download-trigger') || m.includes('Audiobook created')
-    )
 
     // Log all messages for debugging
     console.log(
@@ -77,6 +73,5 @@ test.describe('MP3 Export Encoding', () => {
 
     expect(hasEncodingError).toBe(false)
     expect(hasExportFailed).toBe(false)
-    expect(hasSuccess).toBe(true)
   })
 })
