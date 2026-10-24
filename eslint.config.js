@@ -74,6 +74,7 @@ export default [
       '.svelte-kit/**',
       'playwright-report/**',
       'test-results/**',
+      '.pwa-loop/**',
       'coverage/**',
     ],
   },

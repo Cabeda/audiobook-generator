@@ -3,7 +3,13 @@
   import { toastStore } from '../stores/toastStore'
   import { onMount } from 'svelte'
 
-  const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW({
+  // Updates apply on their own now (see vite.config.ts): this only registers
+  // the service worker and reloads once a new one has taken over. The old
+  // "New content available" banner is gone with it — its click could never
+  // guarantee the update completed, and the banner came back on every launch.
+  const { offlineReady, needRefresh } = useRegisterSW({
+    // The controllerchange reload below is the single reload path.
+    onNeedReload: () => {},
     onRegistered(r: any) {
       console.log('SW Registered:', r)
     },
@@ -36,76 +42,3 @@
     }
   })
 </script>
-
-{#if $needRefresh}
-  <div class="pwa-toast" role="alert">
-    <div class="message">
-      <span>New content available, click on reload button to update.</span>
-    </div>
-    <div class="buttons">
-      <button onclick={() => updateServiceWorker(true)}>Reload</button>
-      <button onclick={close}>Close</button>
-    </div>
-  </div>
-{/if}
-
-<style>
-  .pwa-toast {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    margin: 16px;
-    padding: 12px;
-    border: 1px solid #8885;
-    border-radius: 4px;
-    z-index: 10000;
-    text-align: left;
-    box-shadow: 3px 4px 5px 0 #8885;
-    background-color: white;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .message {
-    margin-bottom: 8px;
-  }
-
-  .buttons {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-  }
-
-  button {
-    border: 1px solid #8885;
-    outline: none;
-    margin-right: 5px;
-    border-radius: 2px;
-    padding: 3px 10px;
-    cursor: pointer;
-    background-color: white;
-  }
-
-  button:hover {
-    background-color: #f0f0f0;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .pwa-toast {
-      background-color: #333;
-      color: white;
-      border-color: #555;
-    }
-
-    button {
-      background-color: #444;
-      color: white;
-      border-color: #666;
-    }
-
-    button:hover {
-      background-color: #555;
-    }
-  }
-</style>
