@@ -4,6 +4,7 @@ build
 .svelte-kit
 playwright-report
 test-results
+.pwa-loop
 coverage
 package-lock.json
 pnpm-lock.yaml

@@ -6,7 +6,11 @@ export default defineConfig({
   plugins: [
     svelte(),
     VitePWA({
-      registerType: 'prompt',
+      // Updates complete on their own: the previous prompt flow could leave an
+      // update stuck in `waiting` forever (iOS suspends a closed PWA's page
+      // instead of killing it, so the old client never goes away), and the
+      // "New content available" banner then reappeared on every launch.
+      registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
         name: 'Audiobook Generator',
@@ -30,7 +34,9 @@ export default defineConfig({
         // Raised to cover large WASM chunks (Kokoro/Piper can be 50-200 MB each)
         maximumFileSizeToCacheInBytes: 250 * 1024 * 1024,
         clientsClaim: true,
-        skipWaiting: false,
+        // Never wait: a waiting worker is what got stuck (see above) — a new
+        // one takes over as soon as it has installed.
+        skipWaiting: true,
         // Model weights are already cached by the engines themselves (Cache API
         // for Kokoro/Pocket, OPFS for Piper), so only the CDN runtime is added
         // here — caching weights again would store every model twice.
