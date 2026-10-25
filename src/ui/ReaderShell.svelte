@@ -147,9 +147,17 @@
     const onHash = () => applyRoute()
     const goOnline = () => (online = true)
     const goOffline = () => (online = false)
+    // The device can go away at any moment: keep the place when it does.
+    const flushPosition = () => saveCurrentPosition()
+    const onPageHide = () => flushPosition()
+    const onVisibility = () => {
+      if (document.hidden) flushPosition()
+    }
     window.addEventListener('hashchange', onHash)
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
+    window.addEventListener('pagehide', onPageHide)
+    document.addEventListener('visibilitychange', onVisibility)
 
     // Lock screen / notification controls, bound once.
     bindLockScreenControls({
@@ -173,6 +181,8 @@
       window.removeEventListener('hashchange', onHash)
       window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
+      window.removeEventListener('pagehide', onPageHide)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   })
 
@@ -258,12 +268,9 @@
     else if (el.scrollTop < lastScrollTop - 4) poke()
     lastScrollTop = el.scrollTop
 
-    // Remember where the reader is, at most every few seconds.
-    const now = Date.now()
-    if (now - lastSavedAt > 3000) {
-      lastSavedAt = now
-      saveCurrentPosition()
-    }
+    // Remember where the reader is: every scroll (a save is tiny), because
+    // the device can close at any moment and the last spot is the point.
+    saveCurrentPosition()
 
     // Eleven-style: scrolling never moves the narration, it only detaches the
     // view; a button offers the return trip.
@@ -533,19 +540,43 @@
   })
 
   // ---- where the reader left off ----
-  let lastSavedAt = 0
+
+  /** The sentence at the top of the reading area and its distance from it. */
+  function visibleAnchor() {
+    const el = scroller
+    if (!el) return null
+    const top = el.getBoundingClientRect().top
+    // Only the chapter under the reading line can hold the sentence — scanning
+    // every rendered segment on every scroll would jank on a large book.
+    const section = el.querySelector<HTMLElement>(`[data-section="${ui.chapterIndex}"]`)
+    if (!section) return null
+    for (const seg of section.querySelectorAll<HTMLElement>('.segment')) {
+      const rect = seg.getBoundingClientRect()
+      if (rect.bottom > top + 1) {
+        return {
+          chapterId: book?.chapters[ui.chapterIndex]?.id ?? null,
+          segment: Number(seg.getAttribute('data-segment-index')),
+          offset: Math.round(rect.top - top),
+        }
+      }
+    }
+    return null
+  }
 
   function saveCurrentPosition() {
     const chapter = book?.chapters[ui.chapterIndex]
     if (!chapter) return
     const previous = loadPosition(reader.bookId)
+    const anchor = visibleAnchor()
     savePosition(reader.bookId, {
-      chapterId: chapter.id,
+      chapterId: anchor?.chapterId ?? chapter.id,
       segmentIndex:
         reader.chapterId === chapter.id && reader.segmentIndex >= 0
           ? reader.segmentIndex
           : (previous?.segmentIndex ?? 0),
       scrollFraction: ui.progress,
+      anchorSegment: anchor?.segment ?? previous?.anchorSegment,
+      anchorOffset: anchor?.offset ?? previous?.anchorOffset,
       savedAt: Date.now(),
     })
   }
@@ -559,9 +590,23 @@
     if (!at) return
     ui.chapterIndex = at.chapterIndex
     ui.progress = saved?.scrollFraction ?? 0
+    // The anchor chapter must be rendered before its sentence can be found.
+    if (at.chapterIndex >= renderedCount) renderedCount = at.chapterIndex + 1
     requestAnimationFrame(() => {
       const el = scroller
       if (!el) return
+      if (saved?.anchorSegment != null && saved.anchorOffset != null) {
+        // Exact: put the sentence that was at the reading line back there.
+        const seg = el.querySelector<HTMLElement>(
+          `[data-section="${at.chapterIndex}"] .segment[data-segment-index="${saved.anchorSegment}"]`
+        )
+        if (seg) {
+          const top = el.getBoundingClientRect().top
+          el.scrollTop += seg.getBoundingClientRect().top - top - saved.anchorOffset
+          return
+        }
+      }
+      // Old saves (or a changed book) only know the scroll share.
       el.scrollTop = ui.progress * (el.scrollHeight - el.clientHeight)
     })
   }

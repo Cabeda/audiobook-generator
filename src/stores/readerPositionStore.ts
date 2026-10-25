@@ -14,6 +14,14 @@ export interface ReaderPosition {
   segmentIndex: number
   /** Share of the book scrolled through, 0..1. */
   scrollFraction: number
+  /**
+   * The sentence at the top of the reading area and its pixel distance from
+   * it — what "exactly where I was" means. A fraction is not enough: the
+   * scrollable height changes as chapters render lazily, so the same fraction
+   * describes a different place before and after a reopen.
+   */
+  anchorSegment?: number
+  anchorOffset?: number
   savedAt: number
 }
 
