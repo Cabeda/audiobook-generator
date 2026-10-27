@@ -8,6 +8,7 @@
  */
 
 import type { ChapterStatus } from '../../stores/bookStore'
+import { htmlToText } from '../html/chapterHtml'
 
 /** The part of a chapter's segment progress the view state needs. */
 export interface ChapterSegmentProgressLike {
@@ -70,10 +71,7 @@ export function bookGenerationView(
 
 /** Seconds of speech a chapter's text is worth (the app's ~2.6 words/second). */
 export function chapterEstimateSeconds(content: string): number {
-  const words = content
-    .replace(/<[^>]+>/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean).length
+  const words = htmlToText(content).split(/\s+/).filter(Boolean).length
   return words / 2.6
 }
 

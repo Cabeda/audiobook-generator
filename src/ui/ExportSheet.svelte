@@ -5,6 +5,7 @@
   import { EXPORT_FORMATS, type ExportFormat } from '../lib/exportFormats'
   import { chapterErrors, chapterStatus } from '../stores/bookStore'
   import { segmentProgress } from '../stores/segmentProgressStore'
+  import { htmlToText } from '../lib/html/chapterHtml'
   import { reader } from './readerModel.svelte'
 
   let { book, onClose }: { book: Book; onClose: () => void } = $props()
@@ -26,7 +27,7 @@
   let duration = $derived(
     Math.round(
       book.chapters.reduce(
-        (a, c) => a + c.content.replace(/<[^>]+>/g, ' ').split(/\s+/).length,
+        (a, c) => a + htmlToText(c.content).split(/\s+/).filter(Boolean).length,
         0
       ) / 2.6
     )

@@ -16,9 +16,25 @@ _Avoid_: article, section, page, passage, part
 A web page imported by URL. Its extracted text becomes one Chapter of a Book — not a separate kind of thing.
 _Avoid_: use Chapter for the text itself
 
+**Document structure**:
+The headings, lists, tables and images a Chapter's text carries. It is kept alongside the text so the reader can show it and the app can speak it in order — not flattened away.
+_Avoid_: format, formatting, layout, markup, styling
+
+**File format**:
+The container a Book arrives in: EPUB, PDF, HTML or TXT.
+_Avoid_: format (on its own), type, extension
+
 **Segment**:
 The smallest piece of a Chapter that is spoken as a single stretch of audio, and the unit playback moves through one at a time. Segments are numbered from 0 within their Chapter.
 _Avoid_: sentence, chunk, fragment, paragraph, piece
+
+**Caption**:
+The text a document prints with an image. It is what gets shown under the image and spoken in its place; alt text only stands in when there is no caption.
+_Avoid_: description, alt text (as a synonym), label
+
+**Table row**:
+The unit a table is spoken in. One row is one Segment, with the header taken from the first row.
+_Avoid_: line, record
 
 **Quality tier**:
 How good a segment's audio is, from cheapest (tier 0) to best (tier 2). A tier names an engine, a voice and a precision.

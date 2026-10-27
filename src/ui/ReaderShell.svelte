@@ -9,6 +9,7 @@
   import {
     applySegmentState,
     findSegmentElement,
+    findSegmentElements,
     highlightActiveSegment,
     scrollSegmentIntoView,
     segmentIndexFromEvent,
@@ -374,13 +375,19 @@
   // Offline is a state the reader wears openly: generated audio keeps playing.
   let online = $state(typeof navigator === 'undefined' || navigator.onLine)
 
+  // Seconds per chapter, computed from the text once per book rather than on
+  // every playback tick that moves the position.
+  let chapterEstimates = $derived.by(() =>
+    (book?.chapters ?? []).map((c) => chapterEstimateSeconds(c.content))
+  )
+
   // Position in the book as a whole, not just the chapter being played: the
   // chapters before it plus the share of it already played.
   let listen = $derived.by(() => {
     const chapters = book?.chapters ?? []
     const index = chapters.findIndex((c) => c.id === playback.chapterId)
     return bookProgressOf(
-      chapters.map((c) => chapterEstimateSeconds(c.content)),
+      chapterEstimates,
       index,
       playback.duration > 0 ? playback.position / playback.duration : 0
     )
@@ -750,7 +757,10 @@
         if (prev[i] === st) continue // keep the generating pulse from restarting
         prev[i] = st
         const el = findSegmentElement(i, section)
-        if (el) applySegmentState(el, st)
+        if (el) {
+          // A table row is one segment over several cells: colour them all.
+          for (const cell of findSegmentElements(i, section)) applySegmentState(cell, st)
+        }
       }
     })
   })
@@ -1241,6 +1251,108 @@
   .column :global(p) {
     margin: 0 0 1.1em;
     line-height: 1.85;
+  }
+
+  /* Document structure, as the source had it. The reader styles it; the source
+     document's own class and style attributes were stripped at import. */
+  .column :global(h1),
+  .column :global(h2),
+  .column :global(h3),
+  .column :global(h4),
+  .column :global(h5),
+  .column :global(h6) {
+    line-height: 1.3;
+    font-weight: 650;
+    margin: 2em 0 0.7em;
+  }
+
+  .column :global(h1:not(.chapter-mark)) {
+    font-size: 1.7em;
+  }
+  .column :global(h2:not(.chapter-mark)) {
+    font-size: 1.4em;
+  }
+  .column :global(h3:not(.chapter-mark)) {
+    font-size: 1.2em;
+  }
+  .column :global(h4:not(.chapter-mark)),
+  .column :global(h5:not(.chapter-mark)),
+  .column :global(h6:not(.chapter-mark)) {
+    font-size: 1.05em;
+  }
+
+  .column :global(ul),
+  .column :global(ol) {
+    margin: 0 0 1.1em;
+    padding-left: 1.5em;
+  }
+
+  .column :global(li) {
+    margin: 0.35em 0;
+    line-height: 1.7;
+  }
+
+  .column :global(table) {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    margin: 1.2em 0;
+    font-size: 0.92em;
+  }
+
+  .column :global(th),
+  .column :global(td) {
+    border: 1px solid var(--v-line);
+    padding: 0.5em 0.7em;
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  .column :global(th) {
+    background: var(--v-line);
+    font-weight: 600;
+  }
+
+  .column :global(figure) {
+    margin: 1.5em 0;
+    text-align: center;
+  }
+
+  .column :global(img) {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+  }
+
+  .column :global(figcaption) {
+    margin-top: 0.6em;
+    font-size: 0.85em;
+    color: var(--v-sub);
+  }
+
+  .column :global(blockquote) {
+    margin: 1.2em 0;
+    padding-left: 1em;
+    border-left: 3px solid var(--v-line);
+    color: var(--v-sub);
+  }
+
+  .column :global(pre) {
+    margin: 1.2em 0;
+    padding: 0.8em 1em;
+    background: var(--v-line);
+    border-radius: 6px;
+    font-size: 0.85em;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .column :global(hr) {
+    border: none;
+    border-top: 1px solid var(--v-line);
+    margin: 2em 0;
   }
 
   /* segment states: dim = no audio yet, full = generated, amber = being made */

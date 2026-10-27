@@ -56,7 +56,11 @@ describe('importBook', () => {
   it('fetches a URL, then stores what it got', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ({ ok: true, blob: async () => new Blob(['x']) }))
+      vi.fn(async () => ({
+        ok: true,
+        headers: { get: () => 'application/epub+zip' },
+        blob: async () => new Blob(['x']),
+      }))
     )
     vi.mocked(loader.loadBook).mockResolvedValue(parsedBook() as never)
     vi.mocked(db.getBook).mockResolvedValue({ id: 42, ...parsedBook() } as unknown as LibraryBook)

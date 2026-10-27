@@ -9,6 +9,7 @@
   import { chapterErrors, chapterStatus } from '../stores/bookStore'
   import { piperVoices } from '../stores/piperVoicesStore'
   import { segmentProgress } from '../stores/segmentProgressStore'
+  import { htmlToText } from '../lib/html/chapterHtml'
   import { reader } from './readerModel.svelte'
 
   let {
@@ -49,7 +50,7 @@
   let duration = $derived(
     Math.round(
       book.chapters.reduce(
-        (a, c) => a + c.content.replace(/<[^>]+>/g, ' ').split(/\s+/).length,
+        (a, c) => a + htmlToText(c.content).split(/\s+/).filter(Boolean).length,
         0
       ) / 2.6
     )

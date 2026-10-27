@@ -1,9 +1,13 @@
 import type { Book, BookParser, Chapter, OnParseProgress } from '../types/book'
 import { readFileAsText } from '../fileUtils'
+import { htmlToText, sanitizeChapterHtml } from '../html/chapterHtml'
 
 /**
- * Parser for HTML files
- * Extracts chapters from heading tags and metadata from HTML meta tags
+ * Parser for HTML files.
+ *
+ * The chapter's content keeps its markup — headings, lists, tables and images
+ * are what the reader shows and the app speaks — so this splits the document
+ * into chapters by heading and hands each piece to the sanitizer.
  */
 export class HtmlParser implements BookParser {
   async canParse(file: File): Promise<boolean> {
@@ -17,192 +21,96 @@ export class HtmlParser implements BookParser {
 
   async parse(file: File, _onProgress?: OnParseProgress): Promise<Book> {
     const html = await readFileAsText(file)
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(html, 'text/html')
-
-    // Extract metadata
-    const metadata = this.extractMetadata(doc)
-
-    // Extract chapters from heading structure
-    const chapters = this.extractChapters(doc)
+    const doc = new DOMParser().parseFromString(html, 'text/html')
 
     return {
-      title: metadata.title,
-      author: metadata.author,
-      chapters,
+      title: this.extractTitle(doc),
+      author: this.extractAuthor(doc),
+      chapters: this.extractChapters(doc),
       format: 'html',
     }
   }
 
-  /**
-   * Extract title and author from HTML meta tags and title
-   */
-  private extractMetadata(doc: Document): {
-    title: string
-    author: string
-  } {
-    // Try <title> tag
-    let title = doc.querySelector('title')?.textContent?.trim() || 'Untitled'
+  private extractTitle(doc: Document): string {
+    return (
+      doc.querySelector('meta[name="title"]')?.getAttribute('content')?.trim() ||
+      doc.querySelector('title')?.textContent?.trim() ||
+      htmlToText(doc.body?.innerHTML ?? '').slice(0, 80) ||
+      'Untitled'
+    )
+  }
 
-    // Try meta tags
-    const metaTitle = doc.querySelector('meta[name="title"]')?.getAttribute('content')
-    const metaAuthor = doc.querySelector('meta[name="author"]')?.getAttribute('content')
-    const dcCreator = doc.querySelector('meta[name="DC.creator"]')?.getAttribute('content')
-
-    if (metaTitle) title = metaTitle
-
-    const author = metaAuthor || dcCreator || 'Unknown'
-
-    return { title, author }
+  private extractAuthor(doc: Document): string {
+    const meta =
+      doc.querySelector('meta[name="author"]')?.getAttribute('content') ||
+      doc.querySelector('meta[name="DC.creator"]')?.getAttribute('content')
+    return meta?.trim() || 'Unknown'
   }
 
   /**
-   * Extract chapters based on heading structure
-   * Uses h1 or h2 tags as chapter markers
+   * The headings that start a chapter: the shallowest level that has more than
+   * one, so a page with a single title and several sections splits on sections.
    */
+  private chapterHeadings(doc: Document): Element[] {
+    for (const level of ['h1', 'h2', 'h3']) {
+      const found = Array.from(doc.querySelectorAll(level))
+      if (found.length >= 2) return found
+    }
+    const anyLevel = Array.from(doc.querySelectorAll('h1, h2, h3'))
+    return anyLevel.length === 1 ? anyLevel : []
+  }
+
   private extractChapters(doc: Document): Chapter[] {
-    // Try h1 first, fall back to h2 if no h1s found
-    let headings = Array.from(doc.querySelectorAll('h1'))
-
-    if (headings.length < 2) {
-      headings = Array.from(doc.querySelectorAll('h2'))
-    }
-
-    // If still no headings, try h3
-    if (headings.length < 2) {
-      headings = Array.from(doc.querySelectorAll('h3'))
-    }
-
-    // If we have headings, use them to split chapters
-    if (headings.length >= 1) {
-      return this.extractChaptersByHeadings(headings)
-    }
-
-    // Fallback: treat entire body as one chapter
-    return this.extractSingleChapter(doc)
-  }
-
-  /**
-   * Extract chapters using heading tags as delimiters
-   */
-  private extractChaptersByHeadings(headings: Element[]): Chapter[] {
-    const chapters: Chapter[] = []
-
-    for (let i = 0; i < headings.length; i++) {
-      const heading = headings[i]
-      const title = heading.textContent?.trim() || `Chapter ${i + 1}`
-
-      // Collect content between this heading and the next
-      const content: string[] = []
-      let currentNode: Node | null = heading.nextSibling
-      const nextHeading = headings[i + 1]
-
-      while (currentNode && currentNode !== nextHeading) {
-        if (currentNode.nodeType === Node.ELEMENT_NODE) {
-          const element = currentNode as Element
-          // Skip other headings of the same level
-          if (!this.isHeading(element)) {
-            const text = this.cleanText(element.textContent || '')
-            if (text) content.push(text)
-          }
-        } else if (currentNode.nodeType === Node.TEXT_NODE) {
-          const text = this.cleanText(currentNode.textContent || '')
-          if (text) content.push(text)
-        }
-        currentNode = this.getNextNode(currentNode, nextHeading)
-      }
-
-      const chapterContent = content.join('\n\n').trim()
-
-      if (chapterContent.length > 0) {
-        chapters.push({
-          id: `chapter-${i + 1}`,
-          title,
-          content: chapterContent,
-        })
-      }
-    }
-
-    return chapters.length > 0
-      ? chapters
-      : this.extractSingleChapterFromBody(headings[0].ownerDocument!)
-  }
-
-  /**
-   * Get the next node in document order, stopping before a specific node
-   */
-  private getNextNode(node: Node, stopBefore: Node | null): Node | null {
-    if (node === stopBefore) return null
-
-    // If has children, go to first child
-    if (node.firstChild) {
-      return node.firstChild
-    }
-
-    // If has next sibling, go there
-    if (node.nextSibling) {
-      if (node.nextSibling === stopBefore) return null
-      return node.nextSibling
-    }
-
-    // Go up to parent and find next sibling
-    let parent = node.parentNode
-    while (parent) {
-      if (parent.nextSibling) {
-        if (parent.nextSibling === stopBefore) return null
-        return parent.nextSibling
-      }
-      parent = parent.parentNode
-    }
-
-    return null
-  }
-
-  /**
-   * Check if element is a heading tag
-   */
-  private isHeading(element: Element): boolean {
-    return /^H[1-6]$/.test(element.tagName)
-  }
-
-  /**
-   * Extract single chapter from entire document body
-   */
-  private extractSingleChapter(doc: Document): Chapter[] {
     const body = doc.body
     if (!body) return []
 
-    const content = this.cleanText(body.textContent || '').trim()
+    const headings = this.chapterHeadings(doc)
+    if (headings.length === 0) return this.singleChapter(doc)
 
-    if (content.length === 0) return []
+    const chapters: Chapter[] = []
+    headings.forEach((heading, index) => {
+      const next = headings[index + 1]
+      const title = heading.textContent?.replace(/\s+/g, ' ').trim() || `Chapter ${index + 1}`
 
-    // Use first line or first 80 characters as title
-    const firstLine = content.split('\n')[0].substring(0, 80)
+      // Ranges copy across whatever nesting the page uses, so a heading buried
+      // in a div still splits at the right place.
+      const range = doc.createRange()
+      if (index === 0) range.setStart(body, 0)
+      else range.setStartAfter(heading)
+      if (next) range.setEndBefore(next)
+      else range.setEnd(body, body.childNodes.length)
 
-    return [
-      {
-        id: 'full-document',
-        title: firstLine || 'Full Document',
-        content,
-      },
-    ]
+      const holder = doc.createElement('div')
+      holder.appendChild(range.cloneContents())
+      this.dropTitleHeading(holder, title)
+
+      const content = sanitizeChapterHtml(holder.innerHTML)
+      if (htmlToText(content)) chapters.push({ id: `chapter-${index + 1}`, title, content })
+    })
+
+    return chapters.length > 0 ? chapters : this.singleChapter(doc)
+  }
+
+  /** No headings: the whole page is one chapter, titled by its first line. */
+  private singleChapter(doc: Document): Chapter[] {
+    const content = sanitizeChapterHtml(doc.body?.innerHTML ?? '')
+    const text = htmlToText(content)
+    if (!text) return []
+
+    return [{ id: 'full-document', title: text.slice(0, 80), content }]
   }
 
   /**
-   * Extract single chapter from body (used when chapter extraction fails)
+   * The reader prints the chapter title above the chapter, so a heading that
+   * repeats it would be shown and spoken twice.
    */
-  private extractSingleChapterFromBody(doc: Document): Chapter[] {
-    return this.extractSingleChapter(doc)
-  }
-
-  /**
-   * Clean text by removing extra whitespace and normalizing line breaks
-   */
-  private cleanText(text: string): string {
-    return text
-      .replace(/\s+/g, ' ') // Collapse whitespace
-      .replace(/\n\s*\n/g, '\n\n') // Normalize paragraph breaks
-      .trim()
+  private dropTitleHeading(holder: Element, title: string): void {
+    const normalize = (value: string | null | undefined) =>
+      (value ?? '').replace(/\s+/g, ' ').trim()
+    const heading = Array.from(holder.querySelectorAll('h1, h2, h3, h4, h5, h6')).find(
+      (candidate) => normalize(candidate.textContent) === normalize(title)
+    )
+    heading?.remove()
   }
 }
 

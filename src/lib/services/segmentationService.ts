@@ -193,11 +193,15 @@ export function segmentHtmlContent(
     return true
   }
 
-  // Process block elements and wrap sentences directly in the DOM
-  // Only select leaf block elements (not containers like section/article/div)
+  // The elements that become segments, in the order they are read. A table row
+  // and a picture on its own are segments too, not blocks of prose.
   let blockElements = Array.from(
-    doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, code')
+    doc.body.querySelectorAll(
+      'p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, code, figcaption, dt, dd, tr, img[alt]'
+    )
   )
+
+  let segmentIndex = 0
 
   // Fallback: if no block elements found, treat body's direct children or body itself as blocks
   // This handles plain text or content wrapped in non-semantic divs
@@ -212,11 +216,58 @@ export function segmentHtmlContent(
     }
   }
 
-  let segmentIndex = 0
   const processedElements = new Set<Element>()
 
   // Process each block element
   blockElements.forEach((block) => {
+    // A picture on its own is spoken by its alt text. A figure's caption, when
+    // it has one, is the better description and is read as its own block.
+    if (block.tagName === 'IMG') {
+      const alt = (block.getAttribute('alt') ?? '').trim()
+      if (!alt || block.closest('figure')?.querySelector('figcaption')) return
+      const container = block.closest('p, div, li, figure, td, th') ?? block.parentElement
+      if (!container || (container.textContent ?? '').trim()) return
+
+      const span = doc.createElement('span')
+      span.className = 'segment'
+      span.id = segmentId(segmentIndex)
+      span.setAttribute('data-segment-index', String(segmentIndex))
+      block.replaceWith(span)
+      span.appendChild(block)
+
+      segments.push({ index: segmentIndex, text: alt, id: span.id })
+      segmentIndex++
+      return
+    }
+
+    // A table is spoken a row at a time: a cell-by-cell reading is unlistenable.
+    // Every cell carries the row's index; only the first one carries the id.
+    if (block.tagName === 'TR') {
+      const cells = Array.from(block.querySelectorAll('th, td')).filter(
+        (cell) => (cell.textContent ?? '').trim().length > 0
+      )
+      const text = cells
+        .map((cell) => (cell.textContent ?? '').replace(/\s+/g, ' ').trim())
+        .join(', ')
+      if (!text) return
+
+      const id = segmentId(segmentIndex)
+      cells.forEach((cell, cellIndex) => {
+        const span = doc.createElement('span')
+        span.className = 'segment'
+        span.setAttribute('data-segment-index', String(segmentIndex))
+        if (cellIndex === 0) span.id = id
+        // A <span> cannot wrap a <tr>, so the row is joined by the cells' spans.
+        while (cell.firstChild) span.appendChild(cell.firstChild)
+        cell.appendChild(span)
+      })
+
+      segments.push({ index: segmentIndex, text, id })
+      segmentIndex++
+      processedElements.add(block)
+      return
+    }
+
     // Skip if this element is nested inside another block we've already processed
     let parent = block.parentElement
     let skip = false
