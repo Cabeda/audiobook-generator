@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   applySegmentState,
   findSegmentElement,
+  findSegmentElements,
   getSegmentIndex,
   highlightActiveSegment,
   scrollSegmentIntoView,
@@ -49,6 +50,33 @@ describe('reader segments', () => {
 
     first.remove()
     second.remove()
+  })
+
+  it('reads the index a table cell carries without an id', () => {
+    const cell = document.createElement('span')
+    cell.className = 'segment'
+    cell.dataset.segmentIndex = '7'
+
+    expect(getSegmentIndex(cell)).toBe(7)
+  })
+
+  it('finds and highlights every element of a row-shaped segment', () => {
+    const root = document.createElement('div')
+    const first = makeSegment('seg-3')
+    const second = document.createElement('span')
+    second.className = 'segment'
+    second.dataset.segmentIndex = '3'
+    root.append(first, second)
+    document.body.appendChild(root)
+
+    expect(findSegmentElements(3, root)).toEqual([first, second])
+
+    highlightActiveSegment(3, root)
+
+    expect(first.classList.contains('active')).toBe(true)
+    expect(second.classList.contains('active')).toBe(true)
+
+    root.remove()
   })
 
   it('derives the state of a segment from the generation progress', () => {

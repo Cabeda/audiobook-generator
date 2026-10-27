@@ -1,5 +1,7 @@
 import JSZip from 'jszip'
 import type { Book, BookParser, Chapter, OnParseProgress } from './types/book'
+import { dropHeadingMatching, sanitizeChapterBody } from './html/chapterHtml'
+import { createZipReader, inlineChapterImages } from './epub/epubAssets'
 
 // This file runs in the browser and depends on lib.dom being available.
 // If your TypeScript environment complains, enable the 'dom' lib or
@@ -41,144 +43,6 @@ export class EpubParser implements BookParser {
   }
 }
 
-function cleanHtml(html: string): string {
-  // Strict HTML sanitization to prevent XSS attacks from malicious EPUB content.
-  // This removes all executable JavaScript including event handlers and javascript: URLs.
-
-  // First, parse it to DOM to process safely
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(html, 'text/html')
-
-  // Remove dangerous elements that can execute scripts or load external content
-  const toRemove = doc.querySelectorAll(
-    'script, style, link, meta, title, head, iframe, object, embed, form, button, input, textarea, select, svg, base, applet'
-  )
-  toRemove.forEach((el) => el.remove())
-
-  // Sanitize all elements in the entire document (not just body)
-  const allElements = doc.querySelectorAll('*')
-  allElements.forEach((el) => {
-    // Remove all event handler attributes dynamically (any attribute starting with 'on')
-    // This is more future-proof than maintaining a hardcoded list
-    Array.from(el.attributes).forEach((attr) => {
-      if (attr.name.toLowerCase().startsWith('on')) {
-        el.removeAttribute(attr.name)
-      }
-    })
-
-    // Remove style attribute to prevent CSS-based attacks
-    el.removeAttribute('style')
-
-    // Remove class attribute to use our own styling
-    el.removeAttribute('class')
-
-    // Only keep id attributes that match the segment pattern (seg-*)
-    if (el.hasAttribute('id')) {
-      const id = el.getAttribute('id') || ''
-      if (!/^seg-\w+/.test(id)) {
-        el.removeAttribute('id')
-      }
-    }
-
-    // Sanitize href attributes to prevent dangerous URL schemes
-    if (el.hasAttribute('href')) {
-      const href = el.getAttribute('href') || ''
-      if (!isSafeUrl(href)) {
-        el.removeAttribute('href')
-      }
-    }
-
-    // Sanitize src attributes to prevent dangerous URL schemes
-    if (el.hasAttribute('src')) {
-      const src = el.getAttribute('src') || ''
-      if (!isSafeUrl(src)) {
-        el.removeAttribute('src')
-      }
-    }
-
-    // Remove other potentially dangerous attributes
-    el.removeAttribute('action')
-    el.removeAttribute('formaction')
-    el.removeAttribute('poster')
-    el.removeAttribute('background')
-    el.removeAttribute('srcdoc')
-    el.removeAttribute('codebase')
-  })
-
-  return doc.body.innerHTML
-}
-
-/**
- * Check if a URL is safe to use in href or src attributes.
- * This function handles URL encoding to prevent bypass attacks.
- * @param url - The URL to check
- * @returns true if the URL is safe, false otherwise
- */
-function isSafeUrl(url: string): boolean {
-  if (!url) return true // Empty URLs are safe (will be removed by browser anyway)
-
-  const trimmedUrl = url.trim()
-  if (!trimmedUrl) return true
-
-  // Decode URL to catch encoded attacks like %6A%61%76%61%73%63%72%69%70%74:
-  let decodedUrl = trimmedUrl
-  // Decode multiple times (up to a small limit) to catch nested encoding,
-  // but stop if decoding fails or no further changes occur.
-  const maxDecodes = 3
-  for (let i = 0; i < maxDecodes; i++) {
-    try {
-      const onceDecoded = decodeURIComponent(decodedUrl)
-      if (onceDecoded === decodedUrl) {
-        break
-      }
-      decodedUrl = onceDecoded
-    } catch {
-      // If decoding fails at this level, stop decoding but keep the last
-      // successfully decoded value for safety checks.
-      break
-    }
-  }
-
-  const lowerUrl = decodedUrl.toLowerCase().replace(/\s/g, '')
-
-  // Block dangerous protocols
-  const dangerousProtocols = [
-    'javascript:',
-    'data:',
-    'vbscript:',
-    'file:',
-    'about:',
-    'javascript&colon;',
-    'vbscript&colon;',
-  ]
-
-  for (const protocol of dangerousProtocols) {
-    if (lowerUrl.startsWith(protocol)) {
-      return false
-    }
-  }
-
-  // Additional check: try parsing as URL if it looks like an absolute URL
-  if (lowerUrl.includes(':')) {
-    try {
-      const urlObj = new URL(decodedUrl)
-      const protocol = urlObj.protocol.toLowerCase()
-      // Only allow http, https, and relative URLs
-      if (protocol !== 'http:' && protocol !== 'https:' && protocol !== '') {
-        return false
-      }
-    } catch {
-      // If URL parsing fails but it contains ':', it might be malformed - be safe and reject
-      if (lowerUrl.indexOf(':') < 20) {
-        // Protocol should be within first 20 chars
-        return false
-      }
-    }
-  }
-
-  return true
-}
-
 function extractChapterTitle(
   chapterDoc: Document | null,
   guideTitle: string | undefined,
@@ -203,14 +67,15 @@ function extractChapterTitle(
   ].filter((v): v is string => !!v)
 
   const headingTitle = headings.length > 0 ? headings[0] : null
-  const title =
+  const title = (
     guideTitle ||
-    cleanHtml(
-      chapterTitleFromStructure ||
-        headingTitle ||
-        chapterDoc?.querySelector('title')?.textContent ||
-        ''
-    )
+    chapterTitleFromStructure ||
+    headingTitle ||
+    chapterDoc?.querySelector('title')?.textContent ||
+    ''
+  )
+    .replace(/\s+/g, ' ')
+    .trim()
   return title || fallbackTitle || `Chapter ${index + 1}`
 }
 
@@ -271,6 +136,7 @@ export async function parseEpubFile(file: File, onProgress?: OnParseProgress): P
 
   onProgress?.({ percent: 0.2, step: 'Extracting chapters...' })
   const chapters: Chapter[] = []
+  const assets = createZipReader(zip)
   const totalSpineItems = spine.length
   for (const [index, item] of spine.entries()) {
     const id = item.getAttribute('idref') || ''
@@ -281,9 +147,21 @@ export async function parseEpubFile(file: File, onProgress?: OnParseProgress): P
       if (!fileObj) continue
       const chapterContent = await fileObj.async('text')
       const chapterDoc = parser.parseFromString(chapterContent, 'text/html')
-      const content = cleanHtml(chapterDoc.querySelector('body')?.innerHTML || '')
+      const body = chapterDoc.body
+      if (!body) continue
+
+      // Read the title before sanitizing: it looks at the source's own classes.
       const guideTitle = chapterTitles.get(id)
-      const title = extractChapterTitle(chapterDoc, guideTitle, content, index)
+      const title = extractChapterTitle(chapterDoc, guideTitle, '', index)
+
+      // The archive does not survive the import: inline its pictures first.
+      await inlineChapterImages(body, assets, fullPath)
+      sanitizeChapterBody(body)
+
+      // The reader prints the title above the chapter; a heading that repeats it
+      // would be shown and spoken twice.
+      dropHeadingMatching(body, title)
+      const content = body.innerHTML
       if (content) {
         chapters.push({ id: `chapter-${index + 1}`, title, content })
       }

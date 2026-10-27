@@ -8,6 +8,7 @@
  */
 
 import { loadBook } from '../bookLoader'
+import type { Book } from '../types/book'
 import {
   addBook,
   deleteBook,
@@ -27,19 +28,12 @@ export interface ChapterOverride {
 
 /** Import a file, or a URL to fetch first, into the library. */
 export async function importBook(source: { file: File } | { url: string }): Promise<LibraryBook> {
-  let file: File
-  if ('file' in source) {
-    file = source.file
-  } else {
-    const response = await fetch(source.url)
-    if (!response.ok) throw new Error(`Could not fetch URL — HTTP ${response.status}`)
-    const blob = await response.blob()
-    const name = source.url.split('/').pop()?.split('?')[0] || 'book.epub'
-    file = new File([blob], name, { type: blob.type })
-  }
-
-  const parsed = await loadBook(file)
-  const id = await addBook(parsed, file)
+  const parsed = 'file' in source ? await loadBook(source.file) : await loadFromUrl(source.url)
+  const id = await addBook(
+    parsed,
+    'file' in source ? source.file : undefined,
+    'url' in source ? source.url : undefined
+  )
 
   // Best effort, as in the old flow: without detection the book simply keeps
   // its declared language and the defaults pick the voice.
@@ -51,6 +45,42 @@ export async function importBook(source: { file: File } | { url: string }): Prom
   }
 
   return (await getBook(id)) ?? ({ id, ...parsed } as LibraryBook)
+}
+
+/**
+ * A URL may be a book (EPUB, PDF, TXT) or a page to read as an article.
+ *
+ * Pages go through Readability, which is the same extraction Readeck uses, so a
+ * link becomes the article and not the page around it. Anything it cannot read
+ * as an article falls back to the whole-page parser.
+ */
+async function loadFromUrl(url: string): Promise<Book> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`Could not fetch URL — HTTP ${response.status}`)
+
+  const contentType = response.headers.get('content-type') ?? ''
+  const pathname = pathnameOf(url)
+  const namesAFile = /\.[a-z0-9]{2,5}$/i.test(pathname)
+
+  if (/text\/html|application\/xhtml/i.test(contentType) || !namesAFile) {
+    const html = await response.text()
+    const { parseArticle } = await import('../parsers/articleParser')
+    const article = parseArticle(html, url)
+    if (article) return article
+    return loadBook(new File([html], 'page.html', { type: 'text/html' }))
+  }
+
+  const blob = await response.blob()
+  const name = pathname.split('/').pop() || 'book.epub'
+  return loadBook(new File([blob], name, { type: blob.type }))
+}
+
+function pathnameOf(url: string): string {
+  try {
+    return new URL(url).pathname
+  } catch {
+    return url
+  }
 }
 
 /** Open a book, marking it as read now so the library sorts by recency. */

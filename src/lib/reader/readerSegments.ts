@@ -15,20 +15,38 @@ export const SEGMENT_CLASS = 'segment'
 
 /** The selector for every segment in a container. */
 export function segmentSelector(): string {
-  return `span[id^="${SEGMENT_ID_PREFIX}"]`
+  return `.${SEGMENT_CLASS}[data-segment-index]`
 }
 
 /** The index of the segment an element belongs to, or null when it is not one. */
 export function getSegmentIndex(element: HTMLElement | null): number | null {
-  if (!element || !element.id.startsWith(SEGMENT_ID_PREFIX)) return null
-  const index = parseInt(element.id.slice(SEGMENT_ID_PREFIX.length), 10)
+  if (!element) return null
+  // Table rows carry the index on every cell, but only one of them has the id.
+  const raw = element.id.startsWith(SEGMENT_ID_PREFIX)
+    ? element.id.slice(SEGMENT_ID_PREFIX.length)
+    : (element.dataset.segmentIndex ?? '')
+  if (!raw) return null
+  const index = parseInt(raw, 10)
   return isNaN(index) ? null : index
 }
 
 /** The element of a segment, looked up in a container when one is given. */
 export function findSegmentElement(index: number, root?: ParentNode | null): HTMLElement | null {
-  if (!root) return document.getElementById(`${SEGMENT_ID_PREFIX}${index}`)
-  return root.querySelector(`#${SEGMENT_ID_PREFIX}${index}`) as HTMLElement | null
+  return findSegmentElements(index, root)[0] ?? null
+}
+
+/**
+ * Every element of a segment: a table row is one segment spread over its cells.
+ */
+export function findSegmentElements(
+  index: number,
+  root: ParentNode | null = document
+): HTMLElement[] {
+  if (!root) return []
+  // The id selector covers segments of books made before rows had an index.
+  return Array.from(
+    root.querySelectorAll(`#${SEGMENT_ID_PREFIX}${index}, [data-segment-index="${index}"]`)
+  ) as HTMLElement[]
 }
 
 /** Mark one segment as the active one and clear the others. */
@@ -36,7 +54,7 @@ export function highlightActiveSegment(index: number, root?: ParentNode | null):
   document
     .querySelectorAll(`.${SEGMENT_CLASS}.active`)
     .forEach((element) => element.classList.remove('active'))
-  findSegmentElement(index, root)?.classList.add('active')
+  findSegmentElements(index, root).forEach((element) => element.classList.add('active'))
 }
 
 /** How a segment is drawn: generated, being generated, or still pending. */

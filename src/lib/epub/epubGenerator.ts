@@ -21,6 +21,8 @@ export class EpubGenerator {
   private zip: JSZip
   private metadata: EpubMetadata
   private chapters: EpubChapter[] = []
+  // Inlined chapter images become real files: EPUB3 forbids data: URIs.
+  private images = new Map<string, { href: string; mediaType: string; blob: Blob }>()
 
   constructor(metadata: EpubMetadata) {
     this.zip = new JSZip()
@@ -51,8 +53,8 @@ export class EpubGenerator {
 
     // 3. Add Content (XHTML, Audio, SMIL)
     for (const chapter of this.chapters) {
-      // XHTML
-      oebps.file(`${chapter.id}.xhtml`, chapter.content)
+      // XHTML, with any inlined image pulled back out into a file
+      oebps.file(`${chapter.id}.xhtml`, this.extractDataImages(chapter.content))
 
       // Audio & SMIL (if present)
       if (chapter.audioBlob && chapter.smilData) {
@@ -64,6 +66,11 @@ export class EpubGenerator {
     // 4. Add Cover (if present)
     if (this.metadata.cover) {
       oebps.file('cover.jpg', this.metadata.cover)
+    }
+
+    // 4b. The images pulled out of the chapters
+    for (const image of this.images.values()) {
+      oebps.file(image.href, image.blob)
     }
 
     // 5. Generate content.opf
@@ -93,6 +100,10 @@ export class EpubGenerator {
     // Cover
     if (hasCover) {
       manifestItems += `<item id="cover-image" href="cover.jpg" media-type="image/jpeg" properties="cover-image"/>\n`
+    }
+    // Chapter images
+    for (const [id, image] of this.images) {
+      manifestItems += `<item id="${id}" href="${image.href}" media-type="${image.mediaType}"/>\n`
     }
 
     // Calculate total duration for all media overlays
@@ -213,4 +224,36 @@ ${globalDurationMeta}${durationMeta}  </metadata>
   </body>
 </html>`
   }
+
+  /**
+   * Write each inlined `data:` image to `images/` and point the markup at it.
+   *
+   * Chapters store images inline so a book survives a reload; EPUB3 does not
+   * allow `data:` URIs in content documents, so the export undoes that step.
+   * The same picture used twice is written once.
+   */
+  private extractDataImages(html: string): string {
+    return html.replace(
+      /src="(data:image\/(png|jpe?g|gif|webp|avif);base64,[^"]+)"/g,
+      (_match, dataUrl: string, subtype: string) => {
+        let image = this.images.get(dataUrl)
+        if (!image) {
+          const mediaType = `image/${subtype === 'jpg' ? 'jpeg' : subtype}`
+          const id = `image-${this.images.size + 1}`
+          const href = `images/${id}.${subtype === 'jpeg' ? 'jpg' : subtype}`
+          image = { href, mediaType, blob: base64ToBlob(dataUrl, mediaType) }
+          this.images.set(dataUrl, image)
+        }
+        return `src="${image.href}"`
+      }
+    )
+  }
+}
+
+function base64ToBlob(dataUrl: string, mediaType: string): Blob {
+  const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mediaType })
 }

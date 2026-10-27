@@ -68,7 +68,6 @@ function escapeXml(str: string): string {
  * Project Gutenberg, Readeck, etc.):
  * - Self-closing void elements (<br>, <img>, <hr>, <input>, <meta>, <link>)
  * - &nbsp; → &#160;
- * - Removes <img> tags referencing missing local resources (../images/*)
  * - Rewrites internal links to non-bundled XHTML files as plain text
  * - Strips XML processing instructions that may be embedded in content
  * - Removes stray CDATA sections
@@ -90,10 +89,6 @@ function sanitizeXhtml(html: string): string {
   result = result.replace(/&trade;/g, '&#8482;')
   result = result.replace(/&copy;/g, '&#169;')
   result = result.replace(/&reg;/g, '&#174;')
-
-  // Remove <img> tags that reference local images we don't bundle
-  // (e.g., ../images/titlepage.svg, ../images/logo.svg, images/cover.jpg)
-  result = result.replace(/<img[^>]*src=["'][^"']*images\/[^"']*["'][^>]*\/?>/gi, '')
 
   // Rewrite internal links to non-bundled .xhtml/.html files as plain text
   // e.g., <a href="uncopyright.xhtml">text</a> → text
