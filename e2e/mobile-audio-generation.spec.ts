@@ -68,7 +68,7 @@ test.describe('Mobile Audio Generation E2E', () => {
   test('should load the application on mobile', async ({ page }) => {
     await expect(page).toHaveTitle(/Audiobook Generator/i)
     // The app opens straight into the reader's empty state
-    await expect(page.locator('.empty-state h1')).toContainText(/Your library is empty/i)
+    await expect(page.locator('.empty-state h1')).toContainText(/Turn any book into an audiobook/i)
   })
 
   test('should upload EPUB via touch on mobile', async ({ page }) => {

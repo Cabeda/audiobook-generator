@@ -16,7 +16,20 @@ test.describe('Audiobook Generation - Smoke', () => {
   test('should load the application', async ({ page }) => {
     await expect(page).toHaveTitle(/Audiobook Generator/i)
     // The app opens straight into the reader's empty state
-    await expect(page.locator('.empty-state h1')).toContainText(/Your library is empty/i)
+    await expect(page.locator('.empty-state h1')).toContainText(/Turn any book into an audiobook/i)
+    // The read-along EPUB3 export is what the empty state sells
+    await expect(page.locator('.empty-feature-tag')).toContainText(/EPUB3/i)
+  })
+
+  test('should switch reading theme before a book is open', async ({ page }) => {
+    const sepia = page.locator('.empty-theme', { hasText: 'Sepia' })
+    await sepia.click()
+    await expect(sepia).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.empty-state')).toHaveCSS('background-color', 'rgb(244, 236, 216)')
+
+    // the choice is the reader's theme, so it survives a reload
+    await page.reload()
+    await expect(page.locator('.empty-theme.on')).toContainText('Sepia')
   })
 
   test('should upload EPUB and display book info', async ({ page }) => {

@@ -14,7 +14,7 @@ export type ExportFormat = AudioExportFormat | 'epub'
 export const EXPORT_FORMATS: { value: ExportFormat; label: string }[] = [
   { value: 'mp3', label: 'MP3' },
   { value: 'm4b', label: 'M4B Audiobook' },
-  { value: 'epub', label: 'EPUB' },
+  { value: 'epub', label: 'EPUB3 (read-along)' },
   { value: 'mp4', label: 'MP4' },
   { value: 'wav', label: 'WAV' },
 ]
