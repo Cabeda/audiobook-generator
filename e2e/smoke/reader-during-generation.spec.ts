@@ -22,7 +22,7 @@ import {
   readProbe,
   waitForPlayback,
 } from '../helpers/readerProbe'
-import { clearAppStorage, importAndOpen, openSettingsPanel, settingsPanel } from '../helpers/flows'
+import { clearAppStorage, importAndOpen, generateAudiobook } from '../helpers/flows'
 
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
@@ -61,9 +61,7 @@ test.describe('Reader during book generation', () => {
 
     // The book is imported and the whole book starts generating.
     await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await generateAudiobook(page)
     await expect(page.locator('.prep')).toBeVisible({ timeout: 30000 })
 
     // No interruption surface while the generation is running.
@@ -73,8 +71,12 @@ test.describe('Reader during book generation', () => {
     // Open the reader on the last chapter while the book is still generating.
     await page.locator('button[aria-label="Table of contents"]').click()
     await page.locator('.toc-item').nth(2).click()
-    await page.locator('button[aria-label="Listen to this chapter"]').click()
-    await expect(page.locator('.transport')).toBeVisible({ timeout: 15000 })
+    // The reader's chrome hides itself after a couple of seconds; a slow click
+    // can lose the button mid-action. Click the element itself instead.
+    await page
+      .locator('button[aria-label="Listen to this chapter"]')
+      .evaluate((element) => (element as HTMLElement).click())
+    await expect(page.locator('.transport')).toBeVisible({ timeout: 30000 })
 
     const segmentCount = await page.locator('[data-section="2"] .segment').count()
     expect(segmentCount).toBeGreaterThan(0)

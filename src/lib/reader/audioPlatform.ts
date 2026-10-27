@@ -11,7 +11,8 @@ import { get } from 'svelte/store'
 import type { Book, Chapter } from '../types/book'
 import { audioService } from '../audioPlaybackService.svelte'
 import { generateMissing } from '../services/audiobookService'
-import { synthesizeSegment } from '../services/segmentProduction'
+import { produceSegment } from '../services/segmentProduction'
+import { segmentHtmlContent } from '../services/segmentationService'
 import { segmentProgress } from '../../stores/segmentProgressStore'
 import { chapterStatus } from '../../stores/bookStore'
 import { audioPlayerStore } from '../../stores/audioPlayerStore'
@@ -40,8 +41,16 @@ export function createAudioPlatform(context: AudioPlatformContext): ListenPlatfo
         (progress?.generatedIndices.size ?? 0) > 0 || get(chapterStatus).get(chapter.id) === 'done'
       )
     },
-    segmentText: (chapter, index) =>
-      get(segmentProgress).get(chapter.id)?.segmentTexts.get(index) ?? null,
+    segmentText: (chapter, index) => {
+      const text = get(segmentProgress).get(chapter.id)?.segmentTexts.get(index)
+      if (text) return text
+      // The chapter may never have been tracked in this session (fresh open,
+      // or a single sentence being re-made): ask the segmentation itself.
+      return (
+        segmentHtmlContent(chapter.id, chapter.content).segments.find((s) => s.index === index)
+          ?.text ?? null
+      )
+    },
     ensureAudio: async (chapter) => {
       const book = context.book()
       if (!book) return
@@ -77,17 +86,21 @@ export function createAudioPlatform(context: AudioPlatformContext): ListenPlatfo
     seekToSegment: async (index) => {
       await audioService.playFromSegment(index, false)
     },
-    synthesize: async (text, options, context) => {
-      const segment = await synthesizeSegment({
-        text,
-        chapterId: context.chapterId,
-        index: context.index,
-        language: options.language,
-        model: options.model,
-        voice: options.voice,
-        quantization: options.quantization as never,
-        device: options.device as never,
-      } as Parameters<typeof synthesizeSegment>[0])
+    synthesize: async (text, options, where) => {
+      // Saved, not just swapped in: a re-made sentence must survive a reload.
+      const segment = await produceSegment(
+        {
+          text,
+          chapterId: where.chapterId,
+          index: where.index,
+          language: options.language,
+          model: options.model as never,
+          voice: options.voice,
+          quantization: options.quantization as never,
+          device: options.device as never,
+        } as Parameters<typeof produceSegment>[0],
+        context.bookId() ?? undefined
+      )
       return segment.audioBlob
     },
     replaceSegmentAudio: (index, blob) => {

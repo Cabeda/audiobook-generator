@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join, basename } from 'path'
 import process from 'node:process'
 
-import { exportAs, importBookFile, openSettingsPanel, settingsPanel } from './helpers/flows'
+import { exportAs, importBookFile, generateAudiobook } from './helpers/flows'
 
 /**
  * Parameterized full-book reliability test.
@@ -158,9 +158,7 @@ for (const bookConfig of BOOKS) {
       await page.locator('button[aria-label="Close"]:visible').first().click()
 
       // ─── 4. Start generation for ALL chapters ───
-      await openSettingsPanel(page)
-      await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-      await page.locator('aside.settings button[aria-label="Close"]').click()
+      await generateAudiobook(page)
       console.log('[TEST] Clicked Generate audiobook')
       await page.waitForTimeout(3000)
 

@@ -44,6 +44,23 @@ export async function retryChapters(
   if (retry.length > 0) await generationService.generateChapters(retry, bookId)
 }
 
+/**
+ * Make a chapter again with the plan in force now, starting at the sentence
+ * being heard. Used when the voice or engine changes mid-listen: the audio
+ * ahead of the listener was made by the old narrator.
+ */
+export async function reprocessChapter(
+  book: Book,
+  chapterId: string,
+  bookId?: number,
+  fromSegment = 0
+): Promise<void> {
+  const chapter = book.chapters.find((c) => c.id === chapterId)
+  if (!chapter) return
+  generationService.setReaderPosition(chapterId, Math.max(0, fromSegment))
+  await generationService.generateChapters([chapter], bookId)
+}
+
 /** Export the book: audio in the chosen format, or the book itself as EPUB. */
 export async function exportBook(book: Book, options: BookExportOptions): Promise<void> {
   const bookInfo = { title: book.title, author: book.author, cover: options.cover }

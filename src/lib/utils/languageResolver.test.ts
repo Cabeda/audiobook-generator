@@ -196,12 +196,33 @@ describe('languageResolver', () => {
       const chapter: Chapter = {
         id: 'ch1',
         title: 'Chapter 1',
-        content: 'Content',
+        content:
+          'Este es un capítulo de ejemplo escrito en español, con suficientes palabras para que la detección del idioma signifique algo.',
         detectedLanguage: 'es',
         languageConfidence: 0.9,
       }
 
       expect(resolveChapterLanguageWithDetection(chapter, book)).toBe('es')
+    })
+
+    it('keeps the book language for a chapter too short to detect anything', () => {
+      // A title page ("Test Author / Public Domain") has no language signal:
+      // whichever language the detector guesses, the book's is the better read.
+      const book: Book = {
+        title: 'Test Book',
+        author: 'Test Author',
+        chapters: [],
+        language: 'en',
+      }
+      const chapter: Chapter = {
+        id: 'title-page',
+        title: 'Short Test Book',
+        content: '<p>Test Author</p><p>Public Domain</p>',
+        detectedLanguage: 'fr',
+        languageConfidence: 0.9,
+      }
+
+      expect(resolveChapterLanguageWithDetection(chapter, book)).toBe('en')
     })
 
     it('should fall back to book language when detected confidence is too low', () => {
@@ -265,7 +286,7 @@ describe('languageResolver', () => {
       const chapter: Chapter = {
         id: 'ch1',
         title: 'Chapter 1',
-        content: 'Content',
+        content: 'Este es un capítulo en español con suficiente texto para detectarlo. '.repeat(3),
         detectedLanguage: 'es',
         languageConfidence: DETECTION_CONFIDENCE_THRESHOLD,
       }

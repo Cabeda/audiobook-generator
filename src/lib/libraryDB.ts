@@ -935,9 +935,106 @@ export async function deleteSegmentsByIndices(
   })
 }
 
+/** One voice's share of a chapter's stored audio. */
+export interface ChapterVoiceCount {
+  model: string
+  voice: string
+  count: number
+} /**
+ * How each chapter's stored audio was made: which engine and voice, and how
+ * many segments. Reads segment records without their audio, so the reader can
+ * say what is in another voice without loading the blobs.
+ */
+export async function getChapterVoiceSummary(
+  bookId: number
+): Promise<Map<string, ChapterVoiceCount[]>> {
+  const db = await openDB()
+
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains(SEGMENT_STORE_NAME)) {
+      db.close()
+      resolve(new Map())
+      return
+    }
+
+    const transaction = db.transaction(SEGMENT_STORE_NAME, 'readonly')
+    const store = transaction.objectStore(SEGMENT_STORE_NAME)
+    const index = store.index('bookId')
+    const request = index.openCursor(IDBKeyRange.only(bookId))
+
+    const byChapter = new Map<string, Map<string, ChapterVoiceCount>>()
+
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (cursor) {
+        const record = cursor.value as {
+          chapterId: string
+          model?: string
+          voice?: string
+        }
+        const byVoice = byChapter.get(record.chapterId) ?? new Map<string, ChapterVoiceCount>()
+        // A segment without a recorded voice was made before the record kept
+        // them; name it rather than hide it.
+        const model = record.model ?? 'unknown'
+        const voice = record.voice ?? 'unknown'
+        const key = `${model}/${voice}`
+        const entry = byVoice.get(key) ?? { model, voice, count: 0 }
+        entry.count += 1
+        byVoice.set(key, entry)
+        byChapter.set(record.chapterId, byVoice)
+        cursor.continue()
+      } else {
+        resolve(
+          new Map([...byChapter].map(([chapterId, voices]) => [chapterId, [...voices.values()]]))
+        )
+      }
+    }
+    request.onerror = () => reject(new Error('Failed to summarise chapter voices'))
+    transaction.oncomplete = () => db.close()
+  })
+}
+
 /**
- * Get a single audio segment by its index (loads only one blob at a time).
- * Used for incremental concatenation on memory-constrained devices.
+ * How much disk a book's audio takes: every segment blob plus the chapter
+ * audio records. Used by the storage list to decide what is worth removing.
+ */
+export async function getBookAudioUsage(bookId: number): Promise<number> {
+  const sumOf = async (storeName: string): Promise<number> => {
+    const db = await openDB()
+    if (!db.objectStoreNames.contains(storeName)) {
+      db.close()
+      return 0
+    }
+    return new Promise<number>((resolve, reject) => {
+      let total = 0
+      const transaction = db.transaction(storeName, 'readonly')
+      const request = transaction
+        .objectStore(storeName)
+        .index('bookId')
+        .openCursor(IDBKeyRange.only(bookId))
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (cursor) {
+          total += (cursor.value as { audioBlob?: Blob }).audioBlob?.size ?? 0
+          cursor.continue()
+        }
+      }
+      transaction.oncomplete = () => {
+        db.close()
+        resolve(total)
+      }
+      transaction.onerror = () => {
+        db.close()
+        reject(new Error('Failed to measure book audio'))
+      }
+    })
+  }
+
+  return (await sumOf(SEGMENT_STORE_NAME)) + (await sumOf(AUDIO_STORE_NAME))
+}
+
+/**
+ * Get a single audio segment by its index (loads only one blob at a time). * Used for incremental concatenation on memory-constrained devices.
  */
 export async function getChapterSegmentByIndex(
   bookId: number,

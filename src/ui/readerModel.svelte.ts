@@ -17,7 +17,7 @@ import {
   type ChapterStatus,
 } from '../stores/bookStore'
 import { currentLibraryBookId } from '../stores/libraryStore'
-import { segmentProgress } from '../stores/segmentProgressStore'
+import { clearChapterSegments, segmentProgress } from '../stores/segmentProgressStore'
 import { audioPlayerStore } from '../stores/audioPlayerStore'
 import {
   selectedDevice,
@@ -38,12 +38,19 @@ import { isMobileDevice } from '../lib/utils/mobileDetect'
 import {
   exportBook as exportBookAction,
   generateMissing,
+  reprocessChapter,
   retryChapters,
 } from '../lib/services/audiobookService'
 import { ListenSession } from '../lib/reader/listenSession'
 import { createAudioPlatform } from '../lib/reader/audioPlatform'
 import { resolveChapterLanguageWithDetection } from '../lib/utils/languageResolver'
 import { listenPlanFor, resolveModel } from '../lib/services/listenPlan'
+import { generationService } from '../lib/services/generationService'
+import {
+  clearGenerationState,
+  getInterruptedGeneration,
+  type GenerationState,
+} from '../lib/services/generationStateStore'
 import { appSettings } from '../stores/appSettingsStore'
 import { loadPosition } from '../stores/readerPositionStore'
 import { continueAfterChapter, playbackSpeed } from '../stores/readerPrefsStore'
@@ -93,8 +100,22 @@ class ReaderModel {
 
   /** Loading settings for a chapter: the plan, and the speed in use. */
   private settingsFor(chapter: Chapter) {
-    const book = this.book
-    const plan = listenPlanFor(
+    const plan = this.planFor(this.book, chapter)
+    return {
+      voice: plan.voice,
+      model: plan.model,
+      quantization: plan.quantization,
+      device: plan.device,
+      speed: audioService.playbackSpeed,
+    }
+  }
+
+  /**
+   * How a chapter is read now: the engine and voice every new segment uses.
+   * Exposed so the audiobook panel can tell which stored audio is outdated.
+   */
+  planFor(book: Book | null, chapter: Chapter) {
+    return listenPlanFor(
       book ?? { title: '', author: '', chapters: [] },
       chapter,
       {
@@ -112,13 +133,6 @@ class ReaderModel {
       },
       get(piperVoices)
     )
-    return {
-      voice: plan.voice,
-      model: plan.model,
-      quantization: plan.quantization,
-      device: plan.device,
-      speed: audioService.playbackSpeed,
-    }
   }
 
   /** The book being read, straight from the real store. */
@@ -168,7 +182,6 @@ class ReaderModel {
       set voice(value: string) {
         selectedVoice.set(value)
         audioService.setVoice(value)
-        remakeCurrent() // the playing segment is made again, with no click
       },
       get quantization() {
         return get(selectedQuantization)
@@ -328,25 +341,129 @@ class ReaderModel {
     await generateMissing({ ...book, chapters }, this.bookId ?? undefined)
   }
 
+  /**
+   * The voice or engine changed: the chapter is made again with the new plan,
+   * from the sentence being heard. Dropping the player's cache first keeps the
+   * old narrator from being handed back while the new audio arrives.
+   */
+  async planChanged(): Promise<void> {
+    audioService.setPlan({ voice: this.prefs.voice, model: this.prefs.model as SelectedModel })
+
+    const book = this.book
+    const chapterId = this.chapterId
+    if (!book || !chapterId) return
+
+    // A book run owns the worker. The sentence being heard is re-made now; the
+    // rest of the chapter waits for the run to end, so the chapter does not end
+    // up with two narrators. Chapters already queued pick up the new plan when
+    // they start on their own.
+    if (generationService.isRunning()) {
+      toastStore.info('The new voice applies when the current generation finishes.')
+      await this.remakeCurrentSegment()
+      await generationService.whenIdle()
+      // The listener may have moved on while the run finished.
+      if (this.chapterId !== chapterId || generationService.isRunning()) return
+    }
+
+    try {
+      await reprocessChapter(book, chapterId, this.bookId ?? undefined, this.segmentIndex)
+    } catch (error) {
+      logger.warn('Could not make the chapter again', error)
+    }
+  }
+
+  /**
+   * Make the given chapters again with the plan in force now, one at a time.
+   * Used by the audiobook panel for audio left in another voice.
+   */
+  async matchCurrentVoice(
+    book: Book & { id?: number | null },
+    chapterIds: string[]
+  ): Promise<void> {
+    for (const chapterId of chapterIds) {
+      if (generationService.isRunning()) return
+      try {
+        await reprocessChapter(book, chapterId, book.id ?? this.bookId ?? undefined, 0)
+      } catch (error) {
+        logger.warn('Could not make the chapter again', error)
+      }
+    }
+  }
+
   /** Re-make the playing segment (a voice or model change mid-listen). */
   async remakeCurrentSegment(): Promise<void> {
     const book = this.book
     const chapterId = this.chapterId
     if (!book || !chapterId) return
-    const index = Math.max(0, this.segmentIndex)
     const chapter = book.chapters.find((c) => c.id === chapterId)
     if (!chapter) return
+    await this.remakeSegmentAt(chapter, Math.max(0, this.segmentIndex))
+  }
+
+  /** Re-make one sentence now, with the voice selected now. */
+  async remakeSegmentAt(chapter: Chapter, index: number): Promise<void> {
+    const book = this.book
+    toastStore.info('Making this sentence again…')
     try {
       await this.listen.remakeSegment(chapter, index, {
         model: this.prefs.model,
         voice: this.prefs.voice,
-        language: resolveChapterLanguageWithDetection(chapter, book),
+        language: resolveChapterLanguageWithDetection(
+          chapter,
+          book ?? { title: '', author: '', chapters: [] }
+        ),
         quantization: get(selectedQuantization),
         device: get(selectedDevice),
       })
     } catch (error) {
-      logger.warn('Could not re-make the current segment', error)
+      logger.warn('Could not re-make the sentence', error)
+      toastStore.error('Could not make this sentence again')
     }
+  }
+
+  /** Stop the run in progress; what was made is kept and can be resumed. */
+  cancelGeneration(): void {
+    generationService.cancel()
+    this.interrupted = getInterruptedGeneration()
+  }
+
+  /** Drop a book's audio from memory too, after the database rows are gone. */
+  forgetAudio(book: Book & { id?: number | null }): void {
+    const ids = new Set(book.chapters.map((c) => c.id))
+    chapterStatus.update((map) => {
+      const next = new Map(map)
+      for (const id of ids) next.set(id, 'pending')
+      return next
+    })
+    for (const id of ids) clearChapterSegments(id)
+    if (this.chapterId && ids.has(this.chapterId)) audioService.stop()
+  }
+
+  /** A run that was interrupted (tab closed, crash) and can be picked up. */
+  interrupted = $state<GenerationState | null>(getInterruptedGeneration())
+
+  async resumeInterrupted(): Promise<void> {
+    const state = this.interrupted
+    const book = this.book
+    if (!state || !book) return
+    const ids = state.chapterIds.filter((id) => !state.completedChapterIds.includes(id))
+    const chapters = book.chapters.filter((c) => ids.includes(c.id))
+    this.interrupted = null
+    if (chapters.length === 0) {
+      clearGenerationState()
+      return
+    }
+    try {
+      await generationService.resumeChapters(chapters, state.bookId)
+    } catch (error) {
+      logger.warn('Could not resume generation', error)
+      toastStore.error('Could not resume making the book')
+    }
+  }
+
+  dismissInterrupted(): void {
+    this.interrupted = null
+    clearGenerationState()
   }
 
   async retry(ids: string[]): Promise<void> {
@@ -379,8 +496,3 @@ class ReaderModel {
 }
 
 export const reader = new ReaderModel()
-
-/** Late-bound so the prefs setters can reach the instance. */
-function remakeCurrent(): void {
-  void reader.remakeCurrentSegment()
-}

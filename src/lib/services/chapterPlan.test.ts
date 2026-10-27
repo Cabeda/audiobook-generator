@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planChapter } from './chapterPlan'
+import { planChapter, staleVoiceCount } from './chapterPlan'
 
 const base = {
   chapter: {} as { model?: string; voice?: string },
@@ -96,5 +96,37 @@ describe('planChapter', () => {
     const plan = planChapter({ ...base, isMobile: true })
 
     expect(plan.quantization).toBe('q4')
+  })
+
+  it('knows a stored segment made with another voice or engine', () => {
+    const plan = planChapter(base)
+
+    expect(plan.isMismatched({ voice: 'af_heart', model: 'kokoro' })).toBe(false)
+    expect(plan.isMismatched({ voice: 'bf_emma', model: 'kokoro' })).toBe(true)
+    expect(plan.isMismatched({ voice: 'af_heart', model: 'piper' })).toBe(true)
+    // Made before the record kept them: not held against it.
+    expect(plan.isMismatched({})).toBe(false)
+  })
+})
+
+describe('staleVoiceCount', () => {
+  it('adds up only the segments the plan would not make today', () => {
+    const plan = { model: 'kitten', voice: 'Bella' }
+    const counts = [
+      { model: 'kitten', voice: 'Bella', count: 4 },
+      { model: 'kokoro', voice: 'af_heart', count: 2 },
+      { model: 'kitten', voice: 'Jasper', count: 3 },
+    ]
+
+    expect(staleVoiceCount(counts, plan)).toBe(5)
+  })
+
+  it('reports nothing when every segment is already in the plan', () => {
+    expect(
+      staleVoiceCount([{ model: 'kitten', voice: 'Bella', count: 7 }], {
+        model: 'kitten',
+        voice: 'Bella',
+      })
+    ).toBe(0)
   })
 })

@@ -11,6 +11,7 @@ import {
   FFmpegError,
   isRetryableError,
   normalizeError,
+  describeGenerationFailure,
 } from './errors'
 
 describe('Error Classes', () => {
@@ -249,6 +250,33 @@ describe('Error Classes', () => {
       const normalized = normalizeError('String error', 'Context')
       expect(normalized).toBeInstanceOf(PermanentError)
       expect(normalized.message).toBe('Context: String error')
+    })
+  })
+
+  describe('describeGenerationFailure', () => {
+    it('names the GPU when the GPU refused the model', () => {
+      expect(
+        describeGenerationFailure(
+          new Error(
+            'failed to call OrtRun(). ERROR_CODE: 1 /onnxruntime/core/providers/webgpu/program.cc'
+          )
+        )
+      ).toContain('GPU')
+    })
+
+    it('asks for the connection when the voice could not be downloaded', () => {
+      expect(describeGenerationFailure(new TypeError('Failed to fetch'))).toContain('connection')
+    })
+
+    it('names memory when the device ran out', () => {
+      expect(
+        describeGenerationFailure(new Error('failed to allocate tensor: out of memory'))
+      ).toContain('memory')
+    })
+
+    it('stays short and free of engine detail for anything else', () => {
+      const message = describeGenerationFailure(new Error('Error: unexpected token } at 41:2'))
+      expect(message).toBe('Could not make audio for this part — try again')
     })
   })
 })

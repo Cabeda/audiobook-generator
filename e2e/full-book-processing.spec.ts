@@ -5,13 +5,7 @@ import process from 'node:process'
 
 import JSZip from 'jszip'
 
-import {
-  clearAppStorage,
-  exportAs,
-  importAndOpen,
-  openSettingsPanel,
-  settingsPanel,
-} from './helpers/flows'
+import { clearAppStorage, exportAs, importAndOpen, generateAudiobook } from './helpers/flows'
 
 const CONAN_DOYLE_EPUB = join(
   process.cwd(),
@@ -92,9 +86,7 @@ test.describe('Full Book Processing — Conan Doyle', () => {
     await page.locator('button[aria-label="Close"]:visible').first().click()
 
     // --- Generate audio for all chapters ---
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await generateAudiobook(page)
 
     // Wait for generation to start
     await expect(page.locator('.prep')).toBeVisible({ timeout: 60000 })

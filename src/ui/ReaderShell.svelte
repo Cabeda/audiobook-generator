@@ -187,14 +187,16 @@
     }
   })
 
-  // Re-make the playing segment when voice or model change mid-listen — the
-  // store watch catches every write path (selects, presets, settings).
+  // A change of voice or model mid-listen: the chapter is made again with the
+  // new one, from the sentence being heard. The store watch catches every
+  // write path (selects, presets, settings).
   let lastVoiceKey = ''
   $effect(() => {
     const key = `${$selectedModel}:${$selectedVoice}`
     const first = lastVoiceKey === ''
     lastVoiceKey = key
-    if (!first) void reader.remakeCurrentSegment()
+    if (first) return
+    void reader.planChanged()
   })
 
   // Now playing + keep the screen on while audio runs.
@@ -240,19 +242,15 @@
     return { destroy: () => observer.disconnect() }
   }
   let scroller: HTMLElement | undefined = $state()
-  let hideTimer: ReturnType<typeof setTimeout> | undefined
   let lastScrollTop = 0
 
   function poke() {
     chromeVisible = true
-    clearTimeout(hideTimer)
-    hideTimer = setTimeout(() => {
-      if (!tocOpen && !settingsOpen && !booksOpen && !importOpen) chromeVisible = false
-    }, 2500)
   }
 
   function onScroll() {
-    const el = scroller!
+    const el = scroller
+    if (!el) return
     const max = el.scrollHeight - el.clientHeight
     ui.progress = max > 0 ? el.scrollTop / max : 0
 
@@ -333,10 +331,96 @@
     chromeVisible ? (chromeVisible = false) : poke()
   }
 
+  /** The same as a click, for a focused sentence: Enter or Space reads from it. */
+  function onReaderKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    const idx = segmentIndexFromEvent(e)
+    const section = (e.target as HTMLElement | null)?.closest?.('[data-section]')
+    const ci = Number(section?.getAttribute('data-section'))
+    const ch = idx != null ? book?.chapters[ci] : undefined
+    if (idx == null || !section || !ch) return
+    e.preventDefault()
+    void reader.playFromSegment(ch, idx)
+    poke()
+  }
+
+  /** Right-click a sentence (long-press on a phone) to make just it again. */
+  function onReaderContextMenu(e: MouseEvent) {
+    const idx = segmentIndexFromEvent(e)
+    const section = (e.target as HTMLElement | null)?.closest?.('[data-section]')
+    const ci = Number(section?.getAttribute('data-section'))
+    const ch = idx != null ? book?.chapters[ci] : undefined
+    if (idx == null || !section || !ch) return
+    e.preventDefault()
+    void reader.remakeSegmentAt(ch, idx)
+  }
+
+  /** Escape closes the overlay on top; with nothing open it reveals the chrome. */
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Escape') return
+    let closed = true
+    if (importOpen) importOpen = false
+    else if (sandboxOpen) sandboxOpen = false
+    else if (tourOpen) tourOpen = false
+    else if (queueOpen) queueOpen = false
+    else if (exportBook) exportBook = null
+    else if (detailBook) detailBook = null
+    else if (audiobookBook) audiobookBook = null
+    else if (appSettingsOpen) appSettingsOpen = false
+    else if (booksOpen) booksOpen = false
+    else if (settingsOpen) settingsOpen = false
+    else if (tocOpen) tocOpen = false
+    else {
+      closed = false
+      chromeVisible = !chromeVisible
+    }
+    // Focus comes back to the page, not to the closed dialog's button.
+    if (closed) {
+      requestAnimationFrame(() => {
+        const back =
+          document.querySelector<HTMLElement>('.segment.active') ??
+          document.querySelector<HTMLElement>('.reader')
+        back?.focus?.()
+      })
+    }
+  }
+
+  // Opening an overlay puts the keyboard on its close button.
+  let overlayKey = $derived(
+    [
+      importOpen,
+      sandboxOpen,
+      tourOpen,
+      queueOpen,
+      !!exportBook,
+      !!detailBook,
+      !!audiobookBook,
+      appSettingsOpen,
+      booksOpen,
+      settingsOpen,
+      tocOpen,
+    ]
+      .map((open) => (open ? 1 : 0))
+      .join('')
+  )
+  let lastOverlayKey = ''
+  $effect(() => {
+    const key = overlayKey
+    if (key === lastOverlayKey) return
+    lastOverlayKey = key
+    if (key === '00000000000') return
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          '[role="dialog"] button[aria-label="Close"], aside.settings button[aria-label="Close"]'
+        )
+        ?.focus()
+    })
+  })
+
   function openToc() {
     tocOpen = true
     chromeVisible = true
-    clearTimeout(hideTimer)
   }
 
   function goToChapter(i: number) {
@@ -506,6 +590,28 @@
   let genPct = $derived.by(() => {
     liveGeneration
     return reader.bookGeneration.percent
+  })
+
+  /** A book that was never made: the moment to offer it. */
+  let showFirstRun = $derived(
+    !!book &&
+      book.chapters.length > 0 &&
+      counts.ready === 0 &&
+      counts.generating === 0 &&
+      counts.failed === 0 &&
+      !$isGenerating &&
+      !reader.interrupted
+  )
+
+  /** The run just finished, so offer the next step: export. */
+  let bookJustFinished = $state(false)
+  let wasGenerating = false
+  $effect(() => {
+    const generating = counts.generating > 0 || $isGenerating
+    if (wasGenerating && !generating && counts.failed === 0 && counts.ready === chIds.length) {
+      bookJustFinished = true
+    }
+    wasGenerating = generating
   })
 
   // scroll to the chapter the app asked for, once it is on the page
@@ -766,6 +872,8 @@
   })
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} />
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="vanish theme-{theme}"
@@ -784,8 +892,11 @@
       bind:this={scroller}
       onscroll={onScroll}
       onclick={onReaderClick}
+      onkeydown={onReaderKeydown}
+      oncontextmenu={onReaderContextMenu}
       role="presentation"
       aria-label="Book content"
+      tabindex="-1"
     >
       <div class="column" style="font-size: {fontSize}px">
         {#each book.chapters.slice(0, renderedCount) as chapter, i (chapter.id)}
@@ -835,7 +946,6 @@
           onclick={() => {
             settingsOpen = true
             chromeVisible = true
-            clearTimeout(hideTimer)
           }}
           aria-label="Settings">Aa</button
         >
@@ -855,6 +965,43 @@
         <span>⚠ {firstError[1]}</span>
         <button class="err-btn" onclick={retryErrors}>Retry</button>
         <button class="err-btn" onclick={dismissError} aria-label="Dismiss">✕</button>
+      </div>
+    {/if}
+
+    {#if reader.interrupted && !$isGenerating && counts.generating === 0}
+      <!-- A run stopped by a crash or a closed tab: the work done is safe. -->
+      <div class="prep resume" role="status">
+        <span>
+          Stopped after {reader.interrupted.completedChapterIds.length}/{reader.interrupted
+            .chapterIds.length}
+          chapters
+        </span>
+        <button class="err-btn" onclick={() => void reader.resumeInterrupted()}>Resume</button>
+        <button class="err-btn" onclick={() => reader.dismissInterrupted()} aria-label="Dismiss"
+          >✕</button
+        >
+      </div>
+    {/if}
+
+    {#if showFirstRun}
+      <button
+        class="prep first-run"
+        onclick={() => {
+          settingsOpen = true
+          chromeVisible = true
+        }}
+      >
+        <span>♪ No audio yet — make this book</span>
+      </button>
+    {/if}
+
+    {#if bookJustFinished && !reader.interrupted}
+      <div class="prep done" role="status">
+        <span>♪ This book is ready</span>
+        <button class="err-btn" onclick={() => (exportBook = book as LibraryBook)}>Export</button>
+        <button class="err-btn" onclick={() => (bookJustFinished = false)} aria-label="Dismiss"
+          >✕</button
+        >
       </div>
     {/if}
 
@@ -893,10 +1040,13 @@
         <button class="icon" onclick={() => reader.stop()} aria-label="Close player">✕</button>
       </div>
     {:else if $isGenerating || counts.generating > 0}
-      <button class="prep" onclick={() => (queueOpen = true)}>
-        <div class="prep-bar"><div class="prep-fill" style="width: {genPct * 100}%"></div></div>
-        <span>Preparing audio… {Math.round(genPct * 100)}% · activity</span>
-      </button>
+      <div class="prep preparing">
+        <button class="prep-open" onclick={() => (queueOpen = true)}>
+          <div class="prep-bar"><div class="prep-fill" style="width: {genPct * 100}%"></div></div>
+          <span>Preparing audio… {Math.round(genPct * 100)}% · activity</span>
+        </button>
+        <button class="prep-stop" onclick={() => reader.cancelGeneration()}>Stop</button>
+      </div>
     {:else if counts.failed > 0}
       <button class="prep failed" onclick={() => (queueOpen = true)}>
         <span>⚠ {counts.failed} chapter(s) failed · activity</span>
@@ -1016,6 +1166,7 @@
             value={$selectedDevice}
             onchange={(e) => (reader.prefs.device = e.currentTarget.value)}
           >
+            <option value="auto">auto (recommended)</option>
             <option value="webgpu">webgpu</option>
             <option value="wasm">wasm</option>
           </select>
@@ -1034,8 +1185,14 @@
 
         <h4>Audiobook</h4>
         <p class="field-note">♪ {counts.ready}/{book.chapters.length} chapters ready</p>
-        <button class="action" onclick={() => void reader.generateMissing()}>
-          {counts.generating > 0 ? `Generating… ${counts.generating} left` : 'Generate audiobook'}
+        <button
+          class="action"
+          onclick={() => {
+            settingsOpen = false
+            queueOpen = true
+          }}
+        >
+          {counts.generating > 0 ? `Generating… ${counts.generating} left` : 'Audiobook progress…'}
         </button>
         <label class="field">
           Export format
@@ -1134,7 +1291,14 @@
   {/if}
 
   {#if queueOpen}
-    <QueueCenter {books} onClose={() => (queueOpen = false)} />
+    <QueueCenter
+      {books}
+      onClose={() => (queueOpen = false)}
+      onChapterSettings={(b) => {
+        queueOpen = false
+        detailBook = b
+      }}
+    />
   {/if}
 
   {#if tourOpen}
@@ -1158,7 +1322,7 @@
 
   {#if appSettingsOpen}
     <AppSettings
-      bookCount={books.length}
+      {books}
       onTour={() => {
         appSettingsOpen = false
         tourOpen = true
@@ -1193,6 +1357,7 @@
     --v-bar: #ffffffee;
     --v-line: #e7e5e4;
     --v-accent: #78716c;
+    --v-link: #3d6b8a;
     --v-hl: rgba(245, 158, 11, 0.22);
     --v-err: #fdf2f0;
     --v-err-text: #9a5b52;
@@ -1205,6 +1370,7 @@
     --v-bar: #f9f3e6ee;
     --v-line: #e0d3b8;
     --v-accent: #8a7860;
+    --v-link: #7a5c3a;
     --v-hl: rgba(190, 125, 45, 0.24);
     --v-err: #f7e9e2;
     --v-err-text: #9a5b52;
@@ -1217,6 +1383,7 @@
     --v-bar: #1c1917ee;
     --v-line: #292524;
     --v-accent: #a8a29e;
+    --v-link: #93b8d4;
     --v-hl: rgba(245, 158, 11, 0.3);
     --v-err: #2a1f1d;
     --v-err-text: #d4a099;
@@ -1251,6 +1418,19 @@
   .column :global(p) {
     margin: 0 0 1.1em;
     line-height: 1.85;
+  }
+
+  /* Links carry the theme's own colour: the browser default (dark blue) is
+     unreadable on the dark and sepia themes. */
+  .column :global(a),
+  .column :global(a:visited) {
+    color: var(--v-link);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .column :global(a:hover) {
+    color: var(--v-text);
   }
 
   /* Document structure, as the source had it. The reader styles it; the source
@@ -1588,6 +1768,55 @@
 
   .prep.failed {
     color: var(--v-err-text);
+  }
+
+  /* a strip that carries its own buttons is not a button itself */
+  .prep.preparing,
+  .prep.resume,
+  .prep.done,
+  .prep.first-run {
+    justify-content: space-between;
+    cursor: default;
+  }
+
+  .prep.preparing {
+    gap: 0;
+    padding: 0;
+  }
+
+  .prep-open {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    padding: 8px 16px;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .prep-stop {
+    background: none;
+    border: 1px solid var(--v-line);
+    color: inherit;
+    border-radius: 8px;
+    padding: 3px 10px;
+    margin-right: 12px;
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+
+  .prep.first-run {
+    cursor: pointer;
+    color: var(--v-text, inherit);
+  }
+
+  .prep.done {
+    color: var(--v-sub);
   }
 
   .error-strip {
