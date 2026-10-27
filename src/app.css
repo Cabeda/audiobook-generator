@@ -41,39 +41,41 @@
 }
 
 [data-theme='dark'] {
-  /* Dark Theme - Warm Charcoal */
-  --bg-color: #0c0a09; /* Stone 950 */
-  --text-color: #e7e5e4; /* Stone 200 */
-  --surface-color: #1c1917; /* Stone 900 */
-  --border-color: #292524; /* Stone 800 */
+  /* Dark Theme - OLED black. True black page so the panel switches off, with
+     surfaces lifted just enough to separate from it, and a warm off-white text
+     so nothing haloes at reading sizes. */
+  --bg-color: #000000;
+  --text-color: #e8e4df;
+  --surface-color: #0b0a09;
+  --border-color: #221f1d;
 
-  --primary-color: #a8a29e; /* Stone 400 */
-  --primary-hover: #d6d3d1; /* Stone 300 */
+  --primary-color: #a8a29e;
+  --primary-hover: #d6d3d1;
 
-  --secondary-text: #a8a29e; /* Stone 400 */
-  --shadow-color: rgba(0, 0, 0, 0.4);
+  --secondary-text: #a29b94;
+  --shadow-color: rgba(0, 0, 0, 0.6);
 
-  --input-bg: #1c1917;
-  --input-border: #44403c; /* Stone 700 */
+  --input-bg: #0b0a09;
+  --input-border: #3a3532;
 
-  --selected-bg: rgba(168, 162, 158, 0.12);
+  --selected-bg: rgba(168, 162, 158, 0.14);
   --selected-border: #78716c;
 
-  --feature-bg: #292524; /* Stone 800 */
+  --feature-bg: #14110f;
 
   --landing-bg: var(--bg-color);
   --hero-bg: var(--surface-color);
 
   --success-color: #8aab8f;
-  --error-color: #d4a099;
+  --error-color: #e8b0a6;
   --warning-color: #c9b68a;
 
-  --error-bg: #2a1f1d;
-  --error-text: #d4a099;
-  --error-border: #4a3330;
+  --error-bg: #1a1211;
+  --error-text: #e8b0a6;
+  --error-border: #402a26;
 
-  --success-bg: #1d2a1f;
-  --warning-bg: #2a261d;
+  --success-bg: #0f1a12;
+  --warning-bg: #1a1610;
 }
 
 body {

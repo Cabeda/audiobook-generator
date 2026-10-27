@@ -30,6 +30,11 @@ test.describe('Audiobook Generation - Smoke', () => {
     // the choice is the reader's theme, so it survives a reload
     await page.reload()
     await expect(page.locator('.empty-theme.on')).toContainText('Sepia')
+
+    // dark is a true-black OLED page, not a lifted charcoal
+    const dark = page.locator('.empty-theme', { hasText: 'Dark' })
+    await dark.click()
+    await expect(page.locator('.empty-state')).toHaveCSS('background-color', 'rgb(0, 0, 0)')
   })
 
   test('should upload EPUB and display book info', async ({ page }) => {

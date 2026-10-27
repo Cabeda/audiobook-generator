@@ -1425,18 +1425,20 @@
     --v-err-text: #9a5b52;
   }
 
+  /* OLED: true black so the pixels switch off, near-black surfaces, and a
+     warm off-white for text (pure white haloes on black at reading sizes). */
   .theme-dark {
-    --v-bg: #12100e;
-    --v-text: #e7e5e4;
-    --v-sub: #a8a29e;
-    --v-bar: #1c1917ee;
-    --v-line: #292524;
-    --v-accent: #a8a29e;
-    --v-link: #93b8d4;
-    --v-hl: rgba(245, 158, 11, 0.3);
-    --v-glow: rgba(245, 158, 11, 0.1);
-    --v-err: #2a1f1d;
-    --v-err-text: #d4a099;
+    --v-bg: #000000;
+    --v-text: #e8e4df;
+    --v-sub: #a29b94;
+    --v-bar: #050505ee;
+    --v-line: #1e1b19;
+    --v-accent: #8b8480;
+    --v-link: #8fb8d8;
+    --v-hl: rgba(245, 158, 11, 0.22);
+    --v-glow: rgba(245, 158, 11, 0.07);
+    --v-err: #1a1211;
+    --v-err-text: #e8b0a6;
   }
 
   .reader {
