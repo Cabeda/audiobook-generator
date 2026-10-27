@@ -142,7 +142,7 @@
   </div>
 
   <div class="list">
-    {#each books as b (b.title)}
+    {#each books as b, i (b.id ?? i)}
       <h3>{b.title}</h3>
       <ul>
         {#each b.chapters as c (c.id)}
