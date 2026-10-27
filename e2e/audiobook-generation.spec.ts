@@ -34,7 +34,7 @@ test.describe('Audiobook Generation E2E', () => {
   test('should load the application', async ({ page }) => {
     await expect(page).toHaveTitle(/Audiobook Generator/i)
     // The app opens straight into the reader's empty state — no landing page
-    await expect(page.locator('.empty-state h1')).toContainText(/Your library is empty/i)
+    await expect(page.locator('.empty-state h1')).toContainText(/Turn any book into an audiobook/i)
     await expect(page.locator('.empty-cta')).toContainText(/Add a book/i)
   })
 

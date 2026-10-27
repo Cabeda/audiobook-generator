@@ -77,6 +77,11 @@
   } = $props()
 
   const THEMES = ['light', 'sepia', 'dark'] as const
+  const THEME_LABELS: Record<(typeof THEMES)[number], string> = {
+    light: 'Light',
+    sepia: 'Sepia',
+    dark: 'Dark',
+  }
 
   // How the reader looks is remembered: relaunching must not reset it.
   let theme = $state(get(readerTheme))
@@ -1217,16 +1222,58 @@
       </aside>
     {/if}
   {:else if books.length === 0}
-    <!-- first-run / empty library -->
+    <!-- first-run: what the app is for, then the one action that starts it -->
     <div class="empty-state">
       <div class="empty-card">
-        <span class="empty-icon" aria-hidden="true">📚</span>
-        <h1>Your library is empty</h1>
-        <p>Drag a book file anywhere on this screen, or add one to get started.</p>
-        <div class="empty-actions">
-          <button class="empty-cta" onclick={() => (importOpen = true)}>＋ Add a book</button>
-          <button class="empty-link" onclick={() => (tourOpen = true)}>Take the tour</button>
-          <button class="empty-link" onclick={() => (booksOpen = true)}>Your books</button>
+        <p class="empty-eyebrow">Audiobook Generator</p>
+        <h1>Turn any book into an audiobook</h1>
+        <p class="empty-lead">
+          Add an EPUB, PDF or text file and read it on one clean page — or have a neural voice read
+          it to you, sentence by sentence, and export MP3, M4B or EPUB3. Everything runs in your
+          browser: no account, no upload, your books never leave this device.
+        </p>
+
+        <button class="empty-cta" onclick={() => (importOpen = true)}>
+          <span class="empty-cta-icon" aria-hidden="true">⤓</span>
+          <span class="empty-cta-title">Add a book</span>
+          <span class="empty-cta-hint">Drag a file here, or choose one from your device</span>
+          <span class="empty-cta-formats">EPUB · PDF · TXT · MD · HTML · or a URL</span>
+        </button>
+
+        <ol class="empty-steps">
+          <li>Add a book</li>
+          <li>Pick a voice</li>
+          <li>Listen or export</li>
+        </ol>
+
+        <div class="empty-feature">
+          <span class="empty-feature-tag">Read-along EPUB3</span>
+          <p>
+            Export the book with its narration built in: text and audio stay in sync sentence by
+            sentence, so any Media Overlay reader highlights each line as it is spoken — a
+            read-along book, not just an audiobook.
+          </p>
+        </div>
+
+        <div class="empty-footer">
+          <div class="empty-actions">
+            <button class="empty-link" onclick={() => (tourOpen = true)}>Take the tour</button>
+            <button class="empty-link" onclick={() => (booksOpen = true)}>Your books</button>
+          </div>
+
+          <div class="empty-prefs">
+            <span class="empty-prefs-label" id="empty-theme-label">Reading theme</span>
+            <div class="empty-themes" role="group" aria-labelledby="empty-theme-label">
+              {#each THEMES as t (t)}
+                <button
+                  class="empty-theme"
+                  class:on={theme === t}
+                  aria-pressed={theme === t}
+                  onclick={() => (theme = t)}>{THEME_LABELS[t]}</button
+                >
+              {/each}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1359,6 +1406,7 @@
     --v-accent: #78716c;
     --v-link: #3d6b8a;
     --v-hl: rgba(245, 158, 11, 0.22);
+    --v-glow: rgba(245, 158, 11, 0.2);
     --v-err: #fdf2f0;
     --v-err-text: #9a5b52;
   }
@@ -1372,6 +1420,7 @@
     --v-accent: #8a7860;
     --v-link: #7a5c3a;
     --v-hl: rgba(190, 125, 45, 0.24);
+    --v-glow: rgba(190, 125, 45, 0.16);
     --v-err: #f7e9e2;
     --v-err-text: #9a5b52;
   }
@@ -1385,6 +1434,7 @@
     --v-accent: #a8a29e;
     --v-link: #93b8d4;
     --v-hl: rgba(245, 158, 11, 0.3);
+    --v-glow: rgba(245, 158, 11, 0.1);
     --v-err: #2a1f1d;
     --v-err-text: #d4a099;
   }
@@ -2106,11 +2156,24 @@
     display: grid;
     place-items: center;
     padding: 24px;
+    overflow-y: auto;
+    background:
+      radial-gradient(60rem 32rem at 50% -10%, var(--v-glow), transparent 70%), var(--v-bg);
   }
 
   .empty-card {
     text-align: center;
-    max-width: 380px;
+    max-width: 560px;
+    margin: auto;
+  }
+
+  .empty-eyebrow {
+    margin: 0 0 10px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--v-sub);
   }
 
   .empty-icon {
@@ -2120,35 +2183,180 @@
   }
 
   .empty-card h1 {
-    margin: 0 0 8px;
-    font-size: 1.35rem;
-    letter-spacing: -0.01em;
+    margin: 0 0 12px;
+    font-size: clamp(1.6rem, 5vw, 2.3rem);
+    line-height: 1.2;
+    letter-spacing: -0.02em;
   }
 
-  .empty-card p {
-    margin: 0 0 22px;
+  .empty-card .empty-lead {
+    margin: 0 0 26px;
     color: var(--v-sub);
     font-size: 0.92rem;
     line-height: 1.6;
+  }
+
+  /* the upload target is the page's one loud element */
+  .empty-cta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    background: var(--v-bar);
+    color: var(--v-text);
+    border: 2px dashed var(--v-accent);
+    border-radius: 18px;
+    padding: 26px 20px;
+    font: inherit;
+    cursor: pointer;
+    transition:
+      border-color 0.15s,
+      background 0.15s,
+      transform 0.15s;
+  }
+
+  .empty-cta:hover,
+  .empty-cta:focus-visible {
+    border-color: var(--v-text);
+    background: var(--v-line);
+    transform: translateY(-1px);
+  }
+
+  .empty-cta-icon {
+    font-size: 1.7rem;
+    line-height: 1;
+    color: var(--v-sub);
+  }
+
+  .empty-cta-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+
+  .empty-cta-hint {
+    font-size: 0.88rem;
+    color: var(--v-sub);
+  }
+
+  .empty-cta-formats {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    color: var(--v-sub);
+    opacity: 0.8;
+  }
+
+  .empty-steps {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    list-style: none;
+    counter-reset: step;
+    margin: 22px 0 0;
+    padding: 0;
+    font-size: 0.82rem;
+    color: var(--v-sub);
+  }
+
+  .empty-steps li {
+    counter-increment: step;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .empty-steps li::before {
+    content: counter(step);
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1px solid var(--v-line);
+    font-size: 0.68rem;
+    color: var(--v-text);
+  }
+
+  /* read-along EPUB3 is the feature nobody else ships: give it its own card */
+  .empty-feature {
+    margin-top: 22px;
+    padding: 14px 16px;
+    text-align: left;
+    border: 1px solid var(--v-line);
+    border-left: 3px solid var(--v-link);
+    border-radius: 12px;
+    background: var(--v-bar);
+  }
+
+  .empty-feature-tag {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--v-link);
+  }
+
+  .empty-feature p {
+    margin: 6px 0 0;
+    font-size: 0.84rem;
+    line-height: 1.55;
+    color: var(--v-sub);
+  }
+
+  .empty-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px 20px;
+    margin-top: 22px;
   }
 
   .empty-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
-    justify-content: center;
   }
 
-  .empty-cta {
+  .empty-prefs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .empty-prefs-label {
+    font-size: 0.78rem;
+    color: var(--v-sub);
+  }
+
+  .empty-themes {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--v-line);
+    border-radius: 999px;
+  }
+
+  .empty-theme {
+    background: none;
+    border: none;
+    color: var(--v-sub);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    min-height: 36px;
+  }
+
+  .empty-theme:hover:not(.on) {
+    color: var(--v-text);
+  }
+
+  .empty-theme.on {
     background: var(--v-text);
     color: var(--v-bg);
-    border: none;
-    border-radius: 12px;
-    padding: 12px 22px;
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-    min-height: 44px;
   }
 
   .empty-link {
@@ -2238,7 +2446,11 @@
     }
 
     .empty-card h1 {
-      font-size: 1.15rem;
+      font-size: clamp(1.45rem, 7vw, 1.8rem);
+    }
+
+    .empty-cta {
+      padding: 22px 14px;
     }
   }
 </style>

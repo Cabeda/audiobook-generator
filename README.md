@@ -1,6 +1,6 @@
 # Audiobook Generator
 
-A browser-based audiobook generator that converts EPUB, PDF, HTML, and TXT files into audio using AI-powered text-to-speech — running 100% in your browser, no server required.
+A browser-based audiobook generator that converts EPUB, PDF, HTML, and TXT files into audio using AI-powered text-to-speech — running 100% in your browser, no server required. It also exports **read-along EPUB3** books: the original text and its narration in one file, highlighted sentence by sentence as it plays.
 
 > **Note**: Works with DRM-free files only. Files purchased from Apple Books, Google Play Books, or Amazon Kindle with DRM enabled are not supported.
 
@@ -28,10 +28,10 @@ A browser-based audiobook generator that converts EPUB, PDF, HTML, and TXT files
 
 ### Export
 
-- **MP3** — universal compatibility, recommended
+- **EPUB3 (read-along)** — the book and its narration in one file, kept in sync sentence by sentence. The headline format — see [Read-along EPUB3](#read-along-epub3-media-overlays) below
 - **M4B** — audiobook format with chapter markers
+- **MP3** — universal compatibility, recommended for plain audio
 - **WAV** — lossless, for archival or further processing
-- **EPUB3** — with Media Overlays (synchronized text highlighting in compatible readers)
 
 ### Library
 
@@ -43,6 +43,30 @@ A browser-based audiobook generator that converts EPUB, PDF, HTML, and TXT files
 
 - Upload EPUB, PDF, HTML, or TXT files
 - Paste a URL to fetch and convert any article
+
+## Read-along EPUB3 (Media Overlays)
+
+An audiobook throws the page away. The EPUB3 export keeps it: the book ships with its own narration
+and a [SMIL](https://www.w3.org/TR/epub/#sec-media-overlays) overlay that maps **every generated
+sentence** to a time range in the chapter audio, per the EPUB 3.3 Media Overlays spec.
+
+Open the file in a reader that supports Media Overlays and the book reads itself:
+
+- **Sentence-level sync, not chapter-level** — the line being spoken is highlighted as it plays, so the page tracks the voice instead of jumping chapter to chapter.
+- **One file** — text, images, cover and audio travel together. Nothing to pair up, host or sideload separately.
+- **The reader's own controls still apply** — navigation, bookmarks, font size and themes keep working; narration is just another property of the page.
+- **Graceful fallback** — readers without Media Overlay support still open it as a normal EPUB.
+
+Works well in [Thorium Reader](https://www.edrlab.org/software/thorium-reader/) on desktop and in
+Readium-based apps; most EPUB3-compliant reading systems will at least open the file.
+
+Why it is still rare: most tools export audio and lose the text, or offer "read aloud" that only
+follows the chapter. Sentence granularity is what makes the highlight track the voice instead of
+approximating it.
+
+Under the hood: each chapter becomes one MP3 plus a SMIL document whose `<par>` entries point at
+`chapter.xhtml#seg-N` IDs with `clipBegin`/`clipEnd` offsets. Clip times are rescaled to the encoded
+MP3 duration so highlights do not drift from the audio.
 
 ## Quick Start
 
@@ -63,7 +87,7 @@ Open http://localhost:5173.
 2. **Select chapters** — choose which to convert
 3. **Pick a model and voice** — Kokoro, Piper, Pocket, KittenTTS, or Web Speech
 4. **Generate** — click a chapter to start; audio plays as it generates
-5. **Export** — download as MP3, M4B, WAV, or EPUB3 when done
+5. **Export** — M4B, MP3, MP4 or WAV for listening, or EPUB3 to keep the text and the narration together as a read-along book
 
 ## Development
 
