@@ -8,7 +8,7 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
-import { exportAs, importAndOpen, openSettingsPanel, settingsPanel } from './helpers/flows'
+import { exportAs, importAndOpen, generateAudiobook } from './helpers/flows'
 
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
@@ -40,9 +40,7 @@ test.describe('MP3 Export - Multi-segment chapter', () => {
 
     // Generate every chapter — the second one has multiple segments, which is
     // where the concatenation used to break.
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await generateAudiobook(page)
 
     await expect
       .poll(async () => page.locator('.segment-generated').count(), { timeout: 90000 })

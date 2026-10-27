@@ -7,9 +7,8 @@ import {
   clearAppStorage,
   importAndOpen,
   openQueueCenter,
-  openSettingsPanel,
   queueCenter,
-  settingsPanel,
+  generateAudiobook,
 } from './helpers/flows'
 
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
@@ -44,9 +43,7 @@ test.describe('Segment-triggered generation progress display', () => {
 
     // Generate from the Aa settings panel (the old per-chapter generate
     // buttons lived on the book view, which is gone)
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await generateAudiobook(page)
 
     // The progress strip reports percentage progress while segments are made
     const prep = page.locator('.prep')

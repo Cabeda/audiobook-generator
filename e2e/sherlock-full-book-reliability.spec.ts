@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
-import { exportAs, importBookFile, openSettingsPanel, settingsPanel } from './helpers/flows'
+import { exportAs, importBookFile, generateAudiobook } from './helpers/flows'
 
 const SHERLOCK_EPUB = join(
   process.cwd(),
@@ -121,9 +121,7 @@ test.describe('Sherlock Holmes — Full Book Reliability Test', () => {
     expect(chapterCount).toBeGreaterThanOrEqual(12)
 
     // ─── 4. Start generation for ALL chapters ───
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await generateAudiobook(page)
     console.log('[TEST] Clicked Generate audiobook')
 
     // Wait a moment for generation to start

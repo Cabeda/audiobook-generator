@@ -13,6 +13,24 @@ export const DEFAULT_LANGUAGE = 'en'
 export const DETECTION_CONFIDENCE_THRESHOLD = IMPORTED_THRESHOLD
 
 /**
+ * How much chapter text a detection needs before it is trusted.
+ *
+ * franc always names a language; on a title page or a dedication ("Test
+ * Author / Public Domain") that name is noise and can send the chapter to a
+ * fallback engine in the wrong language. Below this much text the book's
+ * language is the better answer.
+ */
+export const MIN_TEXT_FOR_TRUSTED_DETECTION = 120
+
+/** The text length a detection was run on, without the markup around it. */
+function plainTextLength(content: string): number {
+  return content
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim().length
+}
+
+/**
  * Resolves the effective language for a chapter.
  * Returns chapter language if set, otherwise falls back to book language, then DEFAULT_LANGUAGE.
  */
@@ -38,12 +56,16 @@ export function resolveChapterLanguageWithDetection(chapter: Chapter, book: Book
     return chapter.language
   }
 
-  // 2. Auto-detected language if confident enough
+  // 2. Auto-detected language if confident enough. A guess made from a few
+  // words cannot beat a language the book already declares; it only decides
+  // when the book itself says nothing.
   if (
     chapter.detectedLanguage &&
     chapter.detectedLanguage !== 'und' &&
     chapter.languageConfidence !== undefined &&
-    chapter.languageConfidence >= IMPORTED_THRESHOLD
+    chapter.languageConfidence >= IMPORTED_THRESHOLD &&
+    (book.language === undefined ||
+      plainTextLength(chapter.content) >= MIN_TEXT_FOR_TRUSTED_DETECTION)
   ) {
     return chapter.detectedLanguage
   }

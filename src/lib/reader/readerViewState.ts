@@ -47,10 +47,16 @@ export function chapterAudioView(
 
   if (total > 0 && generated >= total) return { state: 'ready', progress }
 
-  const working = status === 'processing' || (segment?.isGenerating ?? false) || generated > 0
+  // A chapter the library knows is finished but whose audio is not loaded in
+  // this session (only the chapter being read is) is still ready.
+  if (total === 0 && status === 'done') return { state: 'ready', progress: 1 }
+
+  // A chapter with some audio but no run in progress is not "generating": the
+  // run may have been stopped, and then the strip must go away.
+  const working = status === 'processing' || (segment?.isGenerating ?? false)
   if (working) return { state: 'generating', progress }
 
-  return { state: 'none', progress: 0 }
+  return { state: 'none', progress: total > 0 ? progress : 0 }
 }
 
 export function bookGenerationView(
@@ -73,6 +79,11 @@ export function bookGenerationView(
 export function chapterEstimateSeconds(content: string): number {
   const words = htmlToText(content).split(/\s+/).filter(Boolean).length
   return words / 2.6
+}
+
+/** Minutes of speech still to make, from the share of the text already made. */
+export function minutesLeft(estimatedSeconds: number, percent: number): number {
+  return Math.max(0, Math.round((estimatedSeconds * (1 - percent)) / 60))
 }
 
 /**

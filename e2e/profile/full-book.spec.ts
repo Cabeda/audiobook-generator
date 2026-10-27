@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
-import { importBookFile, openSettingsPanel, settingsPanel } from '../helpers/flows'
+import { importBookFile, generateAudiobook } from '../helpers/flows'
 
 const EPUB = join(process.cwd(), 'books', 'arthur-conan-doyle_the-sign-of-the-four_advanced.epub')
 const OUT = join(process.cwd(), 'test-results', 'profile')
@@ -267,9 +267,7 @@ test.describe('Full book profiling', () => {
     expect(detected).toBeGreaterThan(0)
 
     // Generation must actually be running before waiting for it to finish.
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await generateAudiobook(page)
     await page.waitForSelector('.prep', { timeout: 120_000 })
     let finished = false
     while (!finished) {

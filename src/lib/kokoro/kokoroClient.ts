@@ -76,6 +76,8 @@ function isThenable(obj: unknown): obj is PromiseLike<unknown> {
 
 // Singleton instance for model caching
 let ttsInstance: KokoroTTS | null = null
+/** The engine setting `ttsInstance` was made with. */
+let loadedWith = ''
 
 // Mutex to serialize model loading — prevents concurrent fetch monkey-patches
 let modelLoadingPromise: Promise<KokoroTTS> | null = null
@@ -175,10 +177,14 @@ async function getKokoroInstance(
   const isTestEnv =
     (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
     (globalThis as unknown as { __vitest__?: boolean }).__vitest__ === true
-  if (!ttsInstance || isTestEnv) {
+  // The model is only loaded for one engine setting at a time: a cached
+  // instance made for another dtype or device would silently ignore the knob.
+  const wanted = `${modelId}|${dtype}|${device}`
+  if (!ttsInstance || isTestEnv || loadedWith !== wanted) {
     // Serialize concurrent model loading to avoid fetch monkey-patch races
     if (modelLoadingPromise && !isTestEnv) {
       ttsInstance = await modelLoadingPromise
+      loadedWith = wanted
       return ttsInstance
     }
 
@@ -252,6 +258,7 @@ async function getKokoroInstance(
     }
     try {
       ttsInstance = await loadPromise
+      loadedWith = wanted
     } finally {
       modelLoadingPromise = null
     }
@@ -536,6 +543,7 @@ export async function generateVoiceSegments(
     logger.error('[Kokoro]', 'TTS generation failed:', error)
     try {
       ttsInstance = null
+      loadedWith = ''
     } catch {
       // ignore
     }

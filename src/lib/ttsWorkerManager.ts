@@ -86,6 +86,11 @@ function isMemoryError(msg: string): boolean {
   )
 }
 
+/** The GPU could not run the model, so the speech has to be made on the CPU. */
+function isWebGPURunError(msg: string): boolean {
+  return /webgpu/i.test(msg)
+}
+
 export class TTSWorkerManager {
   private worker: Worker | null = null
   private pendingRequests = new Map<string, PendingRequest>()
@@ -93,6 +98,8 @@ export class TTSWorkerManager {
   private ready = false
   private readyPromise: Promise<void>
   private isRestarting = false
+  /** A model was refused by the GPU here: later requests stay on the CPU. */
+  private gpuUnusable = false
 
   constructor() {
     this.readyPromise = this.initWorker()
@@ -336,11 +343,24 @@ export class TTSWorkerManager {
         if (error.message === 'TTS worker is not initialized') {
           return true
         }
+        if (isWebGPURunError(error.message)) {
+          logger.warn(`[TTSWorkerManager] The GPU cannot run this model; retrying on the CPU`)
+          return true
+        }
         return isRetryableError(error)
       },
       onRetry: async (attempt, maxRetries, error) => {
         logger.warn(`[TTSWorkerManager] ${label} retry ${attempt}/${maxRetries}:`, error.message)
-        if (error.message === 'TTS worker is not initialized' || isMemoryError(error.message)) {
+        if (
+          error.message === 'TTS worker is not initialized' ||
+          isMemoryError(error.message) ||
+          isWebGPURunError(error.message)
+        ) {
+          if (isWebGPURunError(error.message)) {
+            // A worker that loaded the model on the GPU keeps that session in
+            // memory; only a fresh worker can load it for the CPU.
+            this.gpuUnusable = true
+          }
           logger.warn(`[TTSWorkerManager] Restarting worker due to ${error.message} in ${label}`)
           await this.restartWorkerIfNeeded()
         }
@@ -351,6 +371,15 @@ export class TTSWorkerManager {
       if (onProgress) onProgress(normalized.getUserMessage())
       throw normalized
     })
+  }
+
+  /**
+   * The engine settings to send: the CPU once the GPU has refused a model.
+   * Read inside the retried closure, so the retry after a GPU failure goes to
+   * the CPU without the caller having to know.
+   */
+  private configFor(config?: TTSEngineConfig): TTSEngineConfig | undefined {
+    return this.gpuUnusable ? { ...config, device: 'wasm' } : config
   }
 
   async generateVoice(options: GenerateOptions): Promise<Blob> {
@@ -368,7 +397,7 @@ export class TTSWorkerManager {
             speed: options.speed,
             pitch: options.pitch,
             language: options.language,
-            config: options.config,
+            config: this.configFor(options.config),
           },
           { onProgress: options.onProgress, onChunkProgress: options.onChunkProgress }
         )
@@ -392,7 +421,7 @@ export class TTSWorkerManager {
             speed: options.speed,
             pitch: options.pitch,
             language: options.language,
-            config: options.config,
+            config: this.configFor(options.config),
           },
           { onProgress: options.onProgress, onChunkProgress: options.onChunkProgress }
         )

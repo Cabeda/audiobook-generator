@@ -17,6 +17,13 @@ export interface SegmentOptions {
   ignoreLinks?: boolean
 }
 
+/** A segment can be read from with the keyboard as well as the pointer. */
+function makeReadable(span: HTMLElement): void {
+  // Focusable and read aloud; no role, since a segment may wrap a whole
+  // paragraph and "button" would misdescribe it to a screen reader.
+  span.tabIndex = 0
+}
+
 export function segmentHtmlContent(
   chapterId: string,
   htmlContent: string,
@@ -184,6 +191,7 @@ export function segmentHtmlContent(
     span.id = segmentId
     span.className = 'segment'
     span.setAttribute('data-segment-index', String(segmentIndex))
+    makeReadable(span)
     span.appendChild(frag)
 
     // Replace the range in the DOM with the span
@@ -232,6 +240,7 @@ export function segmentHtmlContent(
       span.className = 'segment'
       span.id = segmentId(segmentIndex)
       span.setAttribute('data-segment-index', String(segmentIndex))
+      makeReadable(span)
       block.replaceWith(span)
       span.appendChild(block)
 
@@ -256,6 +265,7 @@ export function segmentHtmlContent(
         const span = doc.createElement('span')
         span.className = 'segment'
         span.setAttribute('data-segment-index', String(segmentIndex))
+        makeReadable(span)
         if (cellIndex === 0) span.id = id
         // A <span> cannot wrap a <tr>, so the row is joined by the cells' spans.
         while (cell.firstChild) span.appendChild(cell.firstChild)

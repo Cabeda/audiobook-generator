@@ -6,6 +6,7 @@ import {
   bookProgressOf,
   chapterAudioView,
   chapterEstimateSeconds,
+  minutesLeft,
   nextChapterFor,
   resumePoint,
   sessionChapterId,
@@ -38,6 +39,15 @@ describe('chapterAudioView', () => {
 
   it('shows a finished chapter as ready', () => {
     expect(chapterAudioView(segments(3, [0, 1, 2]), 'done', undefined)).toEqual({
+      state: 'ready',
+      progress: 1,
+    })
+  })
+
+  it('shows a finished chapter as ready before its audio is loaded', () => {
+    // After a reload only the chapter being read has segment progress; the
+    // others are known finished from the library, and must not look untouched.
+    expect(chapterAudioView(undefined, 'done', undefined)).toEqual({
       state: 'ready',
       progress: 1,
     })
@@ -132,5 +142,20 @@ describe('nextChapterFor', () => {
   it('stops when the listener turned continuing off', () => {
     expect(nextChapterFor(chapters, 'a', false)).toBeNull()
     expect(nextChapterFor(chapters, 'missing', true)).toBeNull()
+  })
+})
+
+describe('minutesLeft', () => {
+  it('reports nothing to make once the book is finished', () => {
+    expect(minutesLeft(600, 1)).toBe(0)
+  })
+
+  it('reports the share of the speech still missing, in minutes', () => {
+    expect(minutesLeft(600, 0.5)).toBe(5)
+    expect(minutesLeft(600, 0)).toBe(10)
+  })
+
+  it('never goes negative when the count overshoots', () => {
+    expect(minutesLeft(600, 1.2)).toBe(0)
   })
 })

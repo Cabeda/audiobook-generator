@@ -6,11 +6,10 @@ import {
   clearAppStorage,
   exportAs,
   exportSheet,
+  generateAudiobook,
   importAndOpen,
   openBooksOverlay,
   openExportSheet,
-  openSettingsPanel,
-  settingsPanel,
 } from './helpers/flows'
 
 // Use the short EPUB for deterministic, faster E2E runs
@@ -234,9 +233,7 @@ test.describe('Audiobook Generation E2E', () => {
     await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
     // Generate the whole book from the Aa settings panel
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('button[aria-label="Close"]:visible').first().click()
+    await generateAudiobook(page)
 
     // The generation progress strip tracks the whole book
     await expect(page.locator('.prep')).toContainText(/Preparing audio…/, { timeout: 30000 })
@@ -255,9 +252,7 @@ test.describe('Audiobook Generation E2E', () => {
 
     await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('button[aria-label="Close"]:visible').first().click()
+    await generateAudiobook(page)
 
     await expect
       .poll(async () => page.locator('.segment-generated').count(), { timeout: 180000 })
@@ -272,16 +267,16 @@ test.describe('Audiobook Generation E2E', () => {
 
     await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('button[aria-label="Close"]:visible').first().click()
+    await generateAudiobook(page)
 
     // The progress strip is visible while audio is being prepared
     await expect(page.locator('.prep')).toBeVisible({ timeout: 30000 })
     await expect(page.locator('.prep')).toContainText(/Preparing audio… \d+%/)
 
     // And it goes away once generation is done
-    await expect(page.locator('.prep')).toBeHidden({ timeout: 180000 })
+    await expect(page.locator('.prep', { hasText: 'Preparing audio' })).toBeHidden({
+      timeout: 180000,
+    })
   })
 
   test('should allow format and bitrate selection', async ({ page }) => {

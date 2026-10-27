@@ -188,5 +188,25 @@ export async function exportAs(
 
 /** Waits until no chapter is generating any more (the prep strip is gone). */
 export async function waitForGenerationIdle(page: Page): Promise<void> {
-  await expect(page.locator('.prep')).toBeHidden({ timeout: 3600000 })
+  // The "book ready" and "resume" strips are not a run: only the progress
+  // strip says a generation is going.
+  await expect(page.locator('.prep', { hasText: 'Preparing audio' })).toBeHidden({
+    timeout: 3600000,
+  })
+}
+
+/**
+ * Starts generating the whole book: the Aa panel's action opens the audiobook
+ * panel, where generation is started.
+ */
+export async function generateAudiobook(page: Page): Promise<void> {
+  await openSettingsPanel(page)
+  await settingsPanel(page)
+    .locator('button.action', { hasText: /Audiobook progress|Generating…/ })
+    .click()
+
+  const activity = page.locator('[role="dialog"][aria-label="Generation activity"]')
+  await expect(activity).toBeVisible()
+  await activity.locator('button', { hasText: 'Generate / retry all' }).click()
+  await activity.locator('button[aria-label="Close"]').click()
 }

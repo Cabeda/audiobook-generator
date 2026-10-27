@@ -182,6 +182,27 @@ export const DEFAULT_TRANSIENT_PATTERNS = [
 ]
 
 /**
+ * A sentence a person can act on, for a failed generation shown in the reader.
+ * The raw engine text (ORT, worker stack traces) stays in the logs.
+ */
+export function describeGenerationFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (/webgpu|web gpu/i.test(message)) {
+    return "This device's GPU can't run this voice — it will use the CPU"
+  }
+  if (/failed to fetch|network|offline|enotfound|econnrefused/i.test(message)) {
+    return 'Could not download the voice — check your connection and try again'
+  }
+  if (/out of memory|failed to allocate|can't create a session|aborted\(\)/i.test(message)) {
+    return 'The device ran out of memory — close other tabs and retry'
+  }
+  if (/model|download/i.test(message)) {
+    return 'The voice could not be loaded — try again'
+  }
+  return 'Could not make audio for this part — try again'
+}
+
+/**
  * Helper to determine if an error is retryable
  * @param error Error to check
  * @param additionalPatterns Additional patterns to consider transient (optional)

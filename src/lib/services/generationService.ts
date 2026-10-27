@@ -97,6 +97,7 @@ import { shouldRestartWorkerForMemory } from '../utils/resourceMonitor'
 import { audioService } from '../audioPlaybackService.svelte'
 
 import {
+  clearSegmentIndices,
   initChapterSegments,
   markChapterGenerationComplete,
   segmentProgress,
@@ -105,7 +106,8 @@ import {
 import { createThrottledMapUpdater } from '../../stores/batchedStoreUpdates'
 
 // Extracted modules
-import { planChapter } from './chapterPlan'
+import { isMismatchedSegment, planChapter } from './chapterPlan'
+import { describeGenerationFailure } from '../errors'
 import { engineCapabilities, engineSupportsLanguage, type TTSModelType } from '../tts/ttsModels'
 import type { PiperVoice } from '../piper/piperClient'
 import { segmentId } from '../segments'
@@ -164,6 +166,8 @@ const CHAPTER_STALL_MS = 10 * 60_000
 
 class GenerationService {
   private running = false
+  /** Callbacks waiting for the run in progress to end. */
+  private idleWaiters: Array<() => void> = []
 
   private setRunning(value: boolean) {
     this.running = value
@@ -621,14 +625,20 @@ class GenerationService {
       this.setRunning(false)
       isGenerating.set(false)
 
-      // Clear generation state on successful completion or cancellation
-      // (interrupted state is preserved for crash recovery — only cleared here
-      // because we reached the finally block normally, meaning no crash occurred)
-      clearGenerationState()
+      // Clear generation state on successful completion.
+      // A run the person stopped keeps its state: the reader offers to pick it
+      // up where it left off. Interrupted (crash) state is also preserved.
+      if (!this.canceled) clearGenerationState()
 
       await this.stopSilentAudio()
       document.removeEventListener('visibilitychange', this.handleVisibilityChange)
       await this.releaseWakeLock()
+
+      // The worker is free again, and this run's cleanup is done: anything
+      // that waited for it can start without fighting the teardown above.
+      const waiters = this.idleWaiters
+      this.idleWaiters = []
+      for (const resolve of waiters) resolve()
     }
   }
 
@@ -773,7 +783,8 @@ class GenerationService {
       }
     } catch (err: unknown) {
       if (this.canceled || this.canceledChapters.has(ch.id)) return
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+      // The strip shows an actionable sentence; the engine detail stays in the log.
+      const errorMsg = describeGenerationFailure(err)
       logger.error(`Generation failed for chapter ${ch.title}:`, err)
       chapterStatus.update((m) => new Map(m).set(ch.id, 'error'))
       chapterErrors.update((m) => new Map(m).set(ch.id, errorMsg))
@@ -905,13 +916,24 @@ class GenerationService {
     const batchSize = 1
     const batchHandler = new SegmentBatchHandler(bookId, ch.id, batchSize)
 
-    // When resuming, load already-generated segments from DB and skip them.
-    // When starting fresh, auto-detect compatible segments (voice+model match) and reuse them.
+    // Skip the stored segments this chapter would be made the same way today.
+    // A segment made with another voice or engine is heard as the old
+    // narrator, so it is made again.
     let skipIndices: Set<number> | undefined
     if (bookId) {
       setProgress(0, textSegments.length, 'Checking for existing segments...')
       const { getChapterSegments } = await import('../libraryDB')
-      const existing = await getChapterSegments(bookId, ch.id)
+      const plan = { model: effectiveModel, voice: effectiveVoice }
+      const stored = await getChapterSegments(bookId, ch.id)
+      const existing = stored.filter((s) => !isMismatchedSegment(s, plan))
+      const stale = stored.filter((s) => isMismatchedSegment(s, plan))
+      if (stale.length > 0) {
+        // The player must not hand out the old audio while it is made again.
+        clearSegmentIndices(
+          ch.id,
+          stale.map((s) => s.index)
+        )
+      }
       if (existing.length > 0) {
         skipIndices = new Set(existing.map((s) => s.index))
         for (const seg of existing) {
@@ -1118,6 +1140,18 @@ class GenerationService {
       chapterStatus.set(newStatusMap)
     }
 
+    // The per-chapter "generating" flags too, or the reader keeps showing a
+    // progress strip that will never move again.
+    segmentProgress.update((map) => {
+      const next = new Map(map)
+      for (const [id, progress] of next) {
+        if (progress.isGenerating) {
+          next.set(id, { ...progress, isGenerating: false, processingIndex: -1 })
+        }
+      }
+      return next
+    })
+
     // Clear auto-play state for canceled chapters
     this.autoPlayTriggered.clear()
     this.canceledChapters.clear()
@@ -1160,6 +1194,12 @@ class GenerationService {
   /** Returns true if generation is currently in progress. */
   isRunning() {
     return this.running
+  }
+
+  /** Resolves once no generation run is in progress. */
+  whenIdle(): Promise<void> {
+    if (!this.running) return Promise.resolve()
+    return new Promise((resolve) => this.idleWaiters.push(resolve))
   }
 
   /**

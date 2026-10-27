@@ -2,12 +2,25 @@
   // Activity / queue center — what is generating, done or failed across every
   // book, with retry where it matters.
   import type { LibraryBook } from '../lib/libraryDB'
+  import { getChapterVoiceSummary, type ChapterVoiceCount } from '../lib/libraryDB'
   import type { ChapterAudioView } from '../lib/reader/readerViewState'
-  import { chapterErrors, chapterStatus } from '../stores/bookStore'
+  import { chapterAudioView } from '../lib/reader/readerViewState'
+  import { minutesLeft } from '../lib/reader/readerViewState'
+  import { chapterEstimateSeconds } from '../lib/reader/readerViewState'
+  import { chapterErrors, chapterStatus, isGenerating } from '../stores/bookStore'
   import { segmentProgress } from '../stores/segmentProgressStore'
+  import { staleVoiceCount } from '../lib/services/chapterPlan'
   import { reader } from './readerModel.svelte'
 
-  let { books, onClose }: { books: LibraryBook[]; onClose: () => void } = $props()
+  let {
+    books,
+    onClose,
+    onChapterSettings,
+  }: {
+    books: LibraryBook[]
+    onClose: () => void
+    onChapterSettings?: (book: LibraryBook) => void
+  } = $props()
 
   /** One chapter's audio state, read live as generation progresses. */
   function status(id: string) {
@@ -15,6 +28,50 @@
     // list tracks live progress.
     void [$segmentProgress, $chapterStatus, $chapterErrors]
     return reader.statusOf(id)
+  }
+
+  /** How each chapter's stored audio was made, keyed `${bookId}:${chapterId}`. */
+  let voices = $state(new Map<string, ChapterVoiceCount[]>())
+
+  async function loadVoices() {
+    const entries = await Promise.all(
+      books.map(async (b) => [b.id ?? 0, await getChapterVoiceSummary(b.id ?? 0)] as const)
+    )
+    const next = new Map<string, ChapterVoiceCount[]>()
+    for (const [bookId, summary] of entries) {
+      for (const [chapterId, counts] of summary) next.set(`${bookId}:${chapterId}`, counts)
+    }
+    voices = next
+  }
+
+  $effect(() => {
+    void loadVoices()
+  })
+
+  /** The stored audio of a chapter, and whether any of it is another voice. */
+  function voiceState(b: LibraryBook, c: LibraryBook['chapters'][number]) {
+    const counts = voices.get(`${b.id ?? 0}:${c.id}`) ?? []
+    const plan = reader.planFor(b, c)
+    return { counts, plan, stale: staleVoiceCount(counts, plan) }
+  }
+
+  let staleChapters = $derived(
+    books.flatMap((b) =>
+      b.chapters
+        .map((c) => ({ book: b, chapter: c, state: voiceState(b, c) }))
+        .filter((row) => row.state.stale > 0)
+        .map((row) => ({ ...row, key: `${row.book.id}:${row.chapter.id}` }))
+    )
+  )
+
+  async function matchVoice(ids: string[]) {
+    for (const book of books) {
+      const chapters = book.chapters
+        .filter((c) => ids.includes(`${book.id}:${c.id}`))
+        .map((c) => c.id)
+      if (chapters.length > 0) await reader.matchCurrentVoice(book, chapters)
+    }
+    await loadVoices()
   }
 
   let rows = $derived(books.flatMap((b) => b.chapters.map((c) => ({ b, c, e: status(c.id) }))))
@@ -26,6 +83,16 @@
   })
 
   let overallPct = $derived(rows.length ? (stats.ready / rows.length) * 100 : 0)
+
+  /** Minutes of speech still to make in the book being read. */
+  let left = $derived.by(() => {
+    const book = books.find((b) => b.id === reader.bookId) ?? books[0]
+    if (!book) return 0
+    const seconds = book.chapters.reduce((s, c) => s + chapterEstimateSeconds(c.content), 0)
+    return minutesLeft(seconds, reader.bookGeneration.percent)
+  })
+
+  let running = $derived($isGenerating || stats.generating > 0)
 
   function label(s: ChapterAudioView['state']): string {
     return s === 'none' ? 'not generated' : s
@@ -48,6 +115,18 @@
   <header>
     <h2>Activity</h2>
     <div class="actions">
+      {#if running}
+        <button class="btn ghost" onclick={() => reader.cancelGeneration()}>Stop</button>
+      {/if}
+      {#if staleChapters.length > 0}
+        <button
+          class="btn"
+          disabled={running}
+          onclick={() => void matchVoice(staleChapters.map((row) => row.key))}
+        >
+          Match current voice ({staleChapters.length})
+        </button>
+      {/if}
       <button class="btn" onclick={regenerateAll}>Generate / retry all</button>
       <button class="icon" onclick={onClose} aria-label="Close">✕</button>
     </div>
@@ -58,6 +137,7 @@
     <p>
       {stats.ready} ready · {stats.generating} generating · {stats.failed} failed ·
       {stats.none} not generated
+      {#if running && left > 0}· ~{left} min of speech left{/if}
     </p>
   </div>
 
@@ -67,7 +147,16 @@
       <ul>
         {#each b.chapters as c (c.id)}
           <li>
-            <span class="ch">{c.title}</span>
+            <span class="ch">
+              {c.title}
+              {#if voiceState(b, c).counts.length > 0}
+                <span class="voices">
+                  {voiceState(b, c)
+                    .counts.map((entry) => `${entry.model}/${entry.voice} ×${entry.count}`)
+                    .join(' · ')}
+                </span>
+              {/if}
+            </span>
             {#if status(c.id).state === 'generating'}
               <span class="bar mini">
                 <span class="fill" style="width: {status(c.id).progress * 100}%"></span>
@@ -78,6 +167,18 @@
                 ? ` ${Math.round(status(c.id).progress * 100)}%`
                 : ''}
             </span>
+            {#if voiceState(b, c).stale > 0}
+              <button
+                class="mini-btn"
+                disabled={running}
+                onclick={() => void matchVoice([`${b.id}:${c.id}`])}
+              >
+                Match voice ({voiceState(b, c).stale})
+              </button>
+            {/if}
+            {#if onChapterSettings}
+              <button class="mini-btn" onclick={() => onChapterSettings?.(b)}>Voice…</button>
+            {/if}
             {#if status(c.id).state === 'failed'}
               <button class="mini-btn" onclick={() => reader.retry([c.id])}>Retry</button>
             {:else if status(c.id).state === 'ready'}
@@ -201,6 +302,21 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* what the stored audio was made with, under the chapter title */
+  .voices {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--secondary-text, #78716c);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mini-btn:disabled,
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .pill {

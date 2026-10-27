@@ -17,6 +17,7 @@ import { selectPiperVoiceForLanguage, normalizeLanguageCode } from './utils/voic
 import { getGeneratedSegment } from '../stores/segmentProgressStore'
 import { updateModelStatus, clearModelStatus } from '../stores/modelStatus'
 import { saveSegment, synthesizeSegment } from './services/segmentProduction'
+import { isMismatchedSegment } from './services/chapterPlan'
 
 interface TextSegment {
   index: number
@@ -385,9 +386,17 @@ class AudioPlaybackService {
         : segment
     })
 
-    // Hydrate per-segment audio URLs (only if we have them)
+    // Hydrate per-segment audio URLs. Audio made with another voice or engine
+    // than the chapter is read with now is not hydrated: it is made again when
+    // it is reached. Web Speech never reads stored audio.
     this.audioSegments.clear()
     for (const s of dbSegments) {
+      if (
+        this.selectedModel !== 'web_speech' &&
+        isMismatchedSegment(s, { model: this.selectedModel, voice: this.voice })
+      ) {
+        continue
+      }
       this.audioSegments.set(s.index, URL.createObjectURL(s.audioBlob))
     }
 
@@ -588,7 +597,10 @@ class AudioPlaybackService {
       const chapterId = storeState.chapterId ?? ''
       if (chapterId) {
         const progressSegment = getGeneratedSegment(chapterId, index)
-        if (progressSegment) {
+        if (
+          progressSegment &&
+          !isMismatchedSegment(progressSegment, { model: this.selectedModel, voice: this.voice })
+        ) {
           logger.info(
             `[playFromSegment] Using progressive segment ${index} instead of regenerating`
           )
@@ -679,7 +691,27 @@ class AudioPlaybackService {
   }
 
   setVoice(voice: string) {
-    this.voice = voice
+    this.setPlan({ voice })
+  }
+
+  /**
+   * Follow a changed voice or model.
+   *
+   * The audio cached for the chapter was made with the old one. Dropping it
+   * does not interrupt what is playing (the element holds its own reference),
+   * but every segment played from now on is made again with the new plan.
+   */
+  setPlan(plan: { voice?: string; model?: SelectedModel }) {
+    const changed =
+      (plan.voice != null && plan.voice !== this.voice) ||
+      (plan.model != null && plan.model !== this.selectedModel)
+    if (plan.voice != null) this.voice = plan.voice
+    if (plan.model != null) this.selectedModel = plan.model
+    if (!changed) return
+
+    for (const url of this.audioSegments.values()) URL.revokeObjectURL(url)
+    this.audioSegments.clear()
+    this.pendingUpgradeBlob = null
   }
 
   getVoice(): string {

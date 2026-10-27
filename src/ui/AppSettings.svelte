@@ -2,6 +2,13 @@
   // App settings — global preferences and storage. Book-specific actions
   // (generate/export for one book) stay in the reader's Aa panel.
   import { getStorageUsage } from '../lib/libraryDB'
+  import { deleteBookAudio, getBookAudioUsage, type LibraryBook } from '../lib/libraryDB'
+  import {
+    deleteCachedModel,
+    formatBytes,
+    getStorageInfo,
+    type CachedModel,
+  } from '../lib/storageManager'
   import { MODEL_OPTIONS, voiceOptionsFor, type SelectedModel } from '../lib/tts/ttsModels'
   import { piperVoices } from '../stores/piperVoicesStore'
   import {
@@ -13,16 +20,18 @@
   import { reader } from './readerModel.svelte'
 
   let {
-    bookCount,
+    books,
     onTour,
     onSandbox,
     onClose,
   }: {
-    bookCount: number
+    books: LibraryBook[]
     onTour: () => void
     onSandbox: () => void
     onClose: () => void
   } = $props()
+
+  let bookCount = $derived(books.length)
 
   // per-language default voices — stub rows, per-book overrides win
   const LANGUAGE_DEFAULTS = [
@@ -54,6 +63,49 @@
   function fmtMb(bytes: number) {
     return `${Math.round(bytes / 1024 / 1024)} MB`
   }
+
+  /** Audio kept per book, so the list can say what a removal would free. */
+  let bookAudio = $state<Record<number, number>>({})
+  async function measureBooks() {
+    const measured = await Promise.all(
+      books
+        .filter((b) => b.id != null)
+        .map(async (b) => [b.id!, await getBookAudioUsage(b.id!)] as const)
+    )
+    bookAudio = Object.fromEntries(measured)
+  }
+
+  async function removeAudio(book: LibraryBook) {
+    if (book.id == null) return
+    await deleteBookAudio(book.id)
+    reader.forgetAudio(book)
+    await Promise.all([measureBooks(), refreshStorage()])
+  }
+
+  async function refreshStorage() {
+    const s = await getStorageUsage()
+    storage = s
+  }
+
+  /** Models downloaded for on-device speech (Kokoro weights, Piper voices). */
+  let models = $state<CachedModel[]>([])
+  async function measureModels() {
+    models = (await getStorageInfo()).models
+  }
+
+  async function removeModel(model: CachedModel) {
+    try {
+      await deleteCachedModel(model.cacheName, model.cacheKey, model.storageType)
+      await Promise.all([measureModels(), refreshStorage()])
+    } catch (error) {
+      console.warn('Could not remove the model', error)
+    }
+  }
+
+  $effect(() => {
+    void measureBooks()
+    void measureModels()
+  })
 </script>
 
 <div class="backdrop" onclick={onClose} role="presentation"></div>
@@ -135,6 +187,25 @@
     <p class="note">
       {bookCount} book{bookCount === 1 ? '' : 's'} in library · {usageLine}
     </p>
+    {#each books as b (b.id)}
+      {#if (bookAudio[b.id ?? 0] ?? 0) > 0}
+        <div class="field">
+          <span>{b.title}</span>
+          <span class="note">{fmtMb(bookAudio[b.id ?? 0])}</span>
+          <button class="action" onclick={() => void removeAudio(b)}>Delete audio</button>
+        </div>
+      {/if}
+    {/each}
+    {#each models as model (model.cacheKey)}
+      <div class="field">
+        <span>{model.name}</span>
+        <span class="note">{formatBytes(model.size)}</span>
+        <button class="action" onclick={() => void removeModel(model)}>Remove download</button>
+      </div>
+    {/each}
+    {#if models.length === 0}
+      <p class="note">No speech models downloaded yet.</p>
+    {/if}
     <p class="note">
       Generated audio is stored with its book — removing a book frees the space again.
     </p>

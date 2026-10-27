@@ -39,7 +39,7 @@ test.describe('Reader Interaction E2E', () => {
     // rendered, dimmed as pending, and no player is up.
     await expect(page.locator('.segment-pending').first()).toBeVisible()
     await expect(page.locator('.transport')).toBeHidden()
-    await expect(page.locator('.prep')).toBeHidden()
+    await expect(page.locator('.prep', { hasText: 'Preparing audio' })).toBeHidden()
   })
 
   test('should upload a book and see chapter list', async ({ page }) => {

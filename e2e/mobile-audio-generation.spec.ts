@@ -3,7 +3,13 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
-import { exportAs, importAndOpen, openSettingsPanel, settingsPanel } from './helpers/flows'
+import {
+  exportAs,
+  importAndOpen,
+  openSettingsPanel,
+  settingsPanel,
+  generateAudiobook,
+} from './helpers/flows'
 
 // Use the short EPUB for deterministic, faster E2E runs
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
@@ -208,9 +214,7 @@ test.describe('Mobile Audio Generation E2E', () => {
     await importAndOpen(page, SHORT_EPUB, /Short Test Book/)
 
     // Start generating the book
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).tap()
-    await page.locator('aside.settings button[aria-label="Close"]').tap()
+    await generateAudiobook(page)
 
     // The progress strip is visible without horizontal scrolling
     const prep = page.locator('.prep')

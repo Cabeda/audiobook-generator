@@ -16,6 +16,8 @@ import {
   updateBookLanguage,
   saveSegmentIndividually,
   getChapterSegments,
+  getChapterVoiceSummary,
+  getBookAudioUsage,
   updateSegmentStartTimes,
   type AudioGenerationSettings,
 } from './libraryDB'
@@ -389,6 +391,60 @@ describe('libraryDB', () => {
       const segments = await getChapterSegments(bookId, '1')
       expect(segments).toHaveLength(1)
       expect(segments[0].startTime).toBe(0)
+    })
+  })
+
+  describe('getChapterVoiceSummary', () => {
+    it('counts the segments of each chapter by the voice that made them', async () => {
+      const bookId = await addBook(mockBook)
+      const segment = (chapterId: string, index: number, model: string, voice: string) => ({
+        id: `seg-${chapterId}-${index}`,
+        chapterId,
+        index,
+        text: 'Hello',
+        audioBlob: new Blob(['audio'], { type: 'audio/wav' }),
+        duration: 1,
+        startTime: index,
+        model,
+        voice,
+      })
+
+      await saveSegmentIndividually(bookId, '1', segment('1', 0, 'kitten', 'Bella'))
+      await saveSegmentIndividually(bookId, '1', segment('1', 1, 'kitten', 'Bella'))
+      await saveSegmentIndividually(bookId, '1', segment('1', 2, 'kokoro', 'af_heart'))
+      await saveSegmentIndividually(bookId, '2', segment('2', 0, 'piper', 'en_US-amy-medium'))
+
+      const summary = await getChapterVoiceSummary(bookId)
+
+      expect(summary.get('1')).toEqual([
+        { model: 'kitten', voice: 'Bella', count: 2 },
+        { model: 'kokoro', voice: 'af_heart', count: 1 },
+      ])
+      expect(summary.get('2')).toEqual([{ model: 'piper', voice: 'en_US-amy-medium', count: 1 }])
+    })
+  })
+
+  describe('getBookAudioUsage', () => {
+    it('adds up the audio of every segment of a book, and nothing else', async () => {
+      const bookId = await addBook(mockBook)
+      const otherId = await addBook({ ...mockBook, title: 'Other' })
+      // jsdom does not clone Blob into Blob, so a stand-in with only the size
+      // keeps the arithmetic (and the per-book filtering) observable here.
+      const segment = (chapterId: string, index: number, bytes: number) => ({
+        id: `seg-${chapterId}-${index}`,
+        chapterId,
+        index,
+        text: 'Hello',
+        audioBlob: { size: bytes } as unknown as Blob,
+        duration: 1,
+        startTime: index,
+      })
+
+      await saveSegmentIndividually(bookId, '1', segment('1', 0, 100))
+      await saveSegmentIndividually(bookId, '1', segment('1', 1, 50))
+      await saveSegmentIndividually(otherId, '1', segment('1', 0, 999))
+
+      expect(await getBookAudioUsage(bookId)).toBe(150)
     })
   })
 })

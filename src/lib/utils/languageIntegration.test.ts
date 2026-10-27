@@ -108,7 +108,9 @@ describe('Language Detection Integration', () => {
         {
           id: 'ch1',
           title: 'Chapter 1',
-          content: 'Content',
+          content: 'Este es un capítulo en español con suficiente texto para detectarlo. '.repeat(
+            3
+          ),
           detectedLanguage: 'es',
           languageConfidence: 0.9,
         },
@@ -169,21 +171,23 @@ describe('Language Detection Integration', () => {
         {
           id: 'ch1',
           title: 'English Chapter',
-          content: 'Hello',
+          content: 'This is an English chapter with enough text for the detector. '.repeat(3),
           detectedLanguage: 'en',
           languageConfidence: 0.8,
         },
         {
           id: 'ch2',
           title: 'Spanish Chapter',
-          content: 'Hola',
+          content: 'Este es un capítulo en español con suficiente texto para detectarlo. '.repeat(
+            3
+          ),
           detectedLanguage: 'es',
           languageConfidence: 0.85,
         },
         {
           id: 'ch3',
           title: 'Manual French',
-          content: 'Bonjour',
+          content: 'Ceci est un chapitre en français avec assez de texte. '.repeat(3),
           language: 'fr', // Manual override
           detectedLanguage: 'en',
           languageConfidence: 0.6,

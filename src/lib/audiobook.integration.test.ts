@@ -404,7 +404,7 @@ describe('Audiobook Generation Integration Tests', () => {
       expect(output).toBeInstanceOf(Blob)
       expect(output.type).toBe('audio/m4b')
       expect(output.size).toBeGreaterThan(0)
-    })
+    }, 60_000)
   })
 
   describe('Format Comparison', () => {

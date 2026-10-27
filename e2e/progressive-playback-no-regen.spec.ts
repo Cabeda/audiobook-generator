@@ -3,7 +3,7 @@ import { join } from 'path'
 import process from 'node:process'
 
 import { installFakeTtsWorker, installReaderProbe, readProbe } from './helpers/readerProbe'
-import { importAndOpen, openSettingsPanel, settingsPanel } from './helpers/flows'
+import { importAndOpen, generateAudiobook } from './helpers/flows'
 
 const EXAMPLE_ARTICLE = join(process.cwd(), 'example', 'esim_article.epub')
 
@@ -47,9 +47,7 @@ test.describe('Progressive Playback - No Regeneration', () => {
     await importAndOpen(page, EXAMPLE_ARTICLE, /eSIM/)
 
     // Start generation for the book in the background
-    await openSettingsPanel(page)
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await generateAudiobook(page)
   })
 
   test('should not regenerate segment when clicked during generation', async ({ page }) => {

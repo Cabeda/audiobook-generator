@@ -3,7 +3,13 @@ import { readFile } from 'fs/promises'
 import { join } from 'path'
 import process from 'node:process'
 
-import { importBookFile, importPanel, openSettingsPanel, settingsPanel } from './helpers/flows'
+import {
+  importBookFile,
+  importPanel,
+  openSettingsPanel,
+  settingsPanel,
+  generateAudiobook,
+} from './helpers/flows'
 
 const SHORT_EPUB = join(process.cwd(), 'books', 'test-short.epub')
 
@@ -38,8 +44,7 @@ test.describe('Kokoro TTS Caching', () => {
 
     // Generate (this triggers model download)
     console.log('Triggering first generation...')
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await generateAudiobook(page)
 
     // Wait for "Fetching and caching" log
     // The model loading logs might appear before generation starts fully
@@ -78,8 +83,7 @@ test.describe('Kokoro TTS Caching', () => {
     await settingsPanel(page).locator('label.field:has-text("Model") select').selectOption('kokoro')
 
     console.log('Triggering second generation...')
-    await settingsPanel(page).locator('button.action', { hasText: 'Generate audiobook' }).click()
-    await page.locator('aside.settings button[aria-label="Close"]').click()
+    await generateAudiobook(page)
 
     // Verify generation started
     await expect(page.locator('.prep')).toBeVisible({ timeout: 10000 })

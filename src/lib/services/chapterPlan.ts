@@ -34,6 +34,39 @@ export interface ChapterPlanInput {
   isMobile?: boolean
 }
 
+/** The engine and voice a segment would be made with now. */
+export type SegmentPlan = { model: string; voice: string }
+
+/**
+ * A stored segment made some other way than the chapter is read now.
+ *
+ * A segment without a stored voice or model was made before the record kept
+ * them; it is not held against it.
+ */
+export function isMismatchedSegment(
+  segment: { voice?: string | null; model?: string | null },
+  plan: SegmentPlan
+): boolean {
+  return (
+    (segment.voice != null && segment.voice !== plan.voice) ||
+    (segment.model != null && segment.model !== plan.model)
+  )
+}
+
+/** One voice's share of a chapter's stored audio. */
+export interface VoiceCount {
+  model: string
+  voice: string
+  count: number
+}
+
+/** How many stored segments of a chapter were made another way than the plan. */
+export function staleVoiceCount(counts: VoiceCount[], plan: SegmentPlan): number {
+  return counts
+    .filter((entry) => isMismatchedSegment(entry, plan))
+    .reduce((total, entry) => total + entry.count, 0)
+}
+
 export interface ChapterPlan {
   language: string
   model: TTSModelType
@@ -71,9 +104,7 @@ export function planChapter(input: ChapterPlanInput): ChapterPlan {
     quantization: input.isMobile ? 'q4' : (input.selectedQuantization ?? 'q8'),
     device: input.selectedDevice ?? 'auto',
     isFallbackModel,
-    isMismatched: (segment) =>
-      (segment.voice != null && segment.voice !== voice) ||
-      (segment.model != null && segment.model !== model),
+    isMismatched: (segment) => isMismatchedSegment(segment, { model, voice }),
   }
 }
 
