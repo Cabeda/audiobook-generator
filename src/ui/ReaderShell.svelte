@@ -1067,7 +1067,7 @@
       <div class="toc-backdrop" onclick={() => (tocOpen = false)} role="presentation"></div>
       <nav class="toc">
         <div class="toc-books">
-          {#each books as b, i (b.title)}
+          {#each books as b, i (b.id ?? i)}
             <button
               class="toc-book"
               class:active={i === ui.bookIndex}
